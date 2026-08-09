@@ -70,6 +70,27 @@ def test_theme_choices_and_colors() -> None:
     assert len(choices) >= 3
     c = theme_colors("ink")
     assert c["accent"].startswith("#")
+    night = theme_colors("night")
+    assert night["bg"].startswith("#")
+    assert "chip_bg" in night
+    assert "map_canvas" in night
+    assert any(tid == "night" for tid, _ in choices)
+
+
+def test_found_photos_spacing() -> None:
+    set_language("de")
+    assert t("found_photos", n=1245) == "1245 Bilder gefunden"
+    set_language("en")
+    assert "1245" in t("found_photos", n=1245)
+    assert " " in t("found_photos", n=1245)
+
+
+def test_ui_widgets_importable() -> None:
+    from photobook_curator.ui_widgets import AnAusToggle, PaddedButton, StepChip
+
+    assert callable(AnAusToggle)
+    assert callable(PaddedButton)
+    assert callable(StepChip)
 
 
 def test_alternatives_helper_exists() -> None:

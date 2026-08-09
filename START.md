@@ -93,8 +93,8 @@ Fotobuch starten.bat
    - **Diashow:** großes Bild, Nachbar-Vorschau, Filter (Alle/Dabei/Entfernt),
      Kapitel-Sprung, beste Alternative daneben (Taste **A**), optional
      Auto-weiter nach Entfernen; Esc zurück zum Raster.
-   - **Darstellung & Sprache** (oben rechts): Deutsch/English, Design
-     (Wald / Schiefer / Tinte), Diashow-Optionen.
+   - **Darstellung** (oben rechts): Deutsch/English, Design
+     (Nacht / Wald / Schiefer / Tinte), Diashow-Optionen.
    - Unten **Alternativen** und der **Dokumente-Pool** zum Hinzufügen.
    - **Speichern & Ordner neu schreiben**.
 

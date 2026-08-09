@@ -11,11 +11,44 @@ from typing import Optional
 SETTINGS_DIR_NAME = ".photobook_curator"
 SETTINGS_FILE = "settings.json"
 
-# Design-Varianten (bewusst keine lila/terracotta-Klischees)
+# Design-Varianten – „night“ ist die aktuelle Haupt-UI (Screenshots + Fixes)
 THEMES: dict[str, dict[str, str]] = {
+    "night": {
+        "name_de": "Nacht (Standard)",
+        "name_en": "Night (default)",
+        "bg": "#12141C",
+        "surface": "#1C2030",
+        "ink": "#E8EAF2",
+        "muted": "#9AA3B5",
+        "line": "#2C3348",
+        "accent": "#7B6CFF",
+        "accent_hover": "#6958F0",
+        "accent_soft": "#2A2750",
+        "reject": "#C45C5C",
+        "keep_border": "#7B6CFF",
+        "reject_border": "#3A4158",
+        "danger": "#C45C5C",
+        "log_bg": "#0E1018",
+        "log_fg": "#C5CAD8",
+        "phase_pending_bg": "#2A3145",
+        "phase_pending_fg": "#9AA3B5",
+        "phase_run_bg": "#C47A3A",
+        "phase_run_fg": "#FFF8F0",
+        "phase_done_bg": "#7B6CFF",
+        "phase_done_fg": "#FFFFFF",
+        "phase_skip_bg": "#242A3A",
+        "phase_skip_fg": "#7A8296",
+        "hero_fg": "#FFFFFF",
+        "hero_muted": "#C8C4FF",
+        "slide_stage": "#0E1018",
+        "slide_fg": "#E8EAF2",
+        "thumb_pad": "#242A3A",
+        "chip_bg": "#262C40",
+        "map_canvas": "#161A28",
+    },
     "forest": {
-        "name_de": "Wald (Standard)",
-        "name_en": "Forest (default)",
+        "name_de": "Wald",
+        "name_en": "Forest",
         "bg": "#F3EFE7",
         "surface": "#FFFCF7",
         "ink": "#1F1A17",
@@ -43,6 +76,8 @@ THEMES: dict[str, dict[str, str]] = {
         "slide_stage": "#1F1A17",
         "slide_fg": "#E8E2D8",
         "thumb_pad": "#F5F1E9",
+        "chip_bg": "#E8E2D8",
+        "map_canvas": "#E8E2D6",
     },
     "slate": {
         "name_de": "Schiefer",
@@ -74,6 +109,8 @@ THEMES: dict[str, dict[str, str]] = {
         "slide_stage": "#1A2330",
         "slide_fg": "#E2E8EE",
         "thumb_pad": "#E8EEF2",
+        "chip_bg": "#E0E6EC",
+        "map_canvas": "#E4E9EF",
     },
     "ink": {
         "name_de": "Tinte",
@@ -105,10 +142,12 @@ THEMES: dict[str, dict[str, str]] = {
         "slide_stage": "#141816",
         "slide_fg": "#E2E6E3",
         "thumb_pad": "#E4E1DA",
+        "chip_bg": "#DCD8D0",
+        "map_canvas": "#E4E1DA",
     },
 }
 
-DEFAULT_THEME = "forest"
+DEFAULT_THEME = "night"
 DEFAULT_LANGUAGE = "de"
 
 

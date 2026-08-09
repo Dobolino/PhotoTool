@@ -19,35 +19,37 @@ if TYPE_CHECKING:
 
 from .phases import PHASE_STEPS, initial_phase_status, match_step_id
 
-# Fallback-Palette (falls Settings/Theme nicht laden)
+# Fallback-Palette (Nacht-UI, falls Settings/Theme nicht laden)
 _FALLBACK_COLORS = {
-    "bg": "#F3EFE7",
-    "surface": "#FFFCF7",
-    "ink": "#1F1A17",
-    "muted": "#6E645C",
-    "line": "#D9D0C4",
-    "accent": "#2F5D50",
-    "accent_hover": "#244A40",
-    "accent_soft": "#E2EDE8",
-    "danger": "#8B3A2C",
-    "reject": "#8B3A2C",
-    "keep_border": "#2F5D50",
-    "reject_border": "#C4B8AA",
-    "log_bg": "#1C2421",
-    "log_fg": "#D7E0DB",
-    "phase_pending_bg": "#E8E2D8",
-    "phase_pending_fg": "#6E645C",
-    "phase_run_bg": "#C45C26",
-    "phase_run_fg": "#FFF8F2",
-    "phase_done_bg": "#2F7D4F",
+    "bg": "#12141C",
+    "surface": "#1C2030",
+    "ink": "#E8EAF2",
+    "muted": "#9AA3B5",
+    "line": "#2C3348",
+    "accent": "#7B6CFF",
+    "accent_hover": "#6958F0",
+    "accent_soft": "#2A2750",
+    "danger": "#C45C5C",
+    "reject": "#C45C5C",
+    "keep_border": "#7B6CFF",
+    "reject_border": "#3A4158",
+    "log_bg": "#0E1018",
+    "log_fg": "#C5CAD8",
+    "phase_pending_bg": "#2A3145",
+    "phase_pending_fg": "#9AA3B5",
+    "phase_run_bg": "#C47A3A",
+    "phase_run_fg": "#FFF8F0",
+    "phase_done_bg": "#7B6CFF",
     "phase_done_fg": "#FFFFFF",
-    "phase_skip_bg": "#F0EBE3",
-    "phase_skip_fg": "#A89F95",
-    "hero_fg": "#F7F3EC",
-    "hero_muted": "#D5E4DE",
-    "slide_stage": "#1F1A17",
-    "slide_fg": "#E8E2D8",
-    "thumb_pad": "#F5F1E9",
+    "phase_skip_bg": "#242A3A",
+    "phase_skip_fg": "#7A8296",
+    "hero_fg": "#FFFFFF",
+    "hero_muted": "#C8C4FF",
+    "slide_stage": "#0E1018",
+    "slide_fg": "#E8EAF2",
+    "thumb_pad": "#242A3A",
+    "chip_bg": "#262C40",
+    "map_canvas": "#161A28",
 }
 
 try:
@@ -137,9 +139,9 @@ HELP_TEXT = (
     "  Kapitel-Sprung, Alternative daneben (A = übernehmen),\n"
     "  optional Auto-weiter nach Entfernen. Esc = Raster.\n"
     "  Unten Alternativen / Dokumente zum Hinzufügen.\n\n"
-    "Darstellung & Sprache\n"
+    "Darstellung\n"
     "  Button oben rechts: Deutsch/English, Design-Varianten\n"
-    "  (Wald / Schiefer / Tinte), Diashow-Optionen.\n\n"
+    "  (Nacht / Wald / Schiefer / Tinte), Diashow-Optionen.\n\n"
     "Pause / Absturz / Update\n"
     "  In der Prüfung wird selection_draft.json automatisch gesichert.\n"
     "  photos_analysis.csv enthält nach der KI den Zwischenstand –\n"
@@ -256,17 +258,17 @@ class PhotobookApp(tk.Tk):
         super().__init__()
         # Sofort sichtbar: verhindert „totales Leeren Fenster“ bei späteren Fehlern
         self.title("Fotobuch-Auswahl")
-        self.minsize(720, 620)
-        self.geometry("780x680")
-        self.configure(bg="#F3EFE7")
+        self.minsize(760, 700)
+        self.geometry("860x760")
+        self.configure(bg=_FALLBACK_COLORS["bg"])
         self._boot_lbl = tk.Label(
             self,
             text="Fotobuch wird geladen…",
-            bg="#F3EFE7",
-            fg="#1F1A17",
-            font=("Segoe UI", 12),
-            padx=24,
-            pady=24,
+            bg=_FALLBACK_COLORS["bg"],
+            fg=_FALLBACK_COLORS["ink"],
+            font=("Segoe UI", 13),
+            padx=28,
+            pady=28,
         )
         self._boot_lbl.pack(expand=True)
         try:
@@ -368,26 +370,27 @@ class PhotobookApp(tk.Tk):
                 child.destroy()
         except Exception:
             pass
-        self.configure(bg="#F3EFE7")
-        box = tk.Frame(self, bg="#F3EFE7", padx=20, pady=20)
+        c = _FALLBACK_COLORS
+        self.configure(bg=c["bg"])
+        box = tk.Frame(self, bg=c["bg"], padx=24, pady=24)
         box.pack(fill=tk.BOTH, expand=True)
         tk.Label(
             box,
             text="Startfehler – Oberfläche konnte nicht geladen werden",
-            bg="#F3EFE7",
-            fg="#8B3A2C",
+            bg=c["bg"],
+            fg=c["danger"],
             font=("Segoe UI Semibold", 12),
             anchor=tk.W,
         ).pack(fill=tk.X)
         tk.Label(
             box,
             text="Details stehen in fehler_beim_start.txt und start_log.txt",
-            bg="#F3EFE7",
-            fg="#6E645C",
+            bg=c["bg"],
+            fg=c["muted"],
             font=("Segoe UI", 10),
             anchor=tk.W,
         ).pack(fill=tk.X, pady=(4, 10))
-        txt = tk.Text(box, height=18, wrap=tk.WORD, bg="#FFFCF7", fg="#1F1A17")
+        txt = tk.Text(box, height=18, wrap=tk.WORD, bg=c["surface"], fg=c["ink"], padx=10, pady=10)
         txt.pack(fill=tk.BOTH, expand=True)
         txt.insert("1.0", err)
         txt.configure(state=tk.DISABLED)
@@ -425,189 +428,296 @@ class PhotobookApp(tk.Tk):
             pass
 
         font_ui = ("Segoe UI", 10)
-        font_title = ("Georgia", 18, "bold")
-        font_sub = ("Segoe UI", 10)
-        font_label = ("Segoe UI", 9)
+        c = COLORS
+        entry_bg = c.get("chip_bg", c["surface"])
 
-        style.configure("App.TFrame", background=COLORS["bg"])
-        style.configure("Card.TFrame", background=COLORS["surface"])
+        style.configure("App.TFrame", background=c["bg"])
+        style.configure("Card.TFrame", background=c["surface"])
         style.configure(
             "Card.TLabelframe",
-            background=COLORS["surface"],
-            foreground=COLORS["ink"],
-            bordercolor=COLORS["line"],
+            background=c["surface"],
+            foreground=c["ink"],
+            bordercolor=c["line"],
             relief="solid",
         )
         style.configure(
             "Card.TLabelframe.Label",
-            background=COLORS["surface"],
-            foreground=COLORS["ink"],
-            font=("Segoe UI Semibold", 10),
+            background=c["surface"],
+            foreground=c["muted"],
+            font=("Segoe UI Semibold", 9),
         )
         style.configure(
             "Title.TLabel",
-            background=COLORS["bg"],
-            foreground=COLORS["ink"],
-            font=font_title,
+            background=c["bg"],
+            foreground=c["ink"],
+            font=("Segoe UI Semibold", 20),
         )
         style.configure(
             "Sub.TLabel",
-            background=COLORS["bg"],
-            foreground=COLORS["muted"],
-            font=font_sub,
-        )
-        style.configure(
-            "Field.TLabel",
-            background=COLORS["surface"],
-            foreground=COLORS["muted"],
-            font=font_label,
-        )
-        style.configure(
-            "Body.TLabel",
-            background=COLORS["surface"],
-            foreground=COLORS["ink"],
+            background=c["bg"],
+            foreground=c["muted"],
             font=font_ui,
         )
         style.configure(
-            "Hero.TFrame",
-            background=COLORS["accent"],
+            "Field.TLabel",
+            background=c["surface"],
+            foreground=c["muted"],
+            font=("Segoe UI", 9),
         )
+        style.configure(
+            "Body.TLabel",
+            background=c["surface"],
+            foreground=c["ink"],
+            font=font_ui,
+        )
+        style.configure("Hero.TFrame", background=c["bg"])
         style.configure(
             "HeroTitle.TLabel",
-            background=COLORS["accent"],
-            foreground="#F7F3EC",
-            font=("Georgia", 16, "bold"),
-        )
-        style.configure(
-            "HeroSub.TLabel",
-            background=COLORS["accent"],
-            foreground="#D5E4DE",
-            font=("Segoe UI", 10),
+            background=c["bg"],
+            foreground=c["ink"],
+            font=("Segoe UI Semibold", 22),
         )
         style.configure(
             "Browse.TButton",
             font=font_ui,
-            padding=(12, 6),
+            padding=(14, 9),
+            background=c.get("chip_bg", c["surface"]),
+            foreground=c["ink"],
+        )
+        style.map(
+            "Browse.TButton",
+            background=[("active", c["line"]), ("disabled", c["line"])],
+            foreground=[("disabled", c["muted"])],
         )
         style.configure(
             "Start.TButton",
             font=("Segoe UI Semibold", 11),
-            padding=(18, 10),
-            background=COLORS["accent"],
-            foreground="#FFFFFF",
+            padding=(20, 12),
+            background=c["accent"],
+            foreground=c.get("hero_fg", "#FFFFFF"),
         )
         style.map(
             "Start.TButton",
-            background=[("active", COLORS["accent_hover"]), ("disabled", "#9AA9A3")],
-            foreground=[("disabled", "#EEF2F0")],
+            background=[("active", c["accent_hover"]), ("disabled", c["line"])],
+            foreground=[("disabled", c["muted"])],
         )
         style.configure(
             "TCheckbutton",
-            background=COLORS["surface"],
-            foreground=COLORS["ink"],
+            background=c["surface"],
+            foreground=c["ink"],
             font=font_ui,
-            focuscolor=COLORS["surface"],
+            focuscolor=c["surface"],
         )
+        style.map("TCheckbutton", background=[("active", c["surface"])])
         style.configure(
             "TEntry",
-            fieldbackground="#FFFFFF",
-            foreground=COLORS["ink"],
-            padding=6,
+            fieldbackground=entry_bg,
+            foreground=c["ink"],
+            insertcolor=c["ink"],
+            padding=10,
+            bordercolor=c["line"],
         )
         style.configure(
             "TSpinbox",
-            fieldbackground="#FFFFFF",
-            foreground=COLORS["ink"],
-            padding=4,
+            fieldbackground=entry_bg,
+            foreground=c["ink"],
+            insertcolor=c["ink"],
+            padding=8,
+            bordercolor=c["line"],
         )
         style.configure(
             "Next.TLabel",
-            background=COLORS["bg"],
-            foreground=COLORS["accent"],
+            background=c["bg"],
+            foreground=c["accent"],
             font=("Segoe UI Semibold", 10),
         )
         style.configure(
             "Help.TButton",
-            font=("Segoe UI", 9),
-            padding=(10, 4),
+            font=("Segoe UI Semibold", 10),
+            padding=(14, 9),
+            background=c.get("chip_bg", c["surface"]),
+            foreground=c["ink"],
+        )
+        style.map(
+            "Help.TButton",
+            background=[("active", c["line"])],
+        )
+        style.configure(
+            "Horizontal.TProgressbar",
+            troughcolor=c.get("chip_bg", c["surface"]),
+            background=c["accent"],
+            bordercolor=c["line"],
+            lightcolor=c["accent"],
+            darkcolor=c["accent"],
         )
 
     def _build(self) -> None:
+        from .ui_widgets import (
+            AnAusToggle,
+            PaddedButton,
+            StepChip,
+            card,
+            pill_badge,
+            section_header,
+            soft_banner,
+            step_connector,
+        )
+
+        c = COLORS
         root = ttk.Frame(self, style="App.TFrame")
         root.pack(fill=tk.BOTH, expand=True)
 
-        hero = ttk.Frame(root, style="Hero.TFrame", padding=(18, 12))
-        hero.pack(fill=tk.X)
-        hero_top = ttk.Frame(hero, style="Hero.TFrame")
-        hero_top.pack(fill=tk.X)
-        self._brand_lbl = ttk.Label(hero_top, text=t("brand"), style="HeroTitle.TLabel")
+        # Akzentlinie oben
+        tk.Frame(root, bg=c["accent"], height=3).pack(fill=tk.X)
+
+        header = tk.Frame(root, bg=c["bg"], padx=22, pady=16)
+        header.pack(fill=tk.X)
+        self._brand_lbl = tk.Label(
+            header,
+            text=t("brand"),
+            bg=c["bg"],
+            fg=c["ink"],
+            font=("Segoe UI Semibold", 22),
+        )
         self._brand_lbl.pack(side=tk.LEFT)
-        ttk.Button(
-            hero_top, text=t("settings"), style="Help.TButton", command=self._open_settings
-        ).pack(side=tk.RIGHT)
-        ttk.Button(
-            hero_top, text=t("help"), style="Help.TButton", command=self._show_help
-        ).pack(side=tk.RIGHT, padx=(0, 8))
+        # PaddedButton statt ttk – vermeidet gequetschten Text in Kacheln
+        self._settings_btn = PaddedButton(
+            header, t("settings"), c, command=self._open_settings, padx=14, pady=9
+        )
+        self._settings_btn.pack(side=tk.RIGHT)
+        self._help_btn = PaddedButton(
+            header, t("help"), c, command=self._show_help, padx=14, pady=9
+        )
+        self._help_btn.pack(side=tk.RIGHT, padx=(0, 10))
 
-        body = ttk.Frame(root, style="App.TFrame", padding=14)
-        body.pack(fill=tk.BOTH, expand=True)
+        # Workflow-Schritte (großzügig, kein Text-Clipping)
+        steps = tk.Frame(root, bg=c["bg"], padx=22)
+        steps.pack(fill=tk.X, pady=(0, 10))
+        self._step_chips = [
+            StepChip(steps, t("step_folders"), c, active=True),
+            StepChip(steps, t("step_options"), c, active=False),
+            StepChip(steps, t("step_run"), c, active=False),
+        ]
+        for i, chip in enumerate(self._step_chips):
+            if i:
+                step_connector(steps, c).pack(side=tk.LEFT, padx=4)
+            chip.pack(side=tk.LEFT, padx=(0, 4))
 
-        card = ttk.Frame(body, style="Card.TFrame", padding=12)
-        card.pack(fill=tk.X)
+        # Scrollbarer Inhalt
+        body_host = ttk.Frame(root, style="App.TFrame")
+        body_host.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Canvas(body_host, bg=c["bg"], highlightthickness=0)
+        scroll = ttk.Scrollbar(body_host, orient=tk.VERTICAL, command=canvas.yview)
+        body = ttk.Frame(canvas, style="App.TFrame", padding=(22, 4, 22, 12))
+        body.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        self._body_win = canvas.create_window((0, 0), window=body, anchor=tk.NW)
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.bind(
+            "<Configure>",
+            lambda e: canvas.itemconfigure(self._body_win, width=e.width),
+        )
+
+        self._tip_banner = soft_banner(body, t("tip_resume"), c)
+        self._tip_banner.pack(fill=tk.X, pady=(0, 14))
+
+        # —— ORDNER ——
+        section_header(body, t("folders_box"), c)
+        folder_card = card(body, c)
+        folder_card.pack(fill=tk.X)
+        folder_inner = folder_card._inner  # type: ignore[attr-defined]
 
         self._input_title = self._folder_row(
-            card, t("photos_folder"), "", self.input_var, self._pick_input
+            folder_inner, t("photos_folder"), "", self.input_var, self._pick_input
         )
-        ttk.Label(card, textvariable=self.found_var, style="Field.TLabel").pack(anchor=tk.W, pady=(2, 0))
-        ttk.Separator(card, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+        self._found_badge = pill_badge(folder_inner, "", c)
+        self._found_badge.pack(anchor=tk.W, pady=(8, 0))
+        self._found_badge.pack_forget()
+        self.found_var.trace_add("write", lambda *_: self._sync_found_badge())
+
+        tk.Frame(folder_inner, bg=c["line"], height=1).pack(fill=tk.X, pady=14)
         self._output_title = self._folder_row(
-            card, t("output_folder"), "", self.output_var, self._pick_output
+            folder_inner, t("output_folder"), "", self.output_var, self._pick_output
         )
 
-        settings = ttk.LabelFrame(
-            body, text=t("options_box"), style="Card.TLabelframe", padding=12
-        )
-        settings.pack(fill=tk.X, pady=(12, 0))
+        # —— EINSTELLUNGEN ——
+        section_header(body, t("options_box"), c)
+        settings_card = card(body, c)
+        settings_card.pack(fill=tk.X, pady=(0, 4))
+        settings = settings_card._inner  # type: ignore[attr-defined]
         self._options_box = settings
 
-        count_row = ttk.Frame(settings, style="Card.TFrame")
-        count_row.pack(fill=tk.X, pady=(0, 4))
-        self._target_lbl = ttk.Label(count_row, text=t("target_count"), style="Body.TLabel")
-        self._target_lbl.pack(side=tk.LEFT)
+        self._target_lbl = tk.Label(
+            settings,
+            text=t("target_count"),
+            bg=c["surface"],
+            fg=c["ink"],
+            font=("Segoe UI", 10),
+            anchor=tk.W,
+        )
+        self._target_lbl.pack(anchor=tk.W)
         spin = ttk.Spinbox(
-            count_row,
+            settings,
             from_=10,
             to=500,
             textvariable=self.target_var,
             width=8,
             command=self._refresh_cost_estimate,
         )
-        spin.pack(side=tk.RIGHT)
+        spin.pack(anchor=tk.W, pady=(6, 4))
         try:
             self.target_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
             self.ai_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
+            self.input_var.trace_add("write", lambda *_: self._refresh_workflow_steps())
+            self.output_var.trace_add("write", lambda *_: self._refresh_workflow_steps())
         except Exception:
             pass
-        ttk.Label(settings, textvariable=self.cost_var, style="Field.TLabel").pack(
-            anchor=tk.W, pady=(0, 6)
-        )
+        tk.Label(
+            settings,
+            textvariable=self.cost_var,
+            bg=c["surface"],
+            fg=c["muted"],
+            font=("Segoe UI", 9),
+            anchor=tk.W,
+        ).pack(anchor=tk.W, pady=(0, 10))
 
-        # Kern-Optionen immer sichtbar – Rest unter „Weitere Optionen“
-        self._core_checks: list[tuple[ttk.Checkbutton, str]] = []
-        for key, var in (
-            ("opt_geocode", self.geocode_var),
-            ("opt_faces", self.faces_var),
-            ("opt_bursts", self.bursts_var),
-            ("opt_aside", self.aside_var),
+        self._core_checks: list[tuple[Any, str]] = []
+        self._toggle_rows: list[tuple[tk.Label, AnAusToggle, str]] = []
+        for key, long_key, var in (
+            ("opt_geocode", "opt_geocode_long", self.geocode_var),
+            ("opt_faces", "opt_faces_long", self.faces_var),
+            ("opt_bursts", "opt_bursts", self.bursts_var),
+            ("opt_aside", "opt_aside", self.aside_var),
         ):
-            chk = ttk.Checkbutton(
-                settings, text=t(key), variable=var, command=self._sync_dependent_controls
+            row = tk.Frame(settings, bg=c["surface"])
+            row.pack(fill=tk.X, pady=6)
+            lbl = tk.Label(
+                row,
+                text=t(long_key),
+                bg=c["surface"],
+                fg=c["ink"],
+                font=("Segoe UI", 10),
+                anchor=tk.W,
             )
-            chk.pack(anchor=tk.W, pady=1)
-            self._core_checks.append((chk, key))
+            lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            tog = AnAusToggle(
+                row,
+                var,
+                c,
+                command=self._sync_dependent_controls,
+                on_text=t("toggle_on"),
+                off_text=t("toggle_off"),
+            )
+            tog.pack(side=tk.RIGHT)
+            self._toggle_rows.append((lbl, tog, long_key))
+            self._core_checks.append((tog, key))
 
         opt_row = ttk.Frame(settings, style="Card.TFrame")
-        opt_row.pack(fill=tk.X, pady=(8, 0))
+        opt_row.pack(fill=tk.X, pady=(12, 0))
         self.advanced_toggle = ttk.Button(
             opt_row,
             text=t("more_options"),
@@ -639,14 +749,14 @@ class PhotobookApp(tk.Tk):
                 variable=var,
                 command=self._sync_dependent_controls,
             )
-            chk.pack(anchor=tk.W, pady=1)
+            chk.pack(anchor=tk.W, pady=3)
             self._adv_checks.append((chk, key))
             if var is self.dry_run_var:
                 self.dry_run_chk = chk
 
         self.coverage_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
         cov_row = ttk.Frame(self.coverage_block, style="Card.TFrame")
-        cov_row.pack(fill=tk.X, pady=(6, 0))
+        cov_row.pack(fill=tk.X, pady=(8, 0))
         ttk.Label(cov_row, text="Abdeckung-Stärke", style="Field.TLabel").pack(side=tk.LEFT)
         self.coverage_label = ttk.Label(cov_row, text="50%", style="Field.TLabel")
         self.coverage_label.pack(side=tk.RIGHT)
@@ -657,11 +767,11 @@ class PhotobookApp(tk.Tk):
             variable=self.coverage_intensity_var,
             command=self._on_coverage_scale,
         )
-        self.coverage_scale.pack(fill=tk.X, pady=(2, 0))
+        self.coverage_scale.pack(fill=tk.X, pady=(4, 0))
 
         self.people_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
         people_row = ttk.Frame(self.people_block, style="Card.TFrame")
-        people_row.pack(fill=tk.X, pady=(6, 0))
+        people_row.pack(fill=tk.X, pady=(8, 0))
         ttk.Label(people_row, text="Personen-Stärke", style="Field.TLabel").pack(side=tk.LEFT)
         self.people_label = ttk.Label(people_row, text="50%", style="Field.TLabel")
         self.people_label.pack(side=tk.RIGHT)
@@ -672,15 +782,70 @@ class PhotobookApp(tk.Tk):
             variable=self.people_intensity_var,
             command=self._on_people_scale,
         )
-        self.people_scale.pack(fill=tk.X, pady=(2, 0))
+        self.people_scale.pack(fill=tk.X, pady=(4, 0))
 
         self.ai_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
-        ttk.Label(self.ai_block, text="API-Key", style="Field.TLabel").pack(anchor=tk.W, pady=(6, 0))
+        ttk.Label(self.ai_block, text="API-Key", style="Field.TLabel").pack(
+            anchor=tk.W, pady=(8, 0)
+        )
         self.api_entry = ttk.Entry(self.ai_block, textvariable=self.api_key_var, show="•")
-        self.api_entry.pack(fill=tk.X, pady=(2, 0))
+        self.api_entry.pack(fill=tk.X, pady=(4, 0))
 
-        actions = ttk.Frame(body, style="App.TFrame")
-        actions.pack(fill=tk.X, pady=(12, 6))
+        # Status / Fortschritt
+        self.next_step_var = tk.StringVar(value=t("next_pick_folders"))
+        ttk.Label(body, textvariable=self.next_step_var, style="Next.TLabel").pack(
+            anchor=tk.W, pady=(14, 2)
+        )
+        self.status_var = tk.StringVar(value=t("loading_modules"))
+        ttk.Label(body, textvariable=self.status_var, style="Sub.TLabel").pack(anchor=tk.W)
+
+        prog_row = ttk.Frame(body, style="App.TFrame")
+        prog_row.pack(fill=tk.X, pady=(8, 0))
+        self.phase_var = tk.StringVar(value="")
+        ttk.Label(prog_row, textvariable=self.phase_var, style="Sub.TLabel").pack(anchor=tk.W)
+        self.progress = ttk.Progressbar(prog_row, mode="determinate", maximum=100)
+        self.progress.pack(fill=tk.X, pady=(4, 0))
+
+        self._phase_box = ttk.LabelFrame(
+            body,
+            text=f"  {t('steps_hint')}  ",
+            style="Card.TLabelframe",
+            padding=8,
+        )
+        self._phase_box.pack(fill=tk.X, pady=(10, 0))
+        self._phase_inner = ttk.Frame(self._phase_box, style="Card.TFrame")
+        self._phase_inner.pack(fill=tk.X)
+        self._build_phase_chips()
+
+        log_frame = ttk.LabelFrame(
+            body, text=f"  {t('log')}  ", style="Card.TLabelframe", padding=8
+        )
+        self._log_frame = log_frame
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        log_row = ttk.Frame(log_frame, style="Card.TFrame")
+        log_row.pack(fill=tk.BOTH, expand=True)
+        self.log = tk.Text(
+            log_row,
+            height=5,
+            wrap=tk.WORD,
+            state=tk.DISABLED,
+            bg=c["log_bg"],
+            fg=c["log_fg"],
+            insertbackground=c["log_fg"],
+            relief=tk.FLAT,
+            font=("Consolas", 9),
+            padx=10,
+            pady=8,
+        )
+        self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll_log = ttk.Scrollbar(log_row, command=self.log.yview)
+        scroll_log.pack(side=tk.RIGHT, fill=tk.Y)
+        self.log.configure(yscrollcommand=scroll_log.set)
+
+        # Untere Aktionsleiste (immer sichtbar)
+        actions = tk.Frame(root, bg=c["surface"], padx=18, pady=14)
+        actions.pack(fill=tk.X, side=tk.BOTTOM)
+        tk.Frame(root, bg=c["line"], height=1).pack(fill=tk.X, side=tk.BOTTOM)
         self.start_btn = ttk.Button(
             actions, text=t("start"), style="Start.TButton", command=self._start
         )
@@ -692,69 +857,22 @@ class PhotobookApp(tk.Tk):
             command=self._cancel,
             state=tk.DISABLED,
         )
-        self.cancel_btn.pack(side=tk.RIGHT, padx=(0, 8))
+        self.cancel_btn.pack(side=tk.RIGHT, padx=(0, 10))
         self.review_btn = ttk.Button(
             actions,
             text=t("review"),
             style="Browse.TButton",
             command=self._open_review,
         )
-        self.review_btn.pack(side=tk.RIGHT, padx=(0, 8))
+        self.review_btn.pack(side=tk.RIGHT, padx=(0, 10))
         self.map_btn = ttk.Button(
             actions, text=t("map"), style="Browse.TButton", command=self._open_map_preview
         )
-        self.map_btn.pack(side=tk.RIGHT, padx=(0, 8))
-
-        self.next_step_var = tk.StringVar(value=t("next_pick_folders"))
-        ttk.Label(body, textvariable=self.next_step_var, style="Next.TLabel").pack(
-            anchor=tk.W, pady=(0, 4)
-        )
-        self.status_var = tk.StringVar(value=t("loading_modules"))
-        ttk.Label(body, textvariable=self.status_var, style="Sub.TLabel").pack(anchor=tk.W)
-
-        prog_row = ttk.Frame(body, style="App.TFrame")
-        prog_row.pack(fill=tk.X, pady=(6, 0))
-        self.phase_var = tk.StringVar(value="")
-        ttk.Label(prog_row, textvariable=self.phase_var, style="Field.TLabel").pack(anchor=tk.W)
-        self.progress = ttk.Progressbar(prog_row, mode="determinate", maximum=100)
-        self.progress.pack(fill=tk.X, pady=(2, 0))
-
-        self._phase_box = ttk.LabelFrame(
-            body,
-            text=f"  {t('steps_hint')}  ",
-            style="Card.TLabelframe",
-            padding=6,
-        )
-        self._phase_box.pack(fill=tk.X, pady=(8, 0))
-        self._phase_inner = ttk.Frame(self._phase_box, style="Card.TFrame")
-        self._phase_inner.pack(fill=tk.X)
-        self._build_phase_chips()
-
-        log_frame = ttk.LabelFrame(body, text=f"  {t('log')}  ", style="Card.TLabelframe", padding=6)
-        self._log_frame = log_frame
-        log_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
-        log_row = ttk.Frame(log_frame, style="Card.TFrame")
-        log_row.pack(fill=tk.BOTH, expand=True)
-        self.log = tk.Text(
-            log_row,
-            height=4,
-            wrap=tk.WORD,
-            state=tk.DISABLED,
-            bg=COLORS["log_bg"],
-            fg=COLORS["log_fg"],
-            insertbackground=COLORS["log_fg"],
-            relief=tk.FLAT,
-            font=("Consolas", 9),
-            padx=8,
-            pady=6,
-        )
-        self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll = ttk.Scrollbar(log_row, command=self.log.yview)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.log.configure(yscrollcommand=scroll.set)
+        self.map_btn.pack(side=tk.RIGHT, padx=(0, 10))
 
         self._sync_dependent_controls()
         self._refresh_cost_estimate()
+        self._refresh_workflow_steps()
 
     def _set_icon(self) -> None:
         """Ersetzt das Standard-Tk-Icon (blaue Feder) durch ein eigenes."""
@@ -764,12 +882,11 @@ class PhotobookApp(tk.Tk):
             n = 64
             img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
             d = ImageDraw.Draw(img)
-            d.rounded_rectangle([2, 2, n - 3, n - 3], radius=12, fill="#2F5D50")
-            # weißes „Foto/Buch"-Feld mit kleiner Landschaft
-            d.rectangle([14, 18, 50, 46], fill="#F7F3EC")
-            d.polygon([(18, 44), (28, 30), (36, 44)], fill="#6B705C")   # Berg
-            d.polygon([(32, 44), (40, 34), (48, 44)], fill="#8B5A2B")   # Berg 2
-            d.ellipse([40, 22, 47, 29], fill="#BC6C25")                 # Sonne
+            d.rounded_rectangle([2, 2, n - 3, n - 3], radius=14, fill="#7B6CFF")
+            d.rectangle([14, 18, 50, 46], fill="#E8EAF2")
+            d.polygon([(18, 44), (28, 30), (36, 44)], fill="#5C6B8A")
+            d.polygon([(32, 44), (40, 34), (48, 44)], fill="#3D4A6B")
+            d.ellipse([40, 22, 47, 29], fill="#C8C4FF")
             self._icon_img = ImageTk.PhotoImage(img)
             self.iconphoto(True, self._icon_img)
         except Exception:
@@ -831,25 +948,70 @@ class PhotobookApp(tk.Tk):
 
     def _folder_row(
         self,
-        parent: ttk.Frame,
+        parent: tk.Misc,
         title: str,
         hint: str,
         var: tk.StringVar,
         command,
-    ) -> ttk.Label:
-        title_lbl = ttk.Label(parent, text=title, style="Body.TLabel")
+    ) -> tk.Label:
+        c = COLORS
+        title_lbl = tk.Label(
+            parent,
+            text=title,
+            bg=c["surface"],
+            fg=c["ink"],
+            font=("Segoe UI", 10),
+            anchor=tk.W,
+        )
         title_lbl.pack(anchor=tk.W)
         if hint:
-            ttk.Label(parent, text=hint, style="Field.TLabel").pack(anchor=tk.W, pady=(0, 4))
-        row = ttk.Frame(parent, style="Card.TFrame")
-        row.pack(fill=tk.X, pady=(2, 0))
-        ttk.Entry(row, textvariable=var).pack(side=tk.LEFT, fill=tk.X, expand=True)
+            tk.Label(
+                parent, text=hint, bg=c["surface"], fg=c["muted"], font=("Segoe UI", 9)
+            ).pack(anchor=tk.W, pady=(0, 4))
+        row = tk.Frame(parent, bg=c["surface"])
+        row.pack(fill=tk.X, pady=(6, 0))
+        entry = ttk.Entry(row, textvariable=var)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=2)
         browse = ttk.Button(
             row, text=t("browse"), style="Browse.TButton", command=command
         )
-        browse.pack(side=tk.LEFT, padx=(8, 0))
+        browse.pack(side=tk.LEFT, padx=(10, 0))
         title_lbl._browse_btn = browse  # type: ignore[attr-defined]
         return title_lbl
+
+    def _sync_found_badge(self) -> None:
+        text = (self.found_var.get() or "").strip()
+        try:
+            if not text or text == t("found_counting"):
+                self._found_badge.pack_forget()
+                if text == t("found_counting"):
+                    self._found_badge.configure(text=f"  {text}  ")
+                    self._found_badge.pack(anchor=tk.W, pady=(8, 0))
+                return
+            self._found_badge.configure(text=f"  {text}  ")
+            if not self._found_badge.winfo_ismapped():
+                self._found_badge.pack(anchor=tk.W, pady=(8, 0))
+        except tk.TclError:
+            pass
+
+    def _refresh_workflow_steps(self) -> None:
+        """Stepper folgt dem echten Fortschritt (Ordner → Optionen → Start)."""
+        try:
+            chips = getattr(self, "_step_chips", None)
+            if not chips:
+                return
+            has_in = bool(self.input_var.get().strip())
+            has_out = bool(self.output_var.get().strip())
+            if has_in and has_out:
+                active = 2
+            elif has_in or has_out:
+                active = 1
+            else:
+                active = 0
+            for i, chip in enumerate(chips):
+                chip.set_active(i == active)
+        except Exception:
+            pass
 
     def _open_settings(self) -> None:
         from .settings_dialog import open_settings_dialog
@@ -859,15 +1021,24 @@ class PhotobookApp(tk.Tk):
     def _on_settings_saved(self, settings) -> None:
         self.app_settings = settings
         global COLORS
-        COLORS = theme_colors(settings.theme)
+        COLORS = {**_FALLBACK_COLORS, **theme_colors(settings.theme)}
         self.configure(bg=COLORS["bg"])
         self._setup_style()
         self._apply_ui_language()
         try:
-            self.log.configure(bg=COLORS["log_bg"], fg=COLORS["log_fg"])
+            self.log.configure(
+                bg=COLORS["log_bg"],
+                fg=COLORS["log_fg"],
+                insertbackground=COLORS["log_fg"],
+            )
         except tk.TclError:
             pass
         self._build_phase_chips()
+        messagebox.showinfo(
+            t("settings_title"),
+            f"{t('settings_saved')}\n\n{t('settings_restart_hint')}",
+            parent=self,
+        )
 
     def _apply_ui_language(self) -> None:
         """Aktualisiert sichtbare Haupttexte nach Sprachwechsel."""
@@ -875,7 +1046,6 @@ class PhotobookApp(tk.Tk):
             self.title(t("app_title"))
             self._brand_lbl.configure(text=t("brand"))
             self._target_lbl.configure(text=t("target_count"))
-            self._options_box.configure(text=t("options_box"))
             self._phase_box.configure(text=f"  {t('steps_hint')}  ")
             self._log_frame.configure(text=f"  {t('log')}  ")
             self.start_btn.configure(text=t("start"))
@@ -883,6 +1053,8 @@ class PhotobookApp(tk.Tk):
             self.review_btn.configure(text=t("review"))
             self.map_btn.configure(text=t("map"))
             self._explain_btn.configure(text=t("explain_options"))
+            self._settings_btn.configure(text=t("settings"))
+            self._help_btn.configure(text=t("help"))
             self.advanced_toggle.configure(
                 text=t("more_options_open") if self._advanced_open else t("more_options")
             )
@@ -892,8 +1064,28 @@ class PhotobookApp(tk.Tk):
                 btn = getattr(lbl, "_browse_btn", None)
                 if btn is not None:
                     btn.configure(text=t("browse"))
-            for chk, key in self._core_checks + self._adv_checks:
+            for lbl, tog, key in getattr(self, "_toggle_rows", []):
+                lbl.configure(text=t(key))
+                tog.set_labels(t("toggle_on"), t("toggle_off"))
+            for chk, key in self._adv_checks:
                 chk.configure(text=t(key))
+            chips = getattr(self, "_step_chips", [])
+            labels = (t("step_folders"), t("step_options"), t("step_run"))
+            for chip, text in zip(chips, labels):
+                chip.set_text(text)
+            tip = getattr(self, "_tip_banner", None)
+            if tip is not None:
+                for child in tip.winfo_children():
+                    if isinstance(child, tk.Label):
+                        child.configure(text=t("tip_resume"))
+            if self._found_count:
+                self.found_var.set(t("found_photos", n=self._found_count))
+            elif self.found_var.get():
+                # leerer/fehlgeschlagener Ordner neu beschriften
+                cur = self.found_var.get()
+                if "gefunden" in cur.lower() or "found" in cur.lower() or "Keine" in cur:
+                    self.found_var.set(t("found_none"))
+            self._refresh_workflow_steps()
             if not self._is_analysis_running() and self.status_var.get() in (
                 "Lade Erkennungsmodule…",
                 "Loading detection modules…",
@@ -956,14 +1148,14 @@ class PhotobookApp(tk.Tk):
 
     def _update_found_count(self, path: str) -> None:
         """Zeigt sofort, wie viele Bilder im Ordner liegen (Zielanzahl realistisch setzen)."""
-        self.found_var.set("Zähle Bilder…")
+        self.found_var.set(t("found_counting"))
 
         def worker() -> None:
             try:
                 from .scan import find_images
 
                 n = len(find_images(Path(path)))
-                msg = f"{n} Bilder gefunden" if n else "Keine Bilder in diesem Ordner gefunden"
+                msg = t("found_photos", n=n) if n else t("found_none")
             except Exception:
                 n = 0
                 msg = ""
@@ -975,6 +1167,7 @@ class PhotobookApp(tk.Tk):
         self._found_count = int(n or 0)
         self.found_var.set(msg)
         self._refresh_cost_estimate()
+        self._refresh_workflow_steps()
 
     def _pick_output(self) -> None:
         path = filedialog.askdirectory(title="Ausgabe-Ordner wählen")
@@ -1290,7 +1483,7 @@ class PhotobookApp(tk.Tk):
         self._cancel_event.clear()
         self.start_btn.configure(state=tk.DISABLED)
         self.cancel_btn.configure(state=tk.NORMAL)
-        self.review_btn.configure(state=tk.DISABLED)
+        self.review_btn.configure(state=tk.DISABLED, style="Browse.TButton")
         self.map_btn.configure(state=tk.DISABLED)
         self.status_var.set("Arbeitet…")
         self.phase_var.set("Start…")
@@ -1377,7 +1570,13 @@ class PhotobookApp(tk.Tk):
             sys.stdout, sys.stderr = old_out, old_err
             self.after(0, lambda: self.start_btn.configure(state=tk.NORMAL))
             self.after(0, lambda: self.cancel_btn.configure(state=tk.DISABLED))
-            self.after(0, lambda: self.review_btn.configure(state=tk.NORMAL))
+            # Nächster sinnvoller Schritt: „Auswahl prüfen“ optisch hervorheben
+            self.after(
+                0,
+                lambda: self.review_btn.configure(
+                    state=tk.NORMAL, style="Start.TButton"
+                ),
+            )
             self.after(0, lambda: self.map_btn.configure(state=tk.NORMAL))
 
     def _on_finished(self, result: dict, cfg: Any) -> None:
