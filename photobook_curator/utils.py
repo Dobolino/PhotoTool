@@ -66,6 +66,32 @@ def load_image(path: Path) -> Image.Image:
     return img
 
 
+def load_image_scaled(path: Path, max_edge: int) -> Image.Image:
+    """
+    Lädt ein Bild skaliert für die Anzeige (schneller als Volldecode + Thumbnail).
+    Nutzt JPEG-Draft, wenn möglich – spart Zeit bei großen iPhone-/OneDrive-Dateien.
+    """
+    register_heif()
+    edge = max(32, int(max_edge))
+    img = Image.open(path)
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        try:
+            # Etwas größer draften wegen späterer EXIF-Drehung
+            img.draft("RGB", (edge * 2, edge * 2))
+        except Exception:
+            pass
+    img.load()
+    img = ImageOps.exif_transpose(img)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    elif img.mode == "L":
+        img = img.convert("RGB")
+    if max(img.size) > edge:
+        img.thumbnail((edge, edge), Image.Resampling.BILINEAR)
+    return img
+
+
 def image_display_size(path: Path) -> tuple[int, int]:
     """
     Breite/Höhe in Anzeige-Orientierung, ohne vollständigen Pixel-Decode.

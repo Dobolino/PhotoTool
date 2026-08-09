@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import queue
 import threading
 import tkinter as tk
@@ -22,7 +23,7 @@ from .selection_draft import (
     load_selection_draft,
     save_selection_draft,
 )
-from .utils import load_image
+from .utils import load_image_scaled
 
 COLORS = {
     "bg": "#F3EFE7",
@@ -38,9 +39,12 @@ COLORS = {
 }
 
 THUMB = 140
+STRIP = 68
+STRIP_WINDOW = 11  # ungerade: aktuelle Bildmitte + Nachbarn
 # Wenige PhotoImage-Updates pro Tick → weniger Ruckeln beim Scrollen
-_THUMBS_PER_TICK = 4
-_SLIDE_MAX = 960  # max. Kantenlänge in der Diashow
+_THUMBS_PER_TICK = 6
+_SLIDE_MAX = 820  # max. Kantenlänge in der Diashow (kleiner = schneller)
+_LOADER_THREADS = 3
 
 
 class ReviewWindow(tk.Toplevel):
@@ -83,7 +87,9 @@ class ReviewWindow(tk.Toplevel):
         self._tile_state: dict[tuple[str, int], dict] = {}
         self._thumb_labels: dict[int, list[tk.Label]] = {}
         self._pending_thumbs: set[int] = set()
-        self._load_queue: queue.Queue[int | None] = queue.Queue()
+        # PriorityQueue: (prio, seq, job) — job = ("thumb"|"slide", idx) oder None=Stop
+        self._load_queue: queue.PriorityQueue = queue.PriorityQueue()
+        self._load_seq = itertools.count()
         self._ready_queue: queue.Queue[tuple[int, Image.Image | None]] = queue.Queue()
         self._slide_queue: queue.Queue[tuple[int, Image.Image | None]] = queue.Queue()
         self._pending_slides: set[int] = set()
@@ -96,8 +102,15 @@ class ReviewWindow(tk.Toplevel):
         self._slide_indices: list[int] = []
         self._slide_pos = 0
         self._slide_img_ref: ImageTk.PhotoImage | None = None
-        self._loader = threading.Thread(target=self._thumb_worker, daemon=True)
-        self._loader.start()
+        self._slide_showing_idx: int | None = None
+        self._strip_frames: dict[int, tk.Frame] = {}
+        self._strip_thumb_labels: dict[int, tk.Label] = {}
+        self._loaders = [
+            threading.Thread(target=self._thumb_worker, daemon=True)
+            for _ in range(_LOADER_THREADS)
+        ]
+        for t in self._loaders:
+            t.start()
 
         self._setup_style()
         self._build()
@@ -315,7 +328,7 @@ class ReviewWindow(tk.Toplevel):
         host = self._slide_host
         tip = ttk.Label(
             host,
-            text="← → blättern · Leertaste = raus/rein · Entf = entfernen · Esc = zurück zum Raster",
+            text="← → blättern · Klick auf Vorschau springt · Leertaste = raus/rein · Esc = Raster",
             style="RevMuted.TLabel",
         )
         tip.pack(anchor=tk.W, pady=(0, 8))
@@ -332,6 +345,12 @@ class ReviewWindow(tk.Toplevel):
         )
         self._slide_image_lbl.pack(fill=tk.BOTH, expand=True)
         self._slide_image_lbl.bind("<Button-1>", self._slide_toggle_current)
+
+        strip_wrap = ttk.Frame(host, style="Rev.TFrame", padding=(0, 10, 0, 0))
+        strip_wrap.pack(fill=tk.X)
+        ttk.Label(strip_wrap, text="Umgebung", style="RevMuted.TLabel").pack(anchor=tk.W)
+        self._strip_bar = tk.Frame(strip_wrap, bg=COLORS["bg"])
+        self._strip_bar.pack(fill=tk.X, pady=(4, 0))
 
         meta = ttk.Frame(host, style="Rev.TFrame", padding=(0, 10, 0, 0))
         meta.pack(fill=tk.X)
@@ -361,46 +380,57 @@ class ReviewWindow(tk.Toplevel):
             controls, text="Zurück zum Raster", command=self._exit_slideshow
         ).pack(side=tk.RIGHT)
 
+    def _enqueue_job(self, kind: str, idx: int, priority: int) -> None:
+        self._load_queue.put((priority, next(self._load_seq), (kind, idx)))
+
     def _thumb_worker(self) -> None:
         while True:
-            idx = self._load_queue.get()
-            if idx is None:
+            _prio, _seq, job = self._load_queue.get()
+            if job is None:
                 break
-            # Negative Indizes = Diashow-Vollbild; positive = Thumbnail
-            want_slide = idx < 0
-            real = (-idx - 1) if want_slide else idx
+            kind, real = job
+            if real < 0 or real >= len(self.photos):
+                continue
             photo = self.photos[real]
             try:
-                img = load_image(photo.path)
-                if want_slide:
-                    img.thumbnail((_SLIDE_MAX, _SLIDE_MAX), Image.Resampling.BILINEAR)
+                if kind == "slide":
+                    # Ein Decode für großes Bild; Thumb gleich mit erzeugen
+                    img = load_image_scaled(photo.path, _SLIDE_MAX)
                     self._slide_queue.put((real, img.copy()))
+                    if real not in self._thumb_cache:
+                        thumb = img.copy()
+                        thumb.thumbnail((THUMB, THUMB), Image.Resampling.BILINEAR)
+                        canvas_img = Image.new("RGB", (THUMB, THUMB), (245, 241, 233))
+                        x = (THUMB - thumb.width) // 2
+                        y = (THUMB - thumb.height) // 2
+                        canvas_img.paste(thumb, (x, y))
+                        self._ready_queue.put((real, canvas_img))
                 else:
-                    # BILINEAR ist für Thumbs schnell genug
-                    img.thumbnail((THUMB, THUMB), Image.Resampling.BILINEAR)
+                    img = load_image_scaled(photo.path, THUMB)
                     canvas_img = Image.new("RGB", (THUMB, THUMB), (245, 241, 233))
                     x = (THUMB - img.width) // 2
                     y = (THUMB - img.height) // 2
                     canvas_img.paste(img, (x, y))
                     self._ready_queue.put((real, canvas_img))
             except Exception:
-                if want_slide:
+                if kind == "slide":
                     self._slide_queue.put((real, None))
                 else:
                     self._ready_queue.put((real, None))
 
-    def _request_thumb(self, idx: int) -> None:
+    def _request_thumb(self, idx: int, priority: int = 40) -> None:
         if idx in self._thumb_cache or idx in self._pending_thumbs:
             return
         self._pending_thumbs.add(idx)
-        self._load_queue.put(idx)
+        self._enqueue_job("thumb", idx, priority)
 
-    def _request_slide(self, idx: int) -> None:
+    def _request_slide(self, idx: int, priority: int = 10) -> None:
         if idx in self._slide_cache or idx in self._pending_slides:
             return
         self._pending_slides.add(idx)
-        # Worker-Konvention: negativer Schlüssel = großes Bild
-        self._load_queue.put(-(idx + 1))
+        self._enqueue_job("slide", idx, priority)
+        # Thumb für Filmstreifen parallel (falls noch nicht da)
+        self._request_thumb(idx, priority=priority + 5)
 
     def _drain_thumbs(self) -> None:
         updated = 0
@@ -419,13 +449,21 @@ class ReviewWindow(tk.Toplevel):
                             lbl.configure(image=tk_img, text="", width=0, height=0)
                     except tk.TclError:
                         pass
+                # Diashow: Thumb sofort als Platzhalter, Filmstreifen aktualisieren
+                if self._slideshow:
+                    if (
+                        self._slide_showing_idx == idx
+                        and idx not in self._slide_cache
+                    ):
+                        self._show_slide_placeholder(idx)
+                    if idx in self._strip_frames:
+                        self._apply_strip_thumb(idx)
                 updated += 1
         except queue.Empty:
             pass
         if updated:
             self._schedule_scrollregion()
         if self.winfo_exists():
-            # Etwas längerer Abstand, wenn gerade viel geladen wird
             delay = 30 if updated else 80
             self.after(delay, self._drain_thumbs)
 
@@ -439,17 +477,12 @@ class ReviewWindow(tk.Toplevel):
                 tk_img = ImageTk.PhotoImage(img)
                 self._slide_cache[idx] = tk_img
                 self._photo_images.append(tk_img)
-                if (
-                    self._slideshow
-                    and self._slide_indices
-                    and 0 <= self._slide_pos < len(self._slide_indices)
-                    and self._slide_indices[self._slide_pos] == idx
-                ):
+                if self._slideshow and self._slide_showing_idx == idx:
                     self._show_slide_image(idx)
         except queue.Empty:
             pass
         if self.winfo_exists():
-            self.after(50, self._drain_slides)
+            self.after(40, self._drain_slides)
 
     def _update_count(self) -> None:
         self.count_var.set(f"{len(self.kept)} Bilder ausgewählt (Entwurf auto-gespeichert)")
@@ -520,24 +553,41 @@ class ReviewWindow(tk.Toplevel):
             return
         self._slide_pos = max(0, min(self._slide_pos, len(self._slide_indices) - 1))
         idx = self._slide_indices[self._slide_pos]
+        self._slide_showing_idx = idx
         self._refresh_slide_meta()
+        self._rebuild_filmstrip()
         cached = self._slide_cache.get(idx)
         if cached is not None:
             self._show_slide_image(idx)
         else:
-            try:
-                self._slide_image_lbl.configure(
-                    image="", text="Bild wird geladen…", fg="#E8E2D8"
-                )
-            except tk.TclError:
-                pass
-            self._slide_img_ref = None
-            self._request_slide(idx)
-        # Nachbarn vorladen
-        for offset in (1, -1, 2):
-            n = self._slide_pos + offset
-            if 0 <= n < len(self._slide_indices):
-                self._request_slide(self._slide_indices[n])
+            # Sofort Thumb zeigen (fühlt sich viel schneller an), dann scharf nachladen
+            if not self._show_slide_placeholder(idx):
+                try:
+                    self._slide_image_lbl.configure(
+                        image="", text="Bild wird geladen…", fg="#E8E2D8"
+                    )
+                except tk.TclError:
+                    pass
+                self._slide_img_ref = None
+            self._request_slide(idx, priority=0)
+        # Aktuelle + Nachbarn vorladen (Priorität nach Nähe)
+        for dist in range(1, 5):
+            for n in (self._slide_pos + dist, self._slide_pos - dist):
+                if 0 <= n < len(self._slide_indices):
+                    prio = dist
+                    self._request_slide(self._slide_indices[n], priority=prio)
+
+    def _show_slide_placeholder(self, idx: int) -> bool:
+        tk_img = self._thumb_cache.get(idx)
+        if tk_img is None:
+            self._request_thumb(idx, priority=1)
+            return False
+        self._slide_img_ref = tk_img
+        try:
+            self._slide_image_lbl.configure(image=tk_img, text="")
+        except tk.TclError:
+            return False
+        return True
 
     def _show_slide_image(self, idx: int) -> None:
         tk_img = self._slide_cache.get(idx)
@@ -549,6 +599,109 @@ class ReviewWindow(tk.Toplevel):
         except tk.TclError:
             pass
 
+    def _filmstrip_range(self) -> list[int]:
+        if not self._slide_indices:
+            return []
+        half = STRIP_WINDOW // 2
+        start = max(0, self._slide_pos - half)
+        end = min(len(self._slide_indices), start + STRIP_WINDOW)
+        start = max(0, end - STRIP_WINDOW)
+        return list(range(start, end))
+
+    def _rebuild_filmstrip(self) -> None:
+        try:
+            for child in self._strip_bar.winfo_children():
+                child.destroy()
+        except tk.TclError:
+            return
+        self._strip_frames.clear()
+        self._strip_thumb_labels.clear()
+        positions = self._filmstrip_range()
+        for pos in positions:
+            idx = self._slide_indices[pos]
+            kept = idx in self.kept
+            is_current = pos == self._slide_pos
+            border = COLORS["accent"] if is_current else (
+                COLORS["keep_border"] if kept else COLORS["reject_border"]
+            )
+            pad = 3 if is_current else 2
+            outer = tk.Frame(self._strip_bar, bg=border, padx=pad, pady=pad, cursor="hand2")
+            outer.pack(side=tk.LEFT, padx=3, pady=2)
+            inner = tk.Frame(outer, bg=COLORS["surface"], width=STRIP, height=STRIP)
+            inner.pack()
+            inner.pack_propagate(False)
+            tk_img = self._thumb_cache.get(idx)
+            if tk_img is not None:
+                lbl = tk.Label(inner, image=tk_img, bg=COLORS["surface"], cursor="hand2")
+            else:
+                lbl = tk.Label(
+                    inner,
+                    text="…",
+                    bg=COLORS["line"],
+                    fg=COLORS["muted"],
+                    font=("Segoe UI", 9),
+                    cursor="hand2",
+                )
+                self._request_thumb(idx, priority=8)
+            lbl.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+            if not kept:
+                mark = tk.Label(
+                    inner,
+                    text="×",
+                    bg=COLORS["reject"],
+                    fg="white",
+                    font=("Segoe UI Semibold", 8),
+                    cursor="hand2",
+                )
+                mark.place(relx=1.0, rely=0.0, anchor=tk.NE)
+                mark.bind("<Button-1>", lambda e, p=pos: self._jump_slide(p))
+
+            def jump(_event=None, p=pos):
+                self._jump_slide(p)
+
+            for w in (outer, inner, lbl):
+                w.bind("<Button-1>", jump)
+            self._strip_frames[idx] = outer
+            self._strip_thumb_labels[idx] = lbl
+            self._thumb_labels.setdefault(idx, []).append(lbl)
+
+    def _jump_slide(self, pos: int) -> None:
+        if not self._slideshow or not self._slide_indices:
+            return
+        if 0 <= pos < len(self._slide_indices):
+            self._slide_pos = pos
+            self._show_current_slide()
+
+    def _apply_strip_thumb(self, idx: int) -> None:
+        lbl = self._strip_thumb_labels.get(idx)
+        tk_img = self._thumb_cache.get(idx)
+        if lbl is None or tk_img is None:
+            return
+        try:
+            if lbl.winfo_exists():
+                lbl.configure(image=tk_img, text="", bg=COLORS["surface"])
+        except tk.TclError:
+            pass
+
+    def _refresh_strip_borders(self) -> None:
+        """Nur Rahmenfarben aktualisieren (nach Keep/Remove)."""
+        if not self._slideshow:
+            return
+        for pos in self._filmstrip_range():
+            idx = self._slide_indices[pos]
+            outer = self._strip_frames.get(idx)
+            if outer is None:
+                continue
+            kept = idx in self.kept
+            is_current = pos == self._slide_pos
+            border = COLORS["accent"] if is_current else (
+                COLORS["keep_border"] if kept else COLORS["reject_border"]
+            )
+            try:
+                outer.configure(bg=border)
+            except tk.TclError:
+                pass
+
     def _refresh_slide_meta(self) -> None:
         if not self._slide_indices:
             self._slide_status.set("Keine Bilder")
@@ -559,13 +712,16 @@ class ReviewWindow(tk.Toplevel):
         photo = self.photos[idx]
         kept = idx in self.kept
         state = "DABEI" if kept else "ENTFERNT"
+        folder = photo.chapter_folder or photo.region or ""
         self._slide_status.set(
             f"{pos + 1} / {len(self._slide_indices)}  ·  {state}  ·  "
             f"{len(self.kept)} ausgewählt"
         )
         meta = photo.scene_type or photo.chapter_type or ""
         score = photo.final_score or photo.technical_score
-        self._slide_caption.set(f"{photo.filename}  ·  {meta}  ·  Score {score:.0f}")
+        self._slide_caption.set(
+            f"{photo.filename}  ·  {folder}  ·  {meta}  ·  Score {score:.0f}"
+        )
         try:
             self._slide_toggle_btn.configure(
                 text="Wieder reinnehmen" if not kept else "Rausnehmen"
@@ -598,9 +754,9 @@ class ReviewWindow(tk.Toplevel):
             self.baseline.add(idx)
         self._update_count()
         self._autosave_draft()
-        # Visuell im Raster vorbereiten, falls Tile existiert
         self._apply_tile_visual(("keep", idx))
         self._refresh_slide_meta()
+        self._refresh_strip_borders()
 
     def _slide_key_prev(self, _event=None) -> None:
         if self._slideshow:
@@ -625,6 +781,7 @@ class ReviewWindow(tk.Toplevel):
             self._autosave_draft()
             self._apply_tile_visual(("keep", idx))
             self._refresh_slide_meta()
+            self._refresh_strip_borders()
         return "break"
 
     def _slide_key_escape(self, _event=None) -> None:
@@ -1004,7 +1161,8 @@ class ReviewWindow(tk.Toplevel):
                 self.after_cancel(self._scroll_job)
             except Exception:
                 pass
-        self._load_queue.put(None)
+        for _ in self._loaders:
+            self._load_queue.put((0, next(self._load_seq), None))
         self.destroy()
 
 

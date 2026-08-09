@@ -14,6 +14,8 @@ def test_slideshow_api_in_review_gui() -> None:
         "_exit_slideshow",
         "_slide_toggle_current",
         "_request_slide",
+        "_rebuild_filmstrip",
+        "_show_slide_placeholder",
         'bind("<Left>"',
         'bind("<space>"',
     ):
@@ -27,3 +29,10 @@ def test_slideshow_api_in_review_gui() -> None:
     assert "_enter_slideshow" in names
     assert "_slide_next" in names
     assert "_slide_prev" in names
+    assert "_rebuild_filmstrip" in names
+
+
+def test_load_image_scaled_exists() -> None:
+    src = Path("photobook_curator/utils.py").read_text(encoding="utf-8")
+    assert "def load_image_scaled" in src
+    assert 'img.draft("RGB"' in src

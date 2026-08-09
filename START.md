@@ -89,7 +89,8 @@ Fotobuch starten.bat
 5. **Auswahl starten** – der Fortschrittsbalken zeigt die Phasen.
 6. Bei „Fertig" die Frage **Auswahl prüfen?** → **Ja**:
    - **Raster:** Klick auf ein Bild = **raus / wieder rein**.
-   - **Diashow:** Button **Diashow-Ansicht** – großes Bild, mit ← → blättern,
+   - **Diashow:** Button **Diashow-Ansicht** – großes Bild, kleine Vorschau
+     der Nachbarbilder darunter; ← → blättern, Klick auf Vorschau springt,
      Leertaste = raus/rein, Esc zurück zum Raster.
    - Unten **Alternativen** und der **Dokumente-Pool** zum Hinzufügen.
    - **Speichern & Ordner neu schreiben**.
