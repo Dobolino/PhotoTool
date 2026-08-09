@@ -88,16 +88,21 @@ Fotobuch starten.bat
    - *KI-Bewertung* – optional, braucht einen Anthropic-API-Key.
 5. **Auswahl starten** – der Fortschrittsbalken zeigt die Phasen.
 6. Bei „Fertig" die Frage **Auswahl prüfen?** → **Ja**:
-   - Klick auf ein Bild = **raus / wieder rein**.
+   - **Raster:** Klick auf ein Bild = **raus / wieder rein**.
+   - **Diashow:** Button **Diashow-Ansicht** – großes Bild, mit ← → blättern,
+     Leertaste = raus/rein, Esc zurück zum Raster.
    - Unten **Alternativen** und der **Dokumente-Pool** zum Hinzufügen.
    - **Speichern & Ordner neu schreiben**.
 
 ### Auswahl unterbrechen / fortsetzen (ohne neue KI)
 
+- **Du musst nichts nochmal von vorn machen**, wenn der Ausgabe-Ordner (dein „Backup“)
+  noch da ist.
 - Während **Auswahl prüfen** wird automatisch `selection_draft.json` gespeichert.
   Fenster schließen oder Absturz → später wieder **Auswahl prüfen / fortsetzen**.
 - Nach der KI schreibt das Programm einen Zwischenstand in `photos_analysis.csv`.
-  Die teure KI musst du **nicht** wiederholen.
+  Die teure KI musst du **nicht** wiederholen – gleicher Ausgabe-Ordner wählen,
+  dann **Auswahl prüfen / fortsetzen**.
 - Wenn es eine CSV mit Analyse gibt, aber noch keine fertige Auswahl: das Programm
   fragt, ob es die Auswahl **aus der Analyse ohne KI** erzeugen soll.
 
