@@ -156,6 +156,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Kapitel-Karte (kapitel_karte.html) schreiben (Standard: aus)",
     )
     p.add_argument(
+        "--analysis-cache",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Quality/pHash zwischen Läufen cachen (Standard: an)",
+    )
+    p.add_argument(
         "--burst-seconds",
         type=float,
         default=30.0,
@@ -219,6 +225,7 @@ def main(argv: list[str] | None = None) -> int:
             0.0, min(1.0, float(args.people_balance_intensity))
         ),
         enable_map_preview=bool(args.map_preview),
+        enable_analysis_cache=bool(args.analysis_cache),
         burst_max_seconds=args.burst_seconds,
         burst_keep=args.burst_keep,
     )

@@ -191,18 +191,64 @@ def run_ai_review(
     return {"dry_run": False, "ok": ok, "failed": failed, **cost}
 
 
+def _visual_scene_hint(photo: Photo) -> Optional[str]:
+    """
+    Bildbasierte Heuristik ohne KI.
+    - essen: warme, gesättigte Farben, wenig/keine Gesichter
+    - landschaft: Himmel/Grün-Anteil oben/gesamt, keine Gesichter
+    """
+    try:
+        import cv2
+        import numpy as np
+
+        from .utils import load_bgr_cached
+
+        bgr = load_bgr_cached(photo.path, max_edge=256)
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        h = hsv[:, :, 0]
+        s = hsv[:, :, 1]
+        v = hsv[:, :, 2]
+        sat_mean = float(s.mean())
+        # warme Töne (Rot/Orange/Gelb), kräftig
+        warm = (((h <= 25) | (h >= 160)) & (s > 70) & (v > 50)).mean()
+        # Himmel im oberen Drittel
+        upper = hsv[: max(1, hsv.shape[0] // 3)]
+        sky = (
+            (upper[:, :, 0] > 85)
+            & (upper[:, :, 0] < 140)
+            & (upper[:, :, 1] < 120)
+            & (upper[:, :, 2] > 130)
+        ).mean()
+        green = ((h > 35) & (h < 90) & (s > 40) & (v > 40)).mean()
+
+        if photo.face_count == 0 and warm > 0.16 and sat_mean > 65:
+            # Nah-/Food-typisch oft etwas weicher als Landschaft
+            if photo.sharpness < 420 or warm > 0.28:
+                return "essen"
+        if photo.face_count == 0 and (sky > 0.22 or green > 0.28) and photo.sharpness > 60:
+            return "landschaft"
+    except Exception:
+        return None
+    return None
+
+
 def heuristic_scene_type(photo: Photo) -> str:
-    """Fallback ohne AI: grobe Heuristik für scene_type."""
+    """Fallback ohne AI: Dateiname + Gesichter + einfache Bildheuristik."""
     name = photo.filename.lower()
     for key in (
         "essen",
         "food",
         "meal",
+        "restaurant",
+        "dinner",
+        "lunch",
         "transport",
         "transit",
         "zug",
         "train",
         "flug",
+        "flight",
+        "airport",
         "portrait",
         "gruppe",
         "landschaft",
@@ -212,21 +258,28 @@ def heuristic_scene_type(photo: Photo) -> str:
         "alltag",
     ):
         if key in name:
-            if key in ("food", "meal"):
+            if key in ("food", "meal", "restaurant", "dinner", "lunch"):
                 return "essen"
-            if key in ("transit", "zug", "train", "flug"):
+            if key in ("transit", "zug", "train", "flug", "flight", "airport"):
                 return "transport"
             if key == "landmark":
                 return "sehenswuerdigkeit"
             return key
 
-    if "transit" in photo.flags:
+    if "transit" in photo.flags or (
+        photo.region and str(photo.region).startswith("Transit:")
+    ):
         return "transport"
     if photo.face_count >= 3:
         return "gruppe"
     if photo.face_count >= 1:
         return "portrait"
-    if photo.sharpness > 200 and photo.contrast > 40:
+
+    visual = _visual_scene_hint(photo)
+    if visual:
+        return visual
+
+    if photo.sharpness > 200 and photo.contrast > 40 and photo.face_count == 0:
         return "landschaft"
     return "alltag"
 

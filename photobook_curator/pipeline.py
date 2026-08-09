@@ -7,13 +7,14 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .ai_review import ensure_scene_types, run_ai_review
+from .analysis_cache import AnalysisCache
 from .bursts import mark_bursts
 from .documents import mark_aside_documents
 from .duplicates import mark_duplicates
 from .face_quality import analyze_face_quality
 from .faces import count_faces
-from .geocoding import GeocodeCache
 from .finger_obstruction import analyze_finger_obstruction
+from .geocoding import GeocodeCache
 from .map_preview import write_chapter_map
 from .models import BookPlan, Photo
 from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
@@ -54,6 +55,7 @@ class PipelineConfig:
     people_balance_intensity: float = 0.0  # 0=aus, 1=starke Personen-Balance
     enable_map_preview: bool = False
     skip_export: bool = False  # GUI: Export nach Kapitel-Vorschau
+    enable_analysis_cache: bool = True  # Quality/pHash zwischen Läufen cachen
     burst_max_seconds: float = 30.0
     burst_keep: int = 2
     burst_min_size: int = 3
@@ -109,6 +111,9 @@ def run_pipeline(
 
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cfg.output_dir / "geocode_cache.json"
+    analysis_cache = None
+    if cfg.enable_analysis_cache:
+        analysis_cache = AnalysisCache(cfg.output_dir / "analysis_cache.json")
     clear_bgr_cache()
 
     report("Einlesen…", 0.02)
@@ -116,7 +121,7 @@ def run_pipeline(
     photos = scan_photos(cfg.input_dir)
     print(f"  {len(photos)} Bilder gefunden")
     report("Technische Analyse…", 0.08)
-    analyze_all(photos)
+    analyze_all(photos, cache=analysis_cache)
     report("Dokumente…", 0.22)
     if cfg.enable_document_aside:
         aside_count = mark_aside_documents(photos)
@@ -129,8 +134,12 @@ def run_pipeline(
         burst_seconds=cfg.burst_max_seconds if cfg.enable_bursts else 0.0,
         keep_per_burst=cfg.burst_keep if cfg.enable_bursts else 1,
         min_burst_size=cfg.burst_min_size if cfg.enable_bursts else 10**9,
+        cache=analysis_cache,
     )
     print(f"  {dup_count} Duplikate markiert")
+    if analysis_cache is not None:
+        analysis_cache.save()
+        print(f"  Analyse-Cache: {cfg.output_dir / 'analysis_cache.json'}")
     report("Gesichter…", 0.45)
     if cfg.enable_faces:
         backend = count_faces(photos)

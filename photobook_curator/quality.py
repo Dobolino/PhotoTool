@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Optional
+
 import cv2
 import numpy as np
 from tqdm import tqdm
 
 from .models import Photo
 from .utils import load_bgr_cached
+
+if TYPE_CHECKING:
+    from .analysis_cache import AnalysisCache
 
 
 def analyze_image_quality(photo: Photo) -> None:
@@ -85,7 +90,24 @@ def compute_technical_score(photo: Photo) -> float:
     return photo.technical_score
 
 
-def analyze_all(photos: list[Photo]) -> None:
+def analyze_all(
+    photos: list[Photo],
+    cache: Optional["AnalysisCache"] = None,
+) -> None:
+    from .analysis_cache import apply_quality_payload, quality_payload
+
+    hits = 0
     for photo in tqdm(photos, desc="Technische Analyse", unit="img"):
+        cached = cache.get(photo.path) if cache is not None else None
+        if cached and "sharpness" in cached:
+            apply_quality_payload(photo, cached)
+            compute_technical_score(photo)
+            hits += 1
+            continue
         analyze_image_quality(photo)
         compute_technical_score(photo)
+        if cache is not None and "unreadable" not in photo.flags:
+            # phash ggf. später ergänzt
+            cache.put(photo.path, quality_payload(photo))
+    if cache is not None and hits:
+        print(f"  Analyse-Cache: {hits}/{len(photos)} Treffer")

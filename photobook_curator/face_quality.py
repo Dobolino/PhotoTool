@@ -133,7 +133,6 @@ class FaceQualityAnalyzer:
         self._mode = "none"
         self._landmarker = None
         self._haar_face = None
-        self._haar_eye = None
         self._init(model_cache_dir or Path.home() / ".cache" / "photobook_curator")
 
     def _init(self, cache_dir: Path) -> None:
@@ -160,9 +159,6 @@ class FaceQualityAnalyzer:
         try:
             self._haar_face = cv2.CascadeClassifier(
                 cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            )
-            self._haar_eye = cv2.CascadeClassifier(
-                cv2.data.haarcascades + "haarcascade_eye.xml"
             )
             if not self._haar_face.empty():
                 self._mode = "haar"
@@ -215,12 +211,12 @@ class FaceQualityAnalyzer:
         )
 
     def _analyze_haar(self, bgr: np.ndarray, w: int, h: int) -> FaceQualityResult:
+        """Haar-Fallback: cut-off / zu klein — kein eyes_closed (Cascade zu unzuverlässig)."""
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
         faces = self._haar_face.detectMultiScale(gray, 1.1, 5, minSize=(40, 40))
         if len(faces) == 0:
             return FaceQualityResult(face_count=0)
 
-        any_closed = False
         any_cut = False
         any_small = False
         issues: list[str] = []
@@ -234,15 +230,6 @@ class FaceQualityAnalyzer:
             if x <= margin_x or y <= margin_y or x + fw >= w - margin_x or y + fh >= h - margin_y:
                 any_cut = True
 
-            if self._haar_eye is not None and not self._haar_eye.empty():
-                roi = gray[y : y + fh, x : x + fw]
-                eyes = self._haar_eye.detectMultiScale(roi, 1.1, 8, minSize=(12, 12))
-                # Bei klar erkennbarem Gesicht ohne Augen: verdächtig geschlossen
-                if len(eyes) == 0 and fh > 80:
-                    any_closed = True
-
-        if any_closed:
-            issues.append("Augen geschlossen")
         if any_cut:
             issues.append("Gesicht angeschnitten")
         if any_small:
@@ -250,7 +237,7 @@ class FaceQualityAnalyzer:
 
         return FaceQualityResult(
             face_count=len(faces),
-            eyes_closed=any_closed,
+            eyes_closed=False,
             face_cut_off=any_cut,
             face_too_small=any_small,
             issues=issues,

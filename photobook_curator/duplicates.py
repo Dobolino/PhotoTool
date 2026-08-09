@@ -25,8 +25,12 @@ def _phash_int_from_bgr(bgr) -> int | None:
         return None
 
 
-def compute_phashes(photos: list[Photo]) -> None:
+def compute_phashes(photos: list[Photo], cache=None) -> None:
+    from .analysis_cache import quality_payload
+
     for photo in tqdm(photos, desc="pHash berechnen", unit="img"):
+        if photo.phash:
+            continue
         try:
             bgr = load_bgr_cached(photo.path)
             value = _phash_int_from_bgr(bgr)
@@ -36,6 +40,8 @@ def compute_phashes(photos: list[Photo]) -> None:
             else:
                 # Hex-String bleibt für CSV/Kompatibilität
                 photo.phash = f"{value:016x}"
+            if cache is not None and photo.phash:
+                cache.put(photo.path, quality_payload(photo))
         except Exception:
             photo.phash = None
             photo.add_flag("phash_failed")
@@ -75,6 +81,7 @@ def mark_duplicates(
     burst_seconds: float = 30.0,
     keep_per_burst: int = 2,
     min_burst_size: int = 3,
+    cache=None,
 ) -> tuple[int, int]:
     """
     Gruppiert nahezu identische Bilder.
@@ -82,7 +89,7 @@ def mark_duplicates(
     - Sonst: 1 bestes behalten, Rest Duplikat
     Returns (duplicate_count, burst_reject_count).
     """
-    compute_phashes(photos)
+    compute_phashes(photos, cache=cache)
     n = len(photos)
     parent = list(range(n))
 

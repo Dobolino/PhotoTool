@@ -71,6 +71,7 @@ Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter 
 | Tages-Abdeckung | aus | Checkbox + Stärke-Regler, CLI: `--coverage-intensity 0.0–1.0` |
 | Personen-Balance | aus | Checkbox + Stärke-Regler, CLI: `--people-balance-intensity 0.0–1.0` |
 | Kapitel-/Karten-Vorschau | aus | Checkbox, CLI: `--map-preview` |
+| Analyse-Cache | an | speichert Quality/pHash für Wiederholungsläufe; CLI: `--analysis-cache` / `--no-analysis-cache` |
 | KI-Bewertung | aus | `--ai-review` |
 | Auswahl prüfen | nach dem Lauf | manuell |
 

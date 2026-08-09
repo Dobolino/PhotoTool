@@ -14,8 +14,7 @@ from .geocoding import GeocodeCache
 from .models import BookPlan, FineCluster, Photo, Region
 
 
-# ~400 m Radius in Grad (Erde ~111 km/Grad)
-DEFAULT_EPS_DEG = 400.0 / 111_000.0
+EARTH_RADIUS_M = 6_371_000.0
 
 
 def cluster_fine_locations(
@@ -23,13 +22,22 @@ def cluster_fine_locations(
     eps_meters: float = 400.0,
     min_samples: int = 2,
 ) -> list[FineCluster]:
+    """GPS-Cluster mit Haversine-Distanz (ost-west-korrekt auf allen Breiten)."""
     gps_indices = [i for i, p in enumerate(photos) if p.has_gps]
     if not gps_indices:
         return []
 
-    coords = np.array([[photos[i].gps_lat, photos[i].gps_lon] for i in gps_indices])
-    eps = eps_meters / 111_000.0
-    labels = DBSCAN(eps=eps, min_samples=min_samples, metric="euclidean").fit_predict(coords)
+    coords = np.array(
+        [[photos[i].gps_lat, photos[i].gps_lon] for i in gps_indices],
+        dtype=np.float64,
+    )
+    coords_rad = np.radians(coords)
+    eps = float(eps_meters) / EARTH_RADIUS_M
+    labels = DBSCAN(
+        eps=eps,
+        min_samples=min_samples,
+        metric="haversine",
+    ).fit_predict(coords_rad)
 
     clusters_map: dict[int, list[int]] = defaultdict(list)
     for local_idx, label in enumerate(labels):
