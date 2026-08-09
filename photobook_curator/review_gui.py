@@ -36,7 +36,7 @@ LABEL_H = 28  # Beschriftungsband unter dem Bild (vertikal zentrierter Text)
 CELL_W = THUMB + 28
 CELL_H = 4 + THUMB + 4 + LABEL_H + 8  # Rand, Bild, Band, Abstand
 HEADER_H = 44
-ALT_BTN_H = 36
+ALT_BTN_H = 40
 GRID_PAD = 14
 STRIP = 64
 STRIP_WINDOW = 9  # ungerade: aktuelle Bildmitte + Nachbarn
@@ -1699,7 +1699,7 @@ class ReviewWindow(tk.Toplevel):
                 )
                 if alts:
                     y = self._draw_alt_section(
-                        f"Varianten für „{title}“",
+                        title,
                         current,
                         alts,
                         y,
@@ -1826,7 +1826,7 @@ class ReviewWindow(tk.Toplevel):
             )
             if alts:
                 y = self._draw_alt_section(
-                    f"Varianten für „{title}“",
+                    title,
                     folder,
                     alts,
                     y,
@@ -1849,12 +1849,14 @@ class ReviewWindow(tk.Toplevel):
         indices = [i for i in indices if i not in self.kept]
         if not indices:
             return y
-        label = (
+        action = (
             t("show_variants", n=len(indices))
             if collapsed
             else t("hide_variants")
         )
-        btn_w = 220
+        # Volle Breite der Rasterzeile, Text mittig
+        row_w = max(CELL_W * max(cols, 1), self.canvas.winfo_width() - GRID_PAD * 2 - 18)
+        btn_w = max(280, row_w)
         btn_h = ALT_BTN_H
         x1, y1 = GRID_PAD, y
         x2, y2 = x1 + btn_w, y1 + btn_h
@@ -1867,19 +1869,23 @@ class ReviewWindow(tk.Toplevel):
             outline=COLORS["line"],
             tags=("grid",),
         )
+        short = (title or "").strip()
+        if len(short) > 36:
+            short = short[:34] + "…"
+        text = f"{action}   ·   {short}" if short else action
         self.canvas.create_text(
-            x1 + 12,
-            y1 + btn_h / 2,
-            anchor=tk.W,
-            text=f"{title}: {label}",
+            (x1 + x2) / 2,
+            (y1 + y2) / 2,
+            text=text,
             fill=COLORS["ink"],
-            font=("Segoe UI Semibold", 9),
+            font=("Segoe UI Semibold", 10),
+            anchor=tk.CENTER,
             tags=("grid",),
         )
         self._hit_tiles.append(
             {"kind": "alt_toggle", "key": key, "box": (x1, y1, x2, y2)}
         )
-        y += btn_h + 8
+        y += btn_h + 10
         if not collapsed:
             y = self._draw_photo_rows(indices, key if key != "__suggestions__" else "", "add", y, cols)
         return y
