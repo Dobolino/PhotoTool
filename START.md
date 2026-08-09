@@ -92,6 +92,15 @@ Fotobuch starten.bat
    - Unten **Alternativen** und der **Dokumente-Pool** zum Hinzufügen.
    - **Speichern & Ordner neu schreiben**.
 
+### Auswahl unterbrechen / fortsetzen (ohne neue KI)
+
+- Während **Auswahl prüfen** wird automatisch `selection_draft.json` gespeichert.
+  Fenster schließen oder Absturz → später wieder **Auswahl prüfen / fortsetzen**.
+- Nach der KI schreibt das Programm einen Zwischenstand in `photos_analysis.csv`.
+  Die teure KI musst du **nicht** wiederholen.
+- Wenn es eine CSV mit Analyse gibt, aber noch keine fertige Auswahl: das Programm
+  fragt, ob es die Auswahl **aus der Analyse ohne KI** erzeugen soll.
+
 ### Schritt 4: Ergebnis
 
 Im **Ausgabe-Ordner** findest du:

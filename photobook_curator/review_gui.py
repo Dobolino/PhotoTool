@@ -17,6 +17,11 @@ from .review_export import (
     candidate_alternatives,
     chapter_sections,
 )
+from .selection_draft import (
+    apply_selection_draft,
+    load_selection_draft,
+    save_selection_draft,
+)
 from .utils import load_image
 
 COLORS = {
@@ -58,8 +63,18 @@ class ReviewWindow(tk.Toplevel):
         self.output_dir = Path(output_dir)
         self.on_saved = on_saved
 
-        # Startzustand: aktuell ausgewählte (Baseline bleibt für die Anzeige)
+        # Startzustand: Auswahl aus CSV, ggf. Entwurf überschreibt/ergänzt
         self.kept: set[int] = {i for i, p in enumerate(photos) if p.is_selected}
+        self._draft_note = ""
+        draft = load_selection_draft(self.output_dir)
+        if draft and draft.get("kept"):
+            applied = apply_selection_draft(photos, draft)
+            if applied:
+                self.kept = set(applied)
+                self._draft_note = (
+                    f"Entwurf geladen ({len(self.kept)} Bilder) – "
+                    f"zuletzt {str(draft.get('updated_at') or '')[:19]}"
+                )
         self.baseline: set[int] = set(self.kept)
         self._photo_images: list[ImageTk.PhotoImage] = []  # Referenzen halten
         self._thumb_cache: dict[int, ImageTk.PhotoImage] = {}
@@ -71,12 +86,15 @@ class ReviewWindow(tk.Toplevel):
         self._scroll_job: str | None = None
         self._wheel_bound = False
         self._grid_cols = 6
+        self._added_grid: ttk.Frame | None = None
+        self._added_count = 0
         self._loader = threading.Thread(target=self._thumb_worker, daemon=True)
         self._loader.start()
 
         self._setup_style()
         self._build()
         self._render()
+        self._autosave_draft()
         self.after(50, self._drain_thumbs)
         self.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -159,7 +177,19 @@ class ReviewWindow(tk.Toplevel):
         ttk.Button(bar, text="Speichern & Ordner neu schreiben", style="RevSave.TButton", command=self._save).pack(
             side=tk.RIGHT
         )
-        ttk.Button(bar, text="Abbrechen", command=self._close).pack(side=tk.RIGHT, padx=(0, 8))
+        ttk.Button(bar, text="Schließen (Entwurf bleibt)", command=self._close).pack(
+            side=tk.RIGHT, padx=(0, 8)
+        )
+        if self._draft_note:
+            ttk.Label(self, text=self._draft_note, style="RevMuted.TLabel").pack(
+                anchor=tk.W, padx=16, pady=(0, 4)
+            )
+        ttk.Label(
+            self,
+            text="Änderungen werden automatisch als selection_draft.json gesichert "
+            "(Absturz/Pause → später „Auswahl prüfen“ fortsetzen, ohne neue KI).",
+            style="RevMuted.TLabel",
+        ).pack(anchor=tk.W, padx=16, pady=(0, 6))
 
         container = ttk.Frame(self, style="Rev.TFrame")
         container.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
@@ -306,13 +336,53 @@ class ReviewWindow(tk.Toplevel):
             self.after(delay, self._drain_thumbs)
 
     def _update_count(self) -> None:
-        self.count_var.set(f"{len(self.kept)} Bilder ausgewählt")
+        self.count_var.set(f"{len(self.kept)} Bilder ausgewählt (Entwurf auto-gespeichert)")
+
+    def _autosave_draft(self) -> None:
+        try:
+            save_selection_draft(self.output_dir, self.photos, self.kept)
+        except Exception:
+            pass
+
+    def _ensure_added_section(self) -> ttk.Frame:
+        try:
+            if self._added_grid is not None and self._added_grid.winfo_exists():
+                return self._added_grid
+        except tk.TclError:
+            pass
+        wrap = ttk.Frame(self.inner, style="Rev.TFrame", padding=(8, 10))
+        children = self.inner.winfo_children()
+        if children:
+            wrap.pack(fill=tk.X, anchor=tk.NW, before=children[0])
+        else:
+            wrap.pack(fill=tk.X, anchor=tk.NW)
+        ttk.Label(wrap, text="Neu hinzugefügt (diese Sitzung)", style="RevHead.TLabel").pack(
+            anchor=tk.W
+        )
+        self._added_grid = ttk.Frame(wrap, style="Rev.TFrame")
+        self._added_grid.pack(fill=tk.X, pady=(4, 0))
+        return self._added_grid
+
+    def _remove_add_tiles(self, idx: int) -> None:
+        for key in list(self._tile_state.keys()):
+            if key == ("add", idx):
+                state = self._tile_state.pop(key)
+                try:
+                    state["outer"].destroy()
+                except tk.TclError:
+                    pass
+        if idx in self._thumb_labels:
+            self._thumb_labels[idx] = [
+                lbl for lbl in self._thumb_labels[idx] if lbl.winfo_exists()
+            ]
 
     def _render(self) -> None:
         for child in self.inner.winfo_children():
             child.destroy()
         self._tile_state.clear()
         self._thumb_labels.clear()
+        self._added_grid = None
+        self._added_count = 0
         self._update_count()
 
         display = sorted(self.baseline | self.kept)
@@ -527,6 +597,8 @@ class ReviewWindow(tk.Toplevel):
 
         def toggle(_event=None, i=idx, m=mode, folder_name=folder):
             if m == "add":
+                if i in self.kept:
+                    return
                 self.kept.add(i)
                 self.baseline.add(i)
                 if folder_name:
@@ -542,8 +614,16 @@ class ReviewWindow(tk.Toplevel):
                             if folder_name.endswith("essen")
                             else "Hauptteil"
                         )
-                # Struktur ändert sich (Kapitel/Alternativen) → neu zeichnen
-                self._render()
+                # Kein volles Neu-Laden: Kachel entfernen + oben als „neu“ zeigen
+                self._remove_add_tiles(i)
+                grid = self._ensure_added_section()
+                col = self._added_count % self._grid_cols
+                row = self._added_count // self._grid_cols
+                self._added_count += 1
+                self._tile(grid, i, col, row, mode="keep", folder=folder_name)
+                self._update_count()
+                self._autosave_draft()
+                self._schedule_scrollregion()
             else:
                 if i in self.kept:
                     self.kept.remove(i)
@@ -551,6 +631,7 @@ class ReviewWindow(tk.Toplevel):
                     self.kept.add(i)
                 self._update_count()
                 self._apply_tile_visual(("keep", i))
+                self._autosave_draft()
 
         key = (mode, idx)
         self._tile_state[key] = {
@@ -610,9 +691,19 @@ class ReviewWindow(tk.Toplevel):
         )
         if self.on_saved:
             self.on_saved()
+        try:
+            # Finaler Export ersetzt den Entwurf
+            from .selection_draft import draft_path
+
+            dp = draft_path(self.output_dir)
+            if dp.is_file():
+                dp.unlink()
+        except Exception:
+            pass
         self._close()
 
     def _close(self) -> None:
+        self._autosave_draft()
         self._unbind_wheel()
         if self._scroll_job is not None:
             try:

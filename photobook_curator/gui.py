@@ -64,10 +64,13 @@ HELP_TEXT = (
     "3. Zielanzahl einstellen (z. B. 80).\n"
     "4. Optionen nach Bedarf lassen oder anpassen.\n"
     "5. „Auswahl starten“ – Schritte werden farbig angezeigt.\n"
-    "6. Wenn fertig: „Auswahl prüfen“, anpassen, speichern.\n\n"
-    "KI-Kosten siehst du dauerhaft unter der Zielanzahl (Schätzung).\n"
-    "Mit „Nur Kosten schätzen“ kannst du zuerst den echten Kandidaten-\n"
-    "Betrag messen und vergleichen.\n\n"
+    "6. Wenn fertig: „Auswahl prüfen / fortsetzen“, anpassen, speichern.\n\n"
+    "Pause / Absturz\n"
+    "  In der Prüfung wird selection_draft.json automatisch gesichert.\n"
+    "  photos_analysis.csv enthält nach der KI den Zwischenstand –\n"
+    "  fortsetzen geht ohne neuen KI-Lauf (keine doppelten Kosten).\n\n"
+    "KI-Kosten siehst du unter der Zielanzahl. „Nur Kosten schätzen“\n"
+    "misst zuerst den Betrag zum Vergleichen.\n\n"
     "Tipp: „Programm aktualisieren.bat“ für Updates. Details: START.md."
 )
 
@@ -509,7 +512,10 @@ class PhotobookApp(tk.Tk):
         )
         self.cancel_btn.pack(side=tk.RIGHT, padx=(0, 8))
         self.review_btn = ttk.Button(
-            actions, text="Auswahl prüfen", style="Browse.TButton", command=self._open_review
+            actions,
+            text="Auswahl prüfen / fortsetzen",
+            style="Browse.TButton",
+            command=self._open_review,
         )
         self.review_btn.pack(side=tk.RIGHT, padx=(0, 8))
         self.map_btn = ttk.Button(
@@ -1265,8 +1271,15 @@ class PhotobookApp(tk.Tk):
         )
 
     def _open_review(self) -> None:
-        from .review_export import load_photos_from_csv, plan_from_photos
+        from .review_export import (
+            analysis_has_ai_scores,
+            load_photos_from_csv,
+            plan_from_photos,
+            rebuild_selection_from_analysis,
+        )
         from .review_gui import open_review
+        from .selection_draft import draft_exists
+        from .output import write_csv
 
         if self._is_analysis_running():
             messagebox.showinfo(
@@ -1283,16 +1296,11 @@ class PhotobookApp(tk.Tk):
         plan = self._last_plan
         output_dir = self._last_output
 
-        if photos is None or plan is None:
-            out = Path(self.output_var.get().strip() or "")
-            csv_path = out / "photos_analysis.csv"
-            if not csv_path.is_file():
-                messagebox.showinfo(
-                    "Keine Auswahl",
-                    "Bitte zuerst „Auswahl starten“, oder einen Ausgabeordner mit "
-                    "photos_analysis.csv wählen.",
-                )
-                return
+        out = Path(self.output_var.get().strip() or (output_dir or ""))
+        csv_path = out / "photos_analysis.csv"
+
+        # Immer bevorzugt frische CSV laden (enthält KI-Scores / Zwischenstand)
+        if csv_path.is_file():
             try:
                 photos = load_photos_from_csv(csv_path)
                 plan = plan_from_photos(photos)
@@ -1303,15 +1311,90 @@ class PhotobookApp(tk.Tk):
             except Exception as exc:
                 messagebox.showerror("Laden fehlgeschlagen", str(exc))
                 return
-
-        if not any(p.is_selected for p in photos):
+        elif photos is None or plan is None or output_dir is None:
             messagebox.showinfo(
-                "Keine Auswahl",
-                "In diesem Ordner sind keine ausgewählten Bilder markiert.",
+                "Keine Analyse",
+                "Kein Ausgabeordner mit photos_analysis.csv.\n\n"
+                "Nach einem (auch abgebrochenen) Lauf mit KI liegt die Analyse "
+                "dort – ohne neue KI-Kosten fortsetzbar.",
             )
             return
 
-        open_review(self, photos, plan, Path(output_dir), on_saved=lambda: self.status_var.set("Auswahl gespeichert"))
+        output_dir = Path(output_dir)
+        has_selected = any(p.is_selected for p in photos)
+        has_draft = draft_exists(output_dir)
+        has_ai = analysis_has_ai_scores(photos)
+        has_candidates = any(p.is_candidate for p in photos)
+
+        if not has_selected and not has_draft:
+            if has_ai or has_candidates:
+                msg = (
+                    "Es gibt eine Analyse-CSV, aber noch keine finale Auswahl.\n\n"
+                )
+                if has_ai:
+                    msg += "KI-Bewertungen sind bereits gespeichert – keine neue KI nötig.\n\n"
+                msg += (
+                    "Auswahl jetzt aus der Analyse erzeugen (ohne KI-Kosten) "
+                    "und danach prüfen?"
+                )
+                if not messagebox.askyesno("Auswahl aus Analyse", msg, parent=self):
+                    return
+                try:
+                    target = int(self.target_var.get())
+                except (TypeError, ValueError, tk.TclError):
+                    target = 80
+                try:
+                    self.status_var.set("Erzeuge Auswahl aus Analyse…")
+                    self.update_idletasks()
+                    coverage = (
+                        float(self.coverage_intensity_var.get())
+                        if self.coverage_var.get()
+                        else 0.0
+                    )
+                    people = (
+                        float(self.people_intensity_var.get())
+                        if self.people_var.get()
+                        else 0.0
+                    )
+                    plan, order = rebuild_selection_from_analysis(
+                        photos,
+                        target,
+                        coverage_intensity=coverage,
+                        people_balance_intensity=people,
+                    )
+                    write_csv(photos, output_dir / "photos_analysis.csv")
+                    self._last_photos = photos
+                    self._last_plan = plan
+                    self._last_order = order
+                    self._last_output = output_dir
+                    self.status_var.set(f"Auswahl erzeugt ({len(order)} Bilder)")
+                except Exception as exc:
+                    messagebox.showerror("Auswahl erzeugen fehlgeschlagen", str(exc))
+                    return
+            else:
+                messagebox.showinfo(
+                    "Keine Auswahl",
+                    "In diesem Ordner sind weder ausgewählte Bilder noch ein "
+                    "Auswahl-Entwurf vorhanden.\n\n"
+                    "Bitte zuerst „Auswahl starten“ (ohne „Nur Kosten schätzen“).",
+                )
+                return
+        elif has_draft and not has_selected:
+            messagebox.showinfo(
+                "Entwurf gefunden",
+                "Es gibt einen gespeicherten Auswahl-Entwurf "
+                "(selection_draft.json).\n"
+                "Er wird jetzt geladen – ohne neue Analyse/KI.",
+                parent=self,
+            )
+
+        open_review(
+            self,
+            photos,
+            plan,
+            Path(output_dir),
+            on_saved=lambda: self.status_var.set("Auswahl gespeichert"),
+        )
 
 
 def _report_startup_error() -> None:

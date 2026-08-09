@@ -258,9 +258,14 @@ def run_pipeline(
         print("=== Phase 4: AI-Review übersprungen ===")
         ensure_scene_types(photos, candidates)
 
+    # Checkpoint: Analyse/KI sichern, bevor Auswahl/Export – Absturz kostet dann keine KI erneut
+    write_csv(photos, cfg.output_dir / "photos_analysis.csv")
+    print(
+        f"  Zwischenstand gespeichert: {cfg.output_dir / 'photos_analysis.csv'} "
+        "(Analyse/KI – später ohne neuen KI-Lauf fortsetzbar)"
+    )
+
     if cfg.dry_run and cfg.ai_review:
-        # Im Dry-Run nach Kostenschätzung stoppen, trotzdem CSV der bisherigen Analyse schreiben
-        write_csv(photos, cfg.output_dir / "photos_analysis.csv")
         report("Fertig (Dry-Run)", 1.0, "done")
         return {
             "photos": len(photos),
@@ -292,6 +297,8 @@ def run_pipeline(
         people_balance_intensity=cfg.people_balance_intensity,
     )
     print(f"  {len(order)} Bilder ausgewählt")
+    write_csv(photos, cfg.output_dir / "photos_analysis.csv")
+    print("  Auswahl-Zwischenstand in photos_analysis.csv geschrieben")
 
     map_path = None
     if cfg.enable_map_preview:

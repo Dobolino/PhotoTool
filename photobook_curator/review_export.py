@@ -172,6 +172,67 @@ def plan_from_photos(photos: list[Photo]) -> BookPlan:
     return BookPlan(regions=regions, transits=transits)
 
 
+def rebuild_selection_from_analysis(
+    photos: list[Photo],
+    target_n: int,
+    *,
+    food_ratio: float = 0.15,
+    max_landmarks: int = 3,
+    similarity_threshold: float = 0.92,
+    coverage_intensity: float = 0.0,
+    people_balance_intensity: float = 0.0,
+    candidate_factor: float = 4.0,
+) -> tuple[BookPlan, list[tuple[int, str, str]]]:
+    """
+    Erzeugt eine Buchauswahl aus bereits analysierter CSV-Daten **ohne neue KI**.
+    Nutzt vorhandene Scores/Kandidaten (z. B. nach abgebrochenem Lauf).
+    """
+    from .selection import build_book_order, distribute_quotas, mark_candidates
+
+    for p in photos:
+        p.is_selected = False
+        p.book_position = None
+
+    plan = plan_from_photos(photos)
+    # Alle Fotos den Regionen zuordnen (auch Nicht-Kandidaten), sonst leere Quotas
+    if not plan.regions and not plan.transits:
+        # Fallback: eine Kunst-Region
+        from .models import Region
+
+        plan.regions = [
+            Region(
+                name="Album",
+                photo_indices=list(range(len(photos))),
+                chapter_index=0,
+            )
+        ]
+
+    distribute_quotas(photos, plan, target_n)
+    # Kandidaten neu setzen (nutzt technical/aesthetic scores aus der CSV)
+    for p in photos:
+        p.is_candidate = False
+    mark_candidates(
+        photos,
+        plan,
+        target_n=target_n,
+        candidate_factor=candidate_factor,
+    )
+    order = build_book_order(
+        photos,
+        plan,
+        food_ratio=food_ratio,
+        max_landmarks=max_landmarks,
+        similarity_threshold=similarity_threshold,
+        coverage_intensity=coverage_intensity,
+        people_balance_intensity=people_balance_intensity,
+    )
+    return plan, order
+
+
+def analysis_has_ai_scores(photos: list[Photo]) -> bool:
+    return any(p.aesthetic_score is not None for p in photos)
+
+
 def load_photos_from_csv(csv_path: Path) -> list[Photo]:
     """Lädt Fotozeilen aus der Analyse-CSV für die Review-Oberfläche."""
     photos: list[Photo] = []
