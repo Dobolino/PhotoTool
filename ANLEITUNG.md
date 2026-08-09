@@ -29,8 +29,10 @@ Im Explorer doppelklicken:
 Fotobuch starten.bat
 ```
 
-Beim ersten Start werden die Pakete automatisch installiert (kann ein paar Minuten dauern).  
-Danach öffnet sich ein Fenster.
+Zuerst erscheint ein **schwarzes Textfenster** (Status/Fehler) – das ist Absicht.  
+Beim ersten Start werden die Pakete automatisch installiert (oft einige Minuten).  
+Danach öffnet sich das Programmfenster; kurz „lade Erkennungsmodule…“, dann **Bereit**.  
+Bei Problemen: siehe `START.md` („Wenn nur ein leeres Fenster kommt“).
 
 ### 4. Im Fenster
 

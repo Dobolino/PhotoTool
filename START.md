@@ -59,12 +59,23 @@ Im Ordner `PhotoTool` **Doppelklick auf:**
 Fotobuch starten.bat
 ```
 
+- Zuerst erscheint ein **schwarzes Textfenster** mit Statusmeldungen – das ist Absicht.
 - Beim **ersten Start** legt das Skript automatisch eine Python-Umgebung an und
-  installiert die Pakete (dauert ein paar Minuten – nur beim ersten Mal).
-- Danach öffnet sich das **Fenster**.
+  installiert die Pakete (oft 3–10 Minuten – nur beim ersten Mal). Fenster nicht schließen.
+- Danach öffnet sich das **Programmfenster** („Fotobuch-Auswahl“).
+  Kurz steht dort „lade Erkennungsmodule…“, danach **Bereit**.
 
 > Beim allerersten Auswahl-Lauf lädt das Programm einmalig kleine Erkennungs-Modelle
 > aus dem Internet nach. Danach funktioniert es auch offline.
+
+#### Wenn nur ein leeres Fenster kommt
+
+| Was du siehst | Ursache | Lösung |
+|---|---|---|
+| Leeres / Store-Fenster, kein Text | Windows-Store-Alias statt echtem Python | Python von python.org, PATH anhaken; unter **Einstellungen → Apps → Aliase für App-Ausführung** `python.exe` / `python3.exe` **aus** |
+| Schwarzes Fenster ohne Text / schließt sofort | Python fehlt oder Start bricht ab | Erneut starten; Text lesen; ggf. Python neu installieren |
+| Schwarzes Fenster mit Fehlermeldung | Installation unvollständig | Meldung lesen; Bat erneut starten (repariert `.venv`) |
+| Kein Programmfenster | Fehler beim GUI-Start | Dateien `start_log.txt` und `fehler_beim_start.txt` im Ordner öffnen |
 
 ### Schritt 3: Bedienung
 

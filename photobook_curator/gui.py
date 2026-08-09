@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import os
 import queue
+import sys
 import threading
+import traceback
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from typing import TYPE_CHECKING, Any
 
-from .pipeline import PipelineCancelled, PipelineConfig, run_pipeline
+if TYPE_CHECKING:
+    from .pipeline import PipelineConfig
 
 # Ruhige Foto-Editor-Palette (kein Lila, kein Neon)
 COLORS = {
@@ -64,9 +68,14 @@ class PhotobookApp(tk.Tk):
         self._last_plan = None
         self._last_order = None
         self._last_output: Path | None = None
+        self._pipeline_ready = False
+        self._pipeline_error: str | None = None
         self._setup_style()
         self._build()
         self.after(150, self._drain_queues)
+        # Schwere Module (OpenCV/MediaPipe) erst NACH dem Fenster laden,
+        # sonst wirkt der Start wie ein leeres schwarzes Konsolenfenster.
+        self.after(200, self._warmup_backend)
 
     def _setup_style(self) -> None:
         style = ttk.Style(self)
@@ -270,7 +279,7 @@ class PhotobookApp(tk.Tk):
 
         actions = ttk.Frame(body, style="App.TFrame")
         actions.pack(fill=tk.X, pady=(14, 8))
-        self.status_var = tk.StringVar(value="Bereit")
+        self.status_var = tk.StringVar(value="Fenster geöffnet – lade Erkennungsmodule…")
         ttk.Label(actions, textvariable=self.status_var, style="Sub.TLabel").pack(side=tk.LEFT)
         self.map_btn = ttk.Button(
             actions, text="Karte zeigen", style="Browse.TButton", command=self._open_map_preview
@@ -379,6 +388,43 @@ class PhotobookApp(tk.Tk):
     def _on_people_scale(self, _value=None) -> None:
         pct = int(round(float(self.people_intensity_var.get()) * 100))
         self.people_label.configure(text=f"{pct}%")
+
+    def _warmup_backend(self) -> None:
+        """Lädt Pipeline-Abhängigkeiten im Hintergrund, Fenster bleibt bedienbar."""
+
+        def worker() -> None:
+            try:
+                from . import pipeline as _pipeline  # noqa: F401
+
+                self._pipeline_ready = True
+                self.after(0, lambda: self.status_var.set("Bereit"))
+                self.after(0, lambda: self._append_log("Erkennungsmodule geladen."))
+            except Exception:
+                self._pipeline_error = traceback.format_exc()
+                self.after(0, lambda: self.status_var.set("Module fehlgeschlagen"))
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Module fehlen",
+                        "Die Erkennungsmodule konnten nicht geladen werden.\n\n"
+                        "Oft hilft: „Fotobuch starten.bat“ erneut ausführen "
+                        "(repariert eine unvollständige Installation).\n\n"
+                        + (self._pipeline_error or "")[-1500:],
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _ensure_pipeline(self):
+        if self._pipeline_error:
+            raise RuntimeError(
+                "Erkennungsmodule konnten nicht geladen werden.\n"
+                + self._pipeline_error[-1200:]
+            )
+        from .pipeline import PipelineCancelled, PipelineConfig, run_pipeline
+
+        self._pipeline_ready = True
+        return PipelineCancelled, PipelineConfig, run_pipeline
 
     def _pick_input(self) -> None:
         path = filedialog.askdirectory(title="Fotos-Ordner wählen")
@@ -492,6 +538,12 @@ class PhotobookApp(tk.Tk):
             people_balance_intensity = float(self.people_intensity_var.get())
 
         map_preview = bool(self.map_preview_var.get())
+        try:
+            _cancelled, PipelineConfig, _run_pipeline = self._ensure_pipeline()
+        except Exception as exc:
+            messagebox.showerror("Module fehlen", str(exc))
+            return
+
         cfg = PipelineConfig(
             input_dir=input_dir.resolve(),
             output_dir=output_dir.resolve(),
@@ -527,9 +579,7 @@ class PhotobookApp(tk.Tk):
             self.phase_var.set("Abbrechen… (stoppt nach dem aktuellen Schritt)")
             self._append_log("Abbruch angefordert…")
 
-    def _run(self, cfg: PipelineConfig) -> None:
-        import sys
-
+    def _run(self, cfg: Any) -> None:
         class QueueWriter:
             def __init__(self, q: queue.Queue[str], original) -> None:
                 self.q = q
@@ -574,6 +624,7 @@ class PhotobookApp(tk.Tk):
         sys.stdout = QueueWriter(self._log_queue, old_out)  # type: ignore[assignment]
         sys.stderr = QueueWriter(self._log_queue, old_err)  # type: ignore[assignment]
         try:
+            PipelineCancelled, _, run_pipeline = self._ensure_pipeline()
             result = run_pipeline(
                 cfg,
                 progress=on_progress,
@@ -593,21 +644,24 @@ class PhotobookApp(tk.Tk):
             self._progress_queue.put(("Fertig", 1.0))
             self.after(0, lambda: self.status_var.set("Fertig"))
             self.after(0, lambda r=result: self._on_finished(r, cfg))
-        except PipelineCancelled:
-            self._log_queue.put("Abgebrochen – es wurden keine Ordner geschrieben.")
-            self._progress_queue.put(("Abgebrochen", 0.0))
-            self.after(0, lambda: self.status_var.set("Abgebrochen"))
         except Exception as exc:
-            self._log_queue.put(f"Fehler: {exc}")
-            self._progress_queue.put(("Fehler", 0.0))
-            self.after(0, lambda: self.status_var.set("Fehler"))
-            self.after(0, lambda: messagebox.showerror("Fehler", str(exc)))
+            from .pipeline import PipelineCancelled as _Cancelled
+
+            if isinstance(exc, _Cancelled):
+                self._log_queue.put("Abgebrochen – es wurden keine Ordner geschrieben.")
+                self._progress_queue.put(("Abgebrochen", 0.0))
+                self.after(0, lambda: self.status_var.set("Abgebrochen"))
+            else:
+                self._log_queue.put(f"Fehler: {exc}")
+                self._progress_queue.put(("Fehler", 0.0))
+                self.after(0, lambda: self.status_var.set("Fehler"))
+                self.after(0, lambda: messagebox.showerror("Fehler", str(exc)))
         finally:
             sys.stdout, sys.stderr = old_out, old_err
             self.after(0, lambda: self.start_btn.configure(state=tk.NORMAL))
             self.after(0, lambda: self.cancel_btn.configure(state=tk.DISABLED))
 
-    def _on_finished(self, result: dict, cfg: PipelineConfig) -> None:
+    def _on_finished(self, result: dict, cfg: Any) -> None:
         if result.get("dry_run"):
             messagebox.showinfo(
                 "Dry-Run",
@@ -782,6 +836,14 @@ def _report_startup_error() -> None:
 def main() -> int:
     try:
         app = PhotobookApp()
+        # Sofort sichtbar machen (manche Windows-Setups legen das Fenster hinten an)
+        try:
+            app.lift()
+            app.attributes("-topmost", True)
+            app.after(400, lambda: app.attributes("-topmost", False))
+            app.focus_force()
+        except tk.TclError:
+            pass
         app.mainloop()
         return 0
     except Exception:
