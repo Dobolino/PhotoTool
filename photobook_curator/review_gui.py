@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import queue
+import re
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -32,18 +33,41 @@ COLORS = theme_colors()
 
 THUMB = 120
 CELL_W = THUMB + 28
-CELL_H = THUMB + 52
+CELL_H = THUMB + 36  # eine kurze Zeile unter dem Bild
 HEADER_H = 44
 ALT_BTN_H = 36
 GRID_PAD = 14
 STRIP = 64
 STRIP_WINDOW = 9  # ungerade: aktuelle Bildmitte + Nachbarn
-# Wenige PhotoImage-Updates pro Tick → weniger Ruckeln beim Scrollen
-_THUMBS_PER_TICK = 6
+# PhotoImage-Updates pro Tick (UI bleibt flüssig, Ordner füllt sich schneller)
+_THUMBS_PER_TICK = 12
+_THUMB_PENDING_MAX = 64
 _SLIDE_MAX = 720  # max. Kantenlänge in der Diashow (kleiner = schneller)
-_LOADER_THREADS = 2
+_LOADER_THREADS = 3
 _ALT_LIMIT = 6  # Varianten pro Kapitel (weniger Widgets = flüssiger)
 _SLIDE_CACHE_MAX = 24
+
+# Kameranummer / kurzer Stem aus Dateiname (DSCF0491, IMG_0260, …)
+_IMAGE_NUM_RE = re.compile(
+    r"(?:^|[^A-Za-z0-9])((?:DSCF?|IMG_?|P|DSC)\d{3,}|\d{4,})(?:$|[^A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+
+def short_tile_label(filename: str, max_len: int = 12) -> str:
+    """Kurze Kachel-Beschriftung: Bildnummer oder gekürzter Dateiname."""
+    stem = Path(filename or "").stem
+    if not stem:
+        return "?"
+    match = _IMAGE_NUM_RE.search(stem)
+    if match:
+        label = match.group(1)
+    else:
+        # oft reicht der vordere Teil (ohne lange Hash-/Export-Suffixe)
+        label = stem.split("_")[0] if "_" in stem else stem
+    if len(label) > max_len:
+        return label[: max_len - 1] + "…"
+    return label
 
 
 class ReviewWindow(tk.Toplevel):
@@ -99,6 +123,9 @@ class ReviewWindow(tk.Toplevel):
         self._thumb_cache: dict[int, ImageTk.PhotoImage] = {}
         self._slide_cache: dict[int, ImageTk.PhotoImage] = {}
         self._pending_thumbs: set[int] = set()
+        # Indizes die noch geladen werden sollen (nicht verwerfen bei Warteschlangen-Limit)
+        self._wanted_thumbs: dict[int, int] = {}  # idx → beste (niedrigste) Priorität
+        self._thumb_failed: set[int] = set()
         # PriorityQueue: (prio, seq, job) — job = ("thumb"|"slide", idx) oder None=Stop
         self._load_queue: queue.PriorityQueue = queue.PriorityQueue()
         self._load_seq = itertools.count()
@@ -644,13 +671,25 @@ class ReviewWindow(tk.Toplevel):
                     self._ready_queue.put((real, None))
 
     def _request_thumb(self, idx: int, priority: int = 40) -> None:
-        if idx in self._thumb_cache or idx in self._pending_thumbs:
+        """Thumb anfordern – nie still verwerfen; Limit nur drosselt die parallele Queue."""
+        if idx in self._thumb_cache or idx in self._thumb_failed:
             return
-        # Warteschlange begrenzen – verhindert OneDrive-Stau
-        if len(self._pending_thumbs) > 40 and priority > 5:
+        if idx in self._pending_thumbs:
             return
-        self._pending_thumbs.add(idx)
-        self._enqueue_job("thumb", idx, priority)
+        prev = self._wanted_thumbs.get(idx)
+        if prev is None or priority < prev:
+            self._wanted_thumbs[idx] = priority
+        self._flush_thumb_requests()
+
+    def _flush_thumb_requests(self) -> None:
+        """Füllt die Lade-Queue aus _wanted_thumbs nach, sobald Platz ist."""
+        while self._wanted_thumbs and len(self._pending_thumbs) < _THUMB_PENDING_MAX:
+            idx = min(self._wanted_thumbs, key=self._wanted_thumbs.get)
+            prio = self._wanted_thumbs.pop(idx)
+            if idx in self._thumb_cache or idx in self._thumb_failed or idx in self._pending_thumbs:
+                continue
+            self._pending_thumbs.add(idx)
+            self._enqueue_job("thumb", idx, prio)
 
     def _request_slide(self, idx: int, priority: int = 10) -> None:
         if idx in self._slide_cache or idx in self._pending_slides:
@@ -684,6 +723,7 @@ class ReviewWindow(tk.Toplevel):
                 idx, canvas_img = self._ready_queue.get_nowait()
                 self._pending_thumbs.discard(idx)
                 if canvas_img is None:
+                    self._thumb_failed.add(idx)
                     continue
                 tk_img = ImageTk.PhotoImage(canvas_img)
                 self._thumb_cache[idx] = tk_img
@@ -705,8 +745,10 @@ class ReviewWindow(tk.Toplevel):
                 updated += 1
         except queue.Empty:
             pass
+        # Nach abgeschlossenen Jobs die zurückgestellten Ordner-Bilder nachschieben
+        self._flush_thumb_requests()
         if self.winfo_exists():
-            delay = 30 if updated else 90
+            delay = 25 if (updated or self._wanted_thumbs or self._pending_thumbs) else 100
             self.after(delay, self._drain_thumbs)
 
     def _drain_slides(self) -> None:
@@ -1743,6 +1785,8 @@ class ReviewWindow(tk.Toplevel):
 
         y += GRID_PAD
         self.canvas.configure(scrollregion=(0, 0, width, max(y, 100)))
+        # Nach dem Zeichnen ausstehende Thumbs anstoßen (falls Queue vorher voll war)
+        self._flush_thumb_requests()
 
     def _draw_section(
         self,
@@ -1897,28 +1941,22 @@ class ReviewWindow(tk.Toplevel):
         )
         self._canvas_img_ids[idx] = img_id
         if idx not in self._thumb_cache:
-            self._request_thumb(idx, priority=30 if mode == "keep" else 45)
+            # Obere Zeilen zuerst; Varianten etwas später
+            row_boost = max(0, int(y) // max(CELL_H, 1))
+            base = 20 if mode == "keep" else 40
+            self._request_thumb(idx, priority=base + min(row_boost, 30))
 
         photo = self.photos[idx]
-        caption = photo.filename
-        if len(caption) > 18:
-            caption = caption[:15] + "…"
-        meta = photo.scene_type or photo.chapter_type or ""
-        score = photo.final_score or photo.technical_score
-        folder_bit = ""
-        if mode == "keep" and folder:
-            short = folder.replace("\\", "/").split("/")[-1]
-            if len(short) > 14:
-                short = short[:12] + "…"
-            folder_bit = f" · {short}"
+        caption = short_tile_label(photo.filename)
         fg = COLORS["muted"] if (mode == "keep" and not kept) else COLORS["ink"]
         self.canvas.create_text(
             x + 6 + THUMB / 2,
-            y + 14 + THUMB,
-            text=f"{caption}\n{meta}{folder_bit} · {score:.0f}",
+            y + 12 + THUMB,
+            text=caption,
             fill=fg,
-            font=("Segoe UI", 8),
+            font=("Segoe UI", 9),
             justify=tk.CENTER,
+            width=THUMB,
             tags=("grid",),
         )
 

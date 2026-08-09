@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from photobook_curator.review_gui import short_tile_label
+
 
 def test_canvas_grid_handles_clicks_and_overlays() -> None:
     src = Path("photobook_curator/review_gui.py").read_text(encoding="utf-8")
@@ -15,8 +17,17 @@ def test_canvas_grid_handles_clicks_and_overlays() -> None:
     assert 'text="+"' in src or "text=\"+\"" in src
     assert "create_window" not in src
     assert "_grid_folder" in src
+    assert "_wanted_thumbs" in src
+    assert "_flush_thumb_requests" in src
     tree = ast.parse(src)
     assert tree is not None
+
+
+def test_short_tile_label_uses_image_number() -> None:
+    assert short_tile_label("DSCF0491.jpg") == "DSCF0491"
+    assert short_tile_label("IMG_0260.JPEG") == "IMG_0260"
+    assert short_tile_label("hongkong_street_long.jpg") == "hongkong"
+    assert len(short_tile_label("x" * 40 + ".jpg")) <= 12
 
 
 def test_alternatives_go_into_chapter_not_top_dump() -> None:
