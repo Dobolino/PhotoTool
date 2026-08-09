@@ -38,3 +38,10 @@ def test_load_image_scaled_exists() -> None:
     src = Path("photobook_curator/utils.py").read_text(encoding="utf-8")
     assert "def load_image_scaled" in src
     assert 'img.draft("RGB"' in src
+
+
+def test_review_init_does_not_shadow_i18n_t() -> None:
+    """Regression: `for t in loaders` machte t() UnboundLocalError."""
+    src = Path("photobook_curator/review_gui.py").read_text(encoding="utf-8")
+    assert "for t in self._loaders" not in src
+    assert "for loader in self._loaders" in src

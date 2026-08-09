@@ -114,8 +114,8 @@ class ReviewWindow(tk.Toplevel):
             threading.Thread(target=self._thumb_worker, daemon=True)
             for _ in range(_LOADER_THREADS)
         ]
-        for t in self._loaders:
-            t.start()
+        for loader in self._loaders:
+            loader.start()
 
         self._setup_style()
         self._build()
