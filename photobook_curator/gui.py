@@ -139,10 +139,11 @@ class PhotobookApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Fotobuch-Auswahl")
-        self.minsize(760, 720)
-        self.geometry("820x780")
+        self.minsize(720, 620)
+        self.geometry("780x680")
         self.configure(bg=COLORS["bg"])
         self._set_icon()
+        self._advanced_open = False
 
         self.found_var = tk.StringVar(value="")
         self.input_var = tk.StringVar()
@@ -332,7 +333,7 @@ class PhotobookApp(tk.Tk):
         root = ttk.Frame(self, style="App.TFrame")
         root.pack(fill=tk.BOTH, expand=True)
 
-        hero = ttk.Frame(root, style="Hero.TFrame", padding=(22, 18))
+        hero = ttk.Frame(root, style="Hero.TFrame", padding=(18, 12))
         hero.pack(fill=tk.X)
         hero_top = ttk.Frame(hero, style="Hero.TFrame")
         hero_top.pack(fill=tk.X)
@@ -340,107 +341,102 @@ class PhotobookApp(tk.Tk):
         ttk.Button(hero_top, text="Hilfe", style="Help.TButton", command=self._show_help).pack(
             side=tk.RIGHT
         )
-        ttk.Label(
-            hero,
-            text="Urlaubsfotos automatisch sortieren, filtern und als Kapitel vorbereiten.",
-            style="HeroSub.TLabel",
-        ).pack(anchor=tk.W, pady=(4, 0))
 
-        body = ttk.Frame(root, style="App.TFrame", padding=18)
+        body = ttk.Frame(root, style="App.TFrame", padding=14)
         body.pack(fill=tk.BOTH, expand=True)
 
-        card = ttk.Frame(body, style="Card.TFrame", padding=16)
+        card = ttk.Frame(body, style="Card.TFrame", padding=12)
         card.pack(fill=tk.X)
 
-        self._folder_row(card, "Fotos-Ordner", "Deine Japan-/Urlaubsfotos", self.input_var, self._pick_input)
-        ttk.Label(card, textvariable=self.found_var, style="Field.TLabel").pack(anchor=tk.W, pady=(4, 0))
-        ttk.Separator(card, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=12)
-        self._folder_row(card, "Ausgabe-Ordner", "Hier landen Auswahl und Übersicht", self.output_var, self._pick_output)
+        self._folder_row(card, "Fotos-Ordner", "", self.input_var, self._pick_input)
+        ttk.Label(card, textvariable=self.found_var, style="Field.TLabel").pack(anchor=tk.W, pady=(2, 0))
+        ttk.Separator(card, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+        self._folder_row(card, "Ausgabe-Ordner", "", self.output_var, self._pick_output)
 
-        settings = ttk.LabelFrame(body, text="  Einstellungen  ", style="Card.TLabelframe", padding=14)
-        settings.pack(fill=tk.X, pady=(14, 0))
+        settings = ttk.LabelFrame(body, text="  Einstellungen  ", style="Card.TLabelframe", padding=12)
+        settings.pack(fill=tk.X, pady=(12, 0))
 
         count_row = ttk.Frame(settings, style="Card.TFrame")
-        count_row.pack(fill=tk.X, pady=(0, 8))
+        count_row.pack(fill=tk.X, pady=(0, 6))
         ttk.Label(count_row, text="Zielanzahl Bilder", style="Body.TLabel").pack(side=tk.LEFT)
         spin = ttk.Spinbox(count_row, from_=10, to=500, textvariable=self.target_var, width=8)
         spin.pack(side=tk.RIGHT)
 
+        # Kern-Optionen immer sichtbar – Rest unter „Weitere Optionen“
         for text, var in (
-            ("Ortsnamen per Internet bestimmen", self.geocode_var),
+            ("Ortsnamen per Internet", self.geocode_var),
             ("Gesichtserkennung / Augen zu", self.faces_var),
-            ("Serien/Bursts (beste 1–2 behalten)", self.bursts_var),
-            ("Dokumente & Screenshots separat (Optional-Pool)", self.aside_var),
-            ("Finger vor der Linse erkennen & aussortieren", self.finger_var),
-            ("Tages-Abdeckung (nicht alles vom ersten Tag)", self.coverage_var),
-            ("Personen-Balance (nicht immer dieselbe Person)", self.people_var),
-            ("Kapitel-/Karten-Vorschau vor dem Export", self.map_preview_var),
-            ("KI-Bewertung aktivieren (Anthropic API)", self.ai_var),
-            ("Nur Kosten schätzen (kein echter KI-Lauf)", self.dry_run_var),
+            ("Serien/Bursts (beste 1–2)", self.bursts_var),
+            ("Dokumente & Screenshots separat", self.aside_var),
+        ):
+            ttk.Checkbutton(
+                settings, text=text, variable=var, command=self._sync_dependent_controls
+            ).pack(anchor=tk.W, pady=1)
+
+        self.advanced_toggle = ttk.Button(
+            settings,
+            text="Weitere Optionen ▸",
+            style="Help.TButton",
+            command=self._toggle_advanced,
+        )
+        self.advanced_toggle.pack(anchor=tk.W, pady=(8, 0))
+
+        self.advanced_frame = ttk.Frame(settings, style="Card.TFrame")
+        for text, var in (
+            ("Finger vor der Linse aussortieren", self.finger_var),
+            ("Tages-Abdeckung", self.coverage_var),
+            ("Personen-Balance", self.people_var),
+            ("Kapitel-/Karten-Vorschau vor Export", self.map_preview_var),
+            ("KI-Bewertung (Anthropic API)", self.ai_var),
+            ("Nur Kosten schätzen", self.dry_run_var),
         ):
             chk = ttk.Checkbutton(
-                settings, text=text, variable=var, command=self._sync_dependent_controls
+                self.advanced_frame,
+                text=text,
+                variable=var,
+                command=self._sync_dependent_controls,
             )
-            chk.pack(anchor=tk.W, pady=2)
+            chk.pack(anchor=tk.W, pady=1)
             if var is self.dry_run_var:
                 self.dry_run_chk = chk
 
-        cov_row = ttk.Frame(settings, style="Card.TFrame")
-        cov_row.pack(fill=tk.X, pady=(8, 0))
+        self.coverage_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
+        cov_row = ttk.Frame(self.coverage_block, style="Card.TFrame")
+        cov_row.pack(fill=tk.X, pady=(6, 0))
         ttk.Label(cov_row, text="Abdeckung-Stärke", style="Field.TLabel").pack(side=tk.LEFT)
         self.coverage_label = ttk.Label(cov_row, text="50%", style="Field.TLabel")
         self.coverage_label.pack(side=tk.RIGHT)
         self.coverage_scale = ttk.Scale(
-            settings,
+            self.coverage_block,
             from_=0.1,
             to=1.0,
             variable=self.coverage_intensity_var,
             command=self._on_coverage_scale,
         )
         self.coverage_scale.pack(fill=tk.X, pady=(2, 0))
-        ttk.Label(
-            settings,
-            text="Nur wirksam, wenn „Tages-Abdeckung“ aktiv. Links = sanft, rechts = stark gleichmäßig.",
-            style="Field.TLabel",
-        ).pack(anchor=tk.W, pady=(2, 0))
 
-        people_row = ttk.Frame(settings, style="Card.TFrame")
-        people_row.pack(fill=tk.X, pady=(8, 0))
+        self.people_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
+        people_row = ttk.Frame(self.people_block, style="Card.TFrame")
+        people_row.pack(fill=tk.X, pady=(6, 0))
         ttk.Label(people_row, text="Personen-Stärke", style="Field.TLabel").pack(side=tk.LEFT)
         self.people_label = ttk.Label(people_row, text="50%", style="Field.TLabel")
         self.people_label.pack(side=tk.RIGHT)
         self.people_scale = ttk.Scale(
-            settings,
+            self.people_block,
             from_=0.1,
             to=1.0,
             variable=self.people_intensity_var,
             command=self._on_people_scale,
         )
         self.people_scale.pack(fill=tk.X, pady=(2, 0))
-        ttk.Label(
-            settings,
-            text="Nur wirksam, wenn „Personen-Balance“ aktiv. Links = sanft, rechts = stark ausgewogen.",
-            style="Field.TLabel",
-        ).pack(anchor=tk.W, pady=(2, 0))
 
-        key_box = ttk.Frame(settings, style="Card.TFrame")
-        key_box.pack(fill=tk.X, pady=(10, 0))
-        ttk.Label(key_box, text="API-Key (optional)", style="Field.TLabel").pack(anchor=tk.W)
-        self.api_entry = ttk.Entry(key_box, textvariable=self.api_key_var, show="•")
-        self.api_entry.pack(fill=tk.X, pady=(4, 0))
+        self.ai_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
+        ttk.Label(self.ai_block, text="API-Key", style="Field.TLabel").pack(anchor=tk.W, pady=(6, 0))
+        self.api_entry = ttk.Entry(self.ai_block, textvariable=self.api_key_var, show="•")
+        self.api_entry.pack(fill=tk.X, pady=(2, 0))
 
         actions = ttk.Frame(body, style="App.TFrame")
-        actions.pack(fill=tk.X, pady=(14, 8))
-        self.status_var = tk.StringVar(value="Fenster geöffnet – lade Erkennungsmodule…")
-        ttk.Label(actions, textvariable=self.status_var, style="Sub.TLabel").pack(side=tk.LEFT)
-        self.map_btn = ttk.Button(
-            actions, text="Karte zeigen", style="Browse.TButton", command=self._open_map_preview
-        )
-        self.map_btn.pack(side=tk.RIGHT, padx=(0, 8))
-        self.review_btn = ttk.Button(
-            actions, text="Auswahl prüfen", style="Browse.TButton", command=self._open_review
-        )
-        self.review_btn.pack(side=tk.RIGHT, padx=(0, 8))
+        actions.pack(fill=tk.X, pady=(12, 6))
         self.start_btn = ttk.Button(actions, text="Auswahl starten", style="Start.TButton", command=self._start)
         self.start_btn.pack(side=tk.RIGHT)
         self.cancel_btn = ttk.Button(
@@ -451,41 +447,49 @@ class PhotobookApp(tk.Tk):
             state=tk.DISABLED,
         )
         self.cancel_btn.pack(side=tk.RIGHT, padx=(0, 8))
+        self.review_btn = ttk.Button(
+            actions, text="Auswahl prüfen", style="Browse.TButton", command=self._open_review
+        )
+        self.review_btn.pack(side=tk.RIGHT, padx=(0, 8))
+        self.map_btn = ttk.Button(
+            actions, text="Karte", style="Browse.TButton", command=self._open_map_preview
+        )
+        self.map_btn.pack(side=tk.RIGHT, padx=(0, 8))
+
+        self.next_step_var = tk.StringVar(
+            value="Nächster Schritt: Ordner wählen, dann „Auswahl starten“."
+        )
+        ttk.Label(body, textvariable=self.next_step_var, style="Next.TLabel").pack(
+            anchor=tk.W, pady=(0, 4)
+        )
+        self.status_var = tk.StringVar(value="Lade Erkennungsmodule…")
+        ttk.Label(body, textvariable=self.status_var, style="Sub.TLabel").pack(anchor=tk.W)
 
         prog_row = ttk.Frame(body, style="App.TFrame")
-        prog_row.pack(fill=tk.X, pady=(0, 4))
+        prog_row.pack(fill=tk.X, pady=(6, 0))
         self.phase_var = tk.StringVar(value="")
         ttk.Label(prog_row, textvariable=self.phase_var, style="Field.TLabel").pack(anchor=tk.W)
         self.progress = ttk.Progressbar(prog_row, mode="determinate", maximum=100)
-        self.progress.pack(fill=tk.X, pady=(4, 0))
+        self.progress.pack(fill=tk.X, pady=(2, 0))
 
         phase_box = ttk.LabelFrame(
-            body, text="  Analyse-Schritte  ", style="Card.TLabelframe", padding=8
+            body,
+            text="  Schritte  (orange = läuft, grün = fertig)  ",
+            style="Card.TLabelframe",
+            padding=6,
         )
-        phase_box.pack(fill=tk.X, pady=(10, 0))
-        ttk.Label(
-            phase_box,
-            text="Grau = noch offen · Orange = läuft · Grün = fertig · Blass = übersprungen",
-            style="Field.TLabel",
-        ).pack(anchor=tk.W)
+        phase_box.pack(fill=tk.X, pady=(8, 0))
         self._phase_inner = ttk.Frame(phase_box, style="Card.TFrame")
-        self._phase_inner.pack(fill=tk.X, pady=(6, 0))
+        self._phase_inner.pack(fill=tk.X)
         self._build_phase_chips()
 
-        self.next_step_var = tk.StringVar(
-            value="Nächster Schritt: Fotos- und Ausgabe-Ordner wählen, dann „Auswahl starten“."
-        )
-        ttk.Label(body, textvariable=self.next_step_var, style="Next.TLabel").pack(
-            anchor=tk.W, pady=(8, 0)
-        )
-
-        log_frame = ttk.LabelFrame(body, text="  Verlauf  ", style="Card.TLabelframe", padding=8)
-        log_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+        log_frame = ttk.LabelFrame(body, text="  Verlauf  ", style="Card.TLabelframe", padding=6)
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
         log_row = ttk.Frame(log_frame, style="Card.TFrame")
         log_row.pack(fill=tk.BOTH, expand=True)
         self.log = tk.Text(
             log_row,
-            height=10,
+            height=4,
             wrap=tk.WORD,
             state=tk.DISABLED,
             bg=COLORS["log_bg"],
@@ -493,8 +497,8 @@ class PhotobookApp(tk.Tk):
             insertbackground=COLORS["log_fg"],
             relief=tk.FLAT,
             font=("Consolas", 9),
-            padx=10,
-            pady=8,
+            padx=8,
+            pady=6,
         )
         self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll = ttk.Scrollbar(log_row, command=self.log.yview)
@@ -540,18 +544,33 @@ class PhotobookApp(tk.Tk):
         return cfg
 
     def _sync_dependent_controls(self) -> None:
-        """Regler/Felder nur aktiv, wenn die zugehörige Option angehakt ist."""
+        """Regler nur zeigen, wenn die Option an ist; KI-Felder abhängig von KI-Haken."""
         def enable(widget, on: bool) -> None:
             try:
                 widget.state(["!disabled"] if on else ["disabled"])
             except Exception:
                 pass
 
-        enable(self.coverage_scale, bool(self.coverage_var.get()))
-        enable(self.people_scale, bool(self.people_var.get()))
+        # Blöcke nur einblenden, wenn erweiterte Optionen offen sind
+        if self._advanced_open:
+            if self.coverage_var.get():
+                self.coverage_block.pack(fill=tk.X)
+            else:
+                self.coverage_block.pack_forget()
+            if self.people_var.get():
+                self.people_block.pack(fill=tk.X)
+            else:
+                self.people_block.pack_forget()
+            if self.ai_var.get():
+                self.ai_block.pack(fill=tk.X)
+            else:
+                self.ai_block.pack_forget()
+
         ai_on = bool(self.ai_var.get())
         enable(self.api_entry, ai_on)
         enable(self.dry_run_chk, ai_on)
+        enable(self.coverage_scale, bool(self.coverage_var.get()))
+        enable(self.people_scale, bool(self.people_var.get()))
         # Schritt-Tafel vor dem Start an Optionen anpassen
         if not self._is_analysis_running():
             self._reset_phase_board(self._ui_phase_config())
@@ -565,9 +584,10 @@ class PhotobookApp(tk.Tk):
         command,
     ) -> None:
         ttk.Label(parent, text=title, style="Body.TLabel").pack(anchor=tk.W)
-        ttk.Label(parent, text=hint, style="Field.TLabel").pack(anchor=tk.W, pady=(0, 4))
+        if hint:
+            ttk.Label(parent, text=hint, style="Field.TLabel").pack(anchor=tk.W, pady=(0, 4))
         row = ttk.Frame(parent, style="Card.TFrame")
-        row.pack(fill=tk.X)
+        row.pack(fill=tk.X, pady=(2, 0))
         ttk.Entry(row, textvariable=var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(row, text="Durchsuchen", style="Browse.TButton", command=command).pack(
             side=tk.LEFT, padx=(8, 0)
@@ -651,24 +671,34 @@ class PhotobookApp(tk.Tk):
     def _set_next_step(self, text: str) -> None:
         self.next_step_var.set(text)
 
+    def _toggle_advanced(self) -> None:
+        self._advanced_open = not self._advanced_open
+        if self._advanced_open:
+            self.advanced_frame.pack(fill=tk.X, pady=(6, 0))
+            self.advanced_toggle.configure(text="Weitere Optionen ▾")
+            self._sync_dependent_controls()
+        else:
+            self.advanced_frame.pack_forget()
+            self.advanced_toggle.configure(text="Weitere Optionen ▸")
+
     def _build_phase_chips(self) -> None:
         for child in self._phase_inner.winfo_children():
             child.destroy()
         self._phase_labels.clear()
-        cols = 4
+        cols = 8
         for i, step in enumerate(PHASE_STEPS):
             status = self._phase_status.get(step.id, "pending")
             bg_key, fg_key = PHASE_STYLE.get(status, PHASE_STYLE["pending"])
             lbl = tk.Label(
                 self._phase_inner,
-                text=f"  {step.label}  ",
+                text=step.label,
                 bg=COLORS[bg_key],
                 fg=COLORS[fg_key],
-                font=("Segoe UI Semibold", 9),
-                padx=4,
-                pady=4,
+                font=("Segoe UI", 8),
+                padx=3,
+                pady=2,
             )
-            lbl.grid(row=i // cols, column=i % cols, padx=3, pady=3, sticky="ew")
+            lbl.grid(row=i // cols, column=i % cols, padx=2, pady=2, sticky="ew")
             self._phase_labels[step.id] = lbl
         for c in range(cols):
             self._phase_inner.grid_columnconfigure(c, weight=1)
