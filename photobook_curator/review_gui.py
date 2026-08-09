@@ -344,13 +344,18 @@ class ReviewWindow(tk.Toplevel):
             cursor="hand2",
         )
         self._slide_image_lbl.pack(fill=tk.BOTH, expand=True)
+        # Großes Bild: Klick = raus/rein; Mausrad = blättern
         self._slide_image_lbl.bind("<Button-1>", self._slide_toggle_current)
+        self._slide_image_lbl.bind("<MouseWheel>", self._slide_mousewheel)
+        self._slide_image_lbl.bind("<Button-4>", lambda e: self._slide_prev())
+        self._slide_image_lbl.bind("<Button-5>", lambda e: self._slide_next())
 
         strip_wrap = ttk.Frame(host, style="Rev.TFrame", padding=(0, 10, 0, 0))
         strip_wrap.pack(fill=tk.X)
         ttk.Label(strip_wrap, text="Umgebung", style="RevMuted.TLabel").pack(anchor=tk.W)
         self._strip_bar = tk.Frame(strip_wrap, bg=COLORS["bg"])
         self._strip_bar.pack(fill=tk.X, pady=(4, 0))
+        self._strip_bar.bind("<MouseWheel>", self._slide_mousewheel)
 
         meta = ttk.Frame(host, style="Rev.TFrame", padding=(0, 10, 0, 0))
         meta.pack(fill=tk.X)
@@ -757,6 +762,16 @@ class ReviewWindow(tk.Toplevel):
         self._apply_tile_visual(("keep", idx))
         self._refresh_slide_meta()
         self._refresh_strip_borders()
+
+    def _slide_mousewheel(self, event) -> None:
+        if not self._slideshow:
+            return
+        delta = int(getattr(event, "delta", 0) or 0)
+        if delta > 0:
+            self._slide_prev()
+        elif delta < 0:
+            self._slide_next()
+        return "break"
 
     def _slide_key_prev(self, _event=None) -> None:
         if self._slideshow:
