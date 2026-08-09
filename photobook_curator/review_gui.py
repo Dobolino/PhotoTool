@@ -326,6 +326,18 @@ class ReviewWindow(tk.Toplevel):
             )
             overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
 
+        # Warnhinweis bei schlechten Gesichtern
+        if getattr(photo, "bad_face", False) or "eyes_closed" in photo.flags:
+            warn = "Augen zu" if getattr(photo, "eyes_closed", False) or "eyes_closed" in photo.flags else "Gesicht?"
+            badge = tk.Label(
+                inner,
+                text=warn,
+                bg="#A65B2A",
+                fg="white",
+                font=("Segoe UI Semibold", 7),
+            )
+            badge.place(relx=0.02, rely=0.02, anchor=tk.NW)
+
         def toggle(_event=None, i=idx, m=mode, folder_name=folder):
             if m == "add":
                 self.kept.add(i)

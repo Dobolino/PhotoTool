@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from .ai_review import ensure_scene_types, run_ai_review
 from .duplicates import mark_duplicates
+from .face_quality import analyze_face_quality
 from .faces import count_faces
 from .geocoding import GeocodeCache
 from .models import BookPlan, Photo
@@ -53,6 +54,10 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     if not cfg.skip_faces:
         backend = count_faces(photos)
         print(f"  Gesichtserkennung: {backend}")
+        fq_backend = analyze_face_quality(photos)
+        bad = sum(1 for p in photos if p.bad_face)
+        closed = sum(1 for p in photos if p.eyes_closed)
+        print(f"  Gesichtsqualität: {fq_backend} ({closed} Augen zu, {bad} problematisch)")
     else:
         print("  Gesichtserkennung übersprungen")
 

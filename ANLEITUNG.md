@@ -53,6 +53,8 @@ Im Ausgabeordner:
 - `inhaltsverzeichnis.md` — Übersicht
 - `photos_analysis.csv` — alle Details
 
+Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter (angeschnitten / zu klein), markiert sie in der Prüfung und bevorzugt sie nicht fürs Buch.
+
 Optional: Haken bei **KI-Bewertung** setzen und API-Key eintragen (braucht Account auf [console.anthropic.com](https://console.anthropic.com/) — Claude-Chat-Abo reicht nicht).
 
 ---

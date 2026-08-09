@@ -237,6 +237,10 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 is_duplicate=_bool("is_duplicate"),
                 is_screenshot=_bool("is_screenshot"),
                 assigned_by_time=_bool("assigned_by_time"),
+                eyes_closed=_bool("eyes_closed"),
+                face_cut_off=_bool("face_cut_off"),
+                face_too_small=_bool("face_too_small"),
+                bad_face=_bool("bad_face"),
                 flags=[f for f in (row.get("flags") or "").split("|") if f],
                 region=(row.get("region") or None) or None,
             )

@@ -122,7 +122,9 @@ def compute_final_score(photo: Photo) -> float:
         score *= 0.4
     if photo.quality_issue:
         score *= 0.7
-    if photo.landmark:
+    if getattr(photo, "bad_face", False):
+        score *= 0.45
+    if photo.landmark and not getattr(photo, "bad_face", False):
         score += 5.0
     photo.final_score = float(max(0.0, min(100.0, score)))
     return photo.final_score
@@ -143,10 +145,11 @@ def _select_diverse(
         i: color_histogram(photos[i]) for i in indices
     }
 
-    # Nach Score sortieren, Landmark optional bevorzugen
+    # Nach Score sortieren; schlechte Gesichter stark nach hinten
     def sort_key(i: int) -> tuple:
-        landmark_boost = 1 if (prefer_landmarks and photos[i].landmark) else 0
-        return (landmark_boost, photos[i].final_score)
+        bad = 1 if getattr(photos[i], "bad_face", False) else 0
+        landmark_boost = 1 if (prefer_landmarks and photos[i].landmark and not bad) else 0
+        return (-bad, landmark_boost, photos[i].final_score)
 
     ranked = sorted(indices, key=sort_key, reverse=True)
     selected: list[int] = []

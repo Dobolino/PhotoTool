@@ -51,6 +51,10 @@ class Photo:
     is_duplicate: bool = False
     duplicate_of: Optional[str] = None
     face_count: int = 0
+    eyes_closed: bool = False
+    face_cut_off: bool = False
+    face_too_small: bool = False
+    bad_face: bool = False
     technical_score: float = 0.0
     phash: Optional[str] = None
 
@@ -110,6 +114,10 @@ class Photo:
             "contrast": round(self.contrast, 2),
             "saturation": round(self.saturation, 2),
             "face_count": self.face_count,
+            "eyes_closed": self.eyes_closed,
+            "face_cut_off": self.face_cut_off,
+            "face_too_small": self.face_too_small,
+            "bad_face": self.bad_face,
             "technical_score": round(self.technical_score, 2),
             "aesthetic_score": self.aesthetic_score if self.aesthetic_score is not None else "",
             "landmark": self.landmark or "",

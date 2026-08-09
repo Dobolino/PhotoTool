@@ -72,6 +72,14 @@ def compute_technical_score(photo: Photo) -> float:
     if photo.face_count >= 1:
         score += min(8.0, 3.0 * photo.face_count)
 
+    # Starke Abzüge bei schlechten Gesichtern (Fotobuch-Killer)
+    if getattr(photo, "eyes_closed", False):
+        score -= 35.0
+    if getattr(photo, "face_cut_off", False):
+        score -= 15.0
+    if getattr(photo, "face_too_small", False) and photo.face_count >= 1:
+        score -= 8.0
+
     photo.technical_score = float(max(0.0, min(100.0, score)))
     return photo.technical_score
 
