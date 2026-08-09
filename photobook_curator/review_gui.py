@@ -32,8 +32,9 @@ from .utils import load_image_scaled, load_thumb_cached
 COLORS = theme_colors()
 
 THUMB = 120
+LABEL_H = 28  # Beschriftungsband unter dem Bild (vertikal zentrierter Text)
 CELL_W = THUMB + 28
-CELL_H = THUMB + 36  # eine kurze Zeile unter dem Bild
+CELL_H = 4 + THUMB + 4 + LABEL_H + 8  # Rand, Bild, Band, Abstand
 HEADER_H = 44
 ALT_BTN_H = 36
 GRID_PAD = 14
@@ -1602,31 +1603,28 @@ class ReviewWindow(tk.Toplevel):
             # Overlay-Text aktualisieren
             tag = f"ov_{mode}_{idx}_{folder}"
             self.canvas.delete(tag)
-            if mode == "keep" and not kept:
-                # Position aus border coords
-                coords = self.canvas.coords(border_id)
-                if len(coords) >= 4:
-                    cx = (coords[0] + coords[2]) / 2
-                    cy = coords[1] + 16 + THUMB / 2
+            coords = self.canvas.coords(border_id)
+            if len(coords) >= 4:
+                cx = (coords[0] + coords[2]) / 2
+                cy = (coords[1] + coords[3]) / 2
+                if mode == "keep" and not kept:
                     self.canvas.create_text(
                         cx,
                         cy,
                         text=t("removed_state"),
                         fill=COLORS.get("hero_fg", "#FFFFFF"),
                         font=("Segoe UI Semibold", 9),
+                        anchor=tk.CENTER,
                         tags=("grid", tag),
                     )
-            elif mode == "add" and idx not in self.kept:
-                coords = self.canvas.coords(border_id)
-                if len(coords) >= 4:
-                    cx = (coords[0] + coords[2]) / 2
-                    cy = coords[1] + 16 + THUMB / 2
+                elif mode == "add" and idx not in self.kept:
                     self.canvas.create_text(
                         cx,
                         cy,
                         text="+",
                         fill=COLORS.get("hero_fg", "#FFFFFF"),
                         font=("Segoe UI Semibold", 14),
+                        anchor=tk.CENTER,
                         tags=("grid", tag),
                     )
         except tk.TclError:
@@ -1909,22 +1907,30 @@ class ReviewWindow(tk.Toplevel):
         border = COLORS["keep_border"] if (mode == "add" or kept) else COLORS["reject_border"]
         if mode == "add":
             border = COLORS["accent"] if idx not in self.kept else COLORS["keep_border"]
-        pad = COLORS.get("thumb_pad", COLORS["line"])
+        tile_w = THUMB + 12
+        tile_h = CELL_H - 8
+        img_x1, img_y1 = x + 4, y + 4
+        img_x2, img_y2 = x + 8 + THUMB, y + 8 + THUMB
+        label_y1 = img_y2 + 2
+        label_y2 = y + tile_h - 2
+        label_cx = x + tile_w / 2
+        label_cy = (label_y1 + label_y2) / 2
+
         # Kachel-Hintergrund
         self.canvas.create_rectangle(
             x,
             y,
-            x + THUMB + 12,
-            y + CELL_H - 8,
+            x + tile_w,
+            y + tile_h,
             fill=COLORS["surface"],
             outline="",
             tags=("grid",),
         )
         border_id = self.canvas.create_rectangle(
-            x + 4,
-            y + 4,
-            x + 8 + THUMB,
-            y + 8 + THUMB,
+            img_x1,
+            img_y1,
+            img_x2,
+            img_y2,
             outline=border,
             width=2,
             tags=("grid",),
@@ -1934,8 +1940,8 @@ class ReviewWindow(tk.Toplevel):
 
         tk_img = self._thumb_cache.get(idx) or self._placeholder_img
         img_id = self.canvas.create_image(
-            x + 6 + THUMB / 2,
-            y + 6 + THUMB / 2,
+            (img_x1 + img_x2) / 2,
+            (img_y1 + img_y2) / 2,
             image=tk_img,
             tags=("grid",),
         )
@@ -1949,14 +1955,23 @@ class ReviewWindow(tk.Toplevel):
         photo = self.photos[idx]
         caption = short_tile_label(photo.filename)
         fg = COLORS["muted"] if (mode == "keep" and not kept) else COLORS["ink"]
+        # Beschriftungsband: Text horizontal + vertikal mittig
+        self.canvas.create_rectangle(
+            img_x1,
+            label_y1,
+            img_x2,
+            label_y2,
+            fill=COLORS.get("chip_bg", COLORS["bg"]),
+            outline="",
+            tags=("grid",),
+        )
         self.canvas.create_text(
-            x + 6 + THUMB / 2,
-            y + 12 + THUMB,
+            label_cx,
+            label_cy,
             text=caption,
             fill=fg,
-            font=("Segoe UI", 9),
-            justify=tk.CENTER,
-            width=THUMB,
+            font=("Segoe UI Semibold", 9),
+            anchor=tk.CENTER,
             tags=("grid",),
         )
 
@@ -2010,22 +2025,26 @@ class ReviewWindow(tk.Toplevel):
             )
 
         tag = f"ov_{mode}_{idx}_{folder}"
+        img_cx = (img_x1 + img_x2) / 2
+        img_cy = (img_y1 + img_y2) / 2
         if mode == "keep" and not kept:
             self.canvas.create_text(
-                x + 6 + THUMB / 2,
-                y + 6 + THUMB / 2,
+                img_cx,
+                img_cy,
                 text=t("removed_state"),
                 fill=COLORS.get("hero_fg", "#FFFFFF"),
                 font=("Segoe UI Semibold", 9),
+                anchor=tk.CENTER,
                 tags=("grid", tag),
             )
         elif mode == "add" and idx not in self.kept:
             self.canvas.create_text(
-                x + 6 + THUMB / 2,
-                y + 6 + THUMB / 2,
+                img_cx,
+                img_cy,
                 text="+",
                 fill=COLORS.get("hero_fg", "#FFFFFF"),
                 font=("Segoe UI Semibold", 16),
+                anchor=tk.CENTER,
                 tags=("grid", tag),
             )
 
@@ -2035,7 +2054,7 @@ class ReviewWindow(tk.Toplevel):
                 "idx": idx,
                 "mode": mode,
                 "folder": folder,
-                "box": (x, y, x + THUMB + 12, y + CELL_H - 8),
+                "box": (x, y, x + tile_w, y + tile_h),
             }
         )
 
