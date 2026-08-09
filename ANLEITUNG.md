@@ -13,13 +13,17 @@ Beim Setup **„Add python.exe to PATH“** anhaken.
 
 ### 2. Projekt aktualisieren
 
-Im Ordner `PhotoTool` (z. B. `Downloads\PhotoTool`) PowerShell öffnen:
+**Einfach:** Im Ordner `PhotoTool` doppelklicken auf `Programm aktualisieren.bat`.
+
+Oder in PowerShell:
 
 ```powershell
 cd $HOME\Downloads\PhotoTool
 git checkout cursor/photobook-curator-c6d6
-git pull
+git pull origin cursor/photobook-curator-c6d6
 ```
+
+Ausführlich: Abschnitt **Programm aktualisieren** in `START.md`.
 
 ### 3. Programm starten
 
