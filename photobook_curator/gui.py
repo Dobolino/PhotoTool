@@ -575,12 +575,10 @@ class PhotobookApp(tk.Tk):
         from .ui_widgets import (
             AnAusToggle,
             PaddedButton,
-            StepChip,
             card,
             pill_badge,
             section_header,
             soft_banner,
-            step_connector,
         )
 
         c = COLORS
@@ -609,19 +607,6 @@ class PhotobookApp(tk.Tk):
             header, t("help"), c, command=self._show_help, padx=14, pady=9
         )
         self._help_btn.pack(side=tk.RIGHT, padx=(0, 10))
-
-        # Workflow-Schritte (großzügig, kein Text-Clipping)
-        steps = tk.Frame(root, bg=c["bg"], padx=22)
-        steps.pack(fill=tk.X, pady=(0, 10))
-        self._step_chips = [
-            StepChip(steps, t("step_folders"), c, active=True),
-            StepChip(steps, t("step_options"), c, active=False),
-            StepChip(steps, t("step_run"), c, active=False),
-        ]
-        for i, chip in enumerate(self._step_chips):
-            if i:
-                step_connector(steps, c).pack(side=tk.LEFT, padx=4)
-            chip.pack(side=tk.LEFT, padx=(0, 4))
 
         # Scrollbarer Inhalt
         body_host = ttk.Frame(root, style="App.TFrame")
@@ -692,8 +677,6 @@ class PhotobookApp(tk.Tk):
         try:
             self.target_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
             self.ai_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
-            self.input_var.trace_add("write", lambda *_: self._refresh_workflow_steps())
-            self.output_var.trace_add("write", lambda *_: self._refresh_workflow_steps())
         except Exception:
             pass
         tk.Label(
@@ -846,7 +829,7 @@ class PhotobookApp(tk.Tk):
         log_row.pack(fill=tk.BOTH, expand=True)
         self.log = tk.Text(
             log_row,
-            height=5,
+            height=12,
             wrap=tk.WORD,
             state=tk.DISABLED,
             bg=c["log_bg"],
@@ -892,7 +875,6 @@ class PhotobookApp(tk.Tk):
 
         self._sync_dependent_controls()
         self._refresh_cost_estimate()
-        self._refresh_workflow_steps()
 
     def _set_icon(self) -> None:
         """Ersetzt das Standard-Tk-Icon (blaue Feder) durch ein eigenes."""
@@ -1014,25 +996,6 @@ class PhotobookApp(tk.Tk):
         except tk.TclError:
             pass
 
-    def _refresh_workflow_steps(self) -> None:
-        """Stepper folgt dem echten Fortschritt (Ordner → Optionen → Start)."""
-        try:
-            chips = getattr(self, "_step_chips", None)
-            if not chips:
-                return
-            has_in = bool(self.input_var.get().strip())
-            has_out = bool(self.output_var.get().strip())
-            if has_in and has_out:
-                active = 2
-            elif has_in or has_out:
-                active = 1
-            else:
-                active = 0
-            for i, chip in enumerate(chips):
-                chip.set_active(i == active)
-        except Exception:
-            pass
-
     def _open_settings(self) -> None:
         from .settings_dialog import open_settings_dialog
 
@@ -1089,10 +1052,6 @@ class PhotobookApp(tk.Tk):
                 tog.set_labels(t("toggle_on"), t("toggle_off"))
             for chk, key in self._adv_checks:
                 chk.configure(text=t(key))
-            chips = getattr(self, "_step_chips", [])
-            labels = (t("step_folders"), t("step_options"), t("step_run"))
-            for chip, text in zip(chips, labels):
-                chip.set_text(text)
             tip = getattr(self, "_tip_banner", None)
             if tip is not None:
                 for child in tip.winfo_children():
@@ -1105,7 +1064,6 @@ class PhotobookApp(tk.Tk):
                 cur = self.found_var.get()
                 if "gefunden" in cur.lower() or "found" in cur.lower() or "Keine" in cur:
                     self.found_var.set(t("found_none"))
-            self._refresh_workflow_steps()
             if not self._is_analysis_running() and self.status_var.get() in (
                 "Lade Erkennungsmodule…",
                 "Loading detection modules…",
@@ -1187,7 +1145,6 @@ class PhotobookApp(tk.Tk):
         self._found_count = int(n or 0)
         self.found_var.set(msg)
         self._refresh_cost_estimate()
-        self._refresh_workflow_steps()
 
     def _pick_output(self) -> None:
         path = filedialog.askdirectory(title="Ausgabe-Ordner wählen")
