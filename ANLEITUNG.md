@@ -47,7 +47,8 @@ Bei Problemen: siehe `START.md` („Wenn nur ein leeres Fenster kommt“).
 5. Warten, bis „Fertig“ erscheint
 6. Bei Nachfrage **Ja** → **Auswahl prüfen** (Thumbnails oder Diashow)
    - Raster: Klick auf ein Bild = rausnehmen / wieder reinnehmen
-   - Diashow: Button **Diashow-Ansicht** – großes Bild, ← →, Leertaste = raus/rein
+   - Diashow: Filter, Kapitel-Sprung, Alternative daneben, Auto-weiter
+   - **Darstellung & Sprache** im Hauptfenster: Deutsch/English, Design-Varianten
    - Unten Alternativen mit **+ HINZUFÜGEN**
    - **Speichern & Ordner neu schreiben**
 

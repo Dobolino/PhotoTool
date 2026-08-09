@@ -1,0 +1,90 @@
+"""Einstellungen, Themes und i18n."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from photobook_curator.i18n import set_language, t
+from photobook_curator.settings import (
+    AppSettings,
+    THEMES,
+    load_settings,
+    save_settings,
+    theme_colors,
+    theme_choices,
+)
+
+
+def test_themes_have_required_keys() -> None:
+    required = {
+        "bg",
+        "surface",
+        "ink",
+        "accent",
+        "reject",
+        "keep_border",
+        "log_bg",
+        "phase_done_bg",
+        "slide_stage",
+    }
+    for tid, data in THEMES.items():
+        missing = required - set(data)
+        assert not missing, f"{tid} missing {missing}"
+
+
+def test_settings_roundtrip(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "photobook_curator.settings.settings_dir", lambda: tmp_path / ".photobook_curator"
+    )
+    monkeypatch.setattr(
+        "photobook_curator.settings.settings_path",
+        lambda: tmp_path / ".photobook_curator" / "settings.json",
+    )
+    s = AppSettings(
+        language="en",
+        theme="slate",
+        slideshow_auto_advance=True,
+        slideshow_show_alternative=False,
+    )
+    path = save_settings(s)
+    assert path.is_file()
+    loaded = load_settings()
+    assert loaded.language == "en"
+    assert loaded.theme == "slate"
+    assert loaded.slideshow_auto_advance is True
+    assert loaded.slideshow_show_alternative is False
+
+
+def test_i18n_switches() -> None:
+    set_language("de")
+    assert "Diashow" in t("slideshow") or "Diashow" in t("slideshow")
+    de_review = t("review")
+    set_language("en")
+    en_review = t("review")
+    assert de_review != en_review
+    assert "Review" in en_review or "review" in en_review.lower()
+
+
+def test_theme_choices_and_colors() -> None:
+    choices = theme_choices("de")
+    assert len(choices) >= 3
+    c = theme_colors("ink")
+    assert c["accent"].startswith("#")
+
+
+def test_alternatives_helper_exists() -> None:
+    from photobook_curator.review_export import alternatives_for_index
+
+    assert callable(alternatives_for_index)
+
+
+def test_review_has_new_slideshow_features() -> None:
+    src = Path("photobook_curator/review_gui.py").read_text(encoding="utf-8")
+    for needle in (
+        "_slide_chapter_next",
+        "_refresh_alt_panel",
+        "_toggle_auto_advance",
+        "_filtered_slide_indices",
+        "alternatives_for_index",
+    ):
+        assert needle in src

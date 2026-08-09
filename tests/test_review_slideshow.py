@@ -9,13 +9,15 @@ from pathlib import Path
 def test_slideshow_api_in_review_gui() -> None:
     src = Path("photobook_curator/review_gui.py").read_text(encoding="utf-8")
     for needle in (
-        "Diashow-Ansicht",
+        't("slideshow")',
         "_enter_slideshow",
         "_exit_slideshow",
         "_slide_toggle_current",
         "_request_slide",
         "_rebuild_filmstrip",
         "_show_slide_placeholder",
+        "_slide_chapter_next",
+        "_refresh_alt_panel",
         'bind("<Left>"',
         'bind("<space>"',
     ):

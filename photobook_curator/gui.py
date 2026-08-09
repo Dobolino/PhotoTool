@@ -17,30 +17,12 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .pipeline import PipelineConfig
 
+from .i18n import sync_language_from_settings, t
 from .phases import PHASE_STEPS, initial_phase_status, match_step_id
+from .settings import load_settings, theme_colors
 
-# Ruhige Foto-Editor-Palette (kein Lila, kein Neon)
-COLORS = {
-    "bg": "#F3EFE7",
-    "surface": "#FFFCF7",
-    "ink": "#1F1A17",
-    "muted": "#6E645C",
-    "line": "#D9D0C4",
-    "accent": "#2F5D50",
-    "accent_hover": "#244A40",
-    "accent_soft": "#E2EDE8",
-    "danger": "#8B3A2C",
-    "log_bg": "#1C2421",
-    "log_fg": "#D7E0DB",
-    "phase_pending_bg": "#E8E2D8",
-    "phase_pending_fg": "#6E645C",
-    "phase_run_bg": "#C45C26",
-    "phase_run_fg": "#FFF8F2",
-    "phase_done_bg": "#2F7D4F",
-    "phase_done_fg": "#FFFFFF",
-    "phase_skip_bg": "#F0EBE3",
-    "phase_skip_fg": "#A89F95",
-}
+# Palette aus Einstellungen (Design-Variante)
+COLORS = theme_colors()
 
 PHASE_STYLE = {
     "pending": ("phase_pending_bg", "phase_pending_fg"),
@@ -67,10 +49,13 @@ HELP_TEXT = (
     "6. Wenn fertig: „Auswahl prüfen / fortsetzen“, anpassen, speichern.\n\n"
     "Auswahl prüfen\n"
     "  Raster: Klick auf ein Bild = raus / wieder rein.\n"
-    "  Diashow: Button „Diashow-Ansicht“ – großes Bild,\n"
-    "  Vorschau-Streifen der Nachbarbilder, ← → blättern,\n"
-    "  Leertaste = raus/rein, Esc = zurück zum Raster.\n"
+    "  Diashow: großes Bild, Nachbar-Vorschau, Filter (Alle/Dabei/Entfernt),\n"
+    "  Kapitel-Sprung, Alternative daneben (A = übernehmen),\n"
+    "  optional Auto-weiter nach Entfernen. Esc = Raster.\n"
     "  Unten Alternativen / Dokumente zum Hinzufügen.\n\n"
+    "Darstellung & Sprache\n"
+    "  Button oben rechts: Deutsch/English, Design-Varianten\n"
+    "  (Wald / Schiefer / Tinte), Diashow-Optionen.\n\n"
     "Pause / Absturz / Update\n"
     "  In der Prüfung wird selection_draft.json automatisch gesichert.\n"
     "  photos_analysis.csv enthält nach der KI den Zwischenstand –\n"
@@ -185,12 +170,17 @@ class ConsoleQueueWriter:
 class PhotobookApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Fotobuch-Auswahl")
+        sync_language_from_settings()
+        self.app_settings = load_settings()
+        global COLORS
+        COLORS = theme_colors(self.app_settings.theme)
+        self.title(t("app_title"))
         self.minsize(720, 620)
         self.geometry("780x680")
         self.configure(bg=COLORS["bg"])
         self._set_icon()
         self._advanced_open = False
+        self._ui_labels: dict[str, Any] = {}
 
         self.found_var = tk.StringVar(value="")
         self.cost_var = tk.StringVar(value="")
@@ -388,10 +378,14 @@ class PhotobookApp(tk.Tk):
         hero.pack(fill=tk.X)
         hero_top = ttk.Frame(hero, style="Hero.TFrame")
         hero_top.pack(fill=tk.X)
-        ttk.Label(hero_top, text="Fotobuch", style="HeroTitle.TLabel").pack(side=tk.LEFT)
-        ttk.Button(hero_top, text="Hilfe", style="Help.TButton", command=self._show_help).pack(
-            side=tk.RIGHT
-        )
+        self._brand_lbl = ttk.Label(hero_top, text=t("brand"), style="HeroTitle.TLabel")
+        self._brand_lbl.pack(side=tk.LEFT)
+        ttk.Button(
+            hero_top, text=t("settings"), style="Help.TButton", command=self._open_settings
+        ).pack(side=tk.RIGHT)
+        ttk.Button(
+            hero_top, text=t("help"), style="Help.TButton", command=self._show_help
+        ).pack(side=tk.RIGHT, padx=(0, 8))
 
         body = ttk.Frame(root, style="App.TFrame", padding=14)
         body.pack(fill=tk.BOTH, expand=True)
@@ -399,17 +393,25 @@ class PhotobookApp(tk.Tk):
         card = ttk.Frame(body, style="Card.TFrame", padding=12)
         card.pack(fill=tk.X)
 
-        self._folder_row(card, "Fotos-Ordner", "", self.input_var, self._pick_input)
+        self._input_title = self._folder_row(
+            card, t("photos_folder"), "", self.input_var, self._pick_input
+        )
         ttk.Label(card, textvariable=self.found_var, style="Field.TLabel").pack(anchor=tk.W, pady=(2, 0))
         ttk.Separator(card, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
-        self._folder_row(card, "Ausgabe-Ordner", "", self.output_var, self._pick_output)
+        self._output_title = self._folder_row(
+            card, t("output_folder"), "", self.output_var, self._pick_output
+        )
 
-        settings = ttk.LabelFrame(body, text="  Einstellungen  ", style="Card.TLabelframe", padding=12)
+        settings = ttk.LabelFrame(
+            body, text=t("options_box"), style="Card.TLabelframe", padding=12
+        )
         settings.pack(fill=tk.X, pady=(12, 0))
+        self._options_box = settings
 
         count_row = ttk.Frame(settings, style="Card.TFrame")
         count_row.pack(fill=tk.X, pady=(0, 4))
-        ttk.Label(count_row, text="Zielanzahl Bilder", style="Body.TLabel").pack(side=tk.LEFT)
+        self._target_lbl = ttk.Label(count_row, text=t("target_count"), style="Body.TLabel")
+        self._target_lbl.pack(side=tk.LEFT)
         spin = ttk.Spinbox(
             count_row,
             from_=10,
@@ -429,48 +431,54 @@ class PhotobookApp(tk.Tk):
         )
 
         # Kern-Optionen immer sichtbar – Rest unter „Weitere Optionen“
-        for text, var in (
-            ("Ortsnamen per Internet", self.geocode_var),
-            ("Gesichtserkennung / Augen zu", self.faces_var),
-            ("Serien/Bursts (beste 1–2)", self.bursts_var),
-            ("Dokumente & Screenshots separat", self.aside_var),
+        self._core_checks: list[tuple[ttk.Checkbutton, str]] = []
+        for key, var in (
+            ("opt_geocode", self.geocode_var),
+            ("opt_faces", self.faces_var),
+            ("opt_bursts", self.bursts_var),
+            ("opt_aside", self.aside_var),
         ):
-            ttk.Checkbutton(
-                settings, text=text, variable=var, command=self._sync_dependent_controls
-            ).pack(anchor=tk.W, pady=1)
+            chk = ttk.Checkbutton(
+                settings, text=t(key), variable=var, command=self._sync_dependent_controls
+            )
+            chk.pack(anchor=tk.W, pady=1)
+            self._core_checks.append((chk, key))
 
         opt_row = ttk.Frame(settings, style="Card.TFrame")
         opt_row.pack(fill=tk.X, pady=(8, 0))
         self.advanced_toggle = ttk.Button(
             opt_row,
-            text="Weitere Optionen ▸",
+            text=t("more_options"),
             style="Help.TButton",
             command=self._toggle_advanced,
         )
         self.advanced_toggle.pack(side=tk.LEFT)
-        ttk.Button(
+        self._explain_btn = ttk.Button(
             opt_row,
-            text="Optionen erklären",
+            text=t("explain_options"),
             style="Help.TButton",
             command=self._show_options_help,
-        ).pack(side=tk.LEFT, padx=(8, 0))
+        )
+        self._explain_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         self.advanced_frame = ttk.Frame(settings, style="Card.TFrame")
-        for text, var in (
-            ("Finger vor der Linse aussortieren", self.finger_var),
-            ("Tages-Abdeckung", self.coverage_var),
-            ("Personen-Balance", self.people_var),
-            ("Kapitel-/Karten-Vorschau vor Export", self.map_preview_var),
-            ("KI-Bewertung (Anthropic API)", self.ai_var),
-            ("Nur Kosten schätzen", self.dry_run_var),
+        self._adv_checks: list[tuple[ttk.Checkbutton, str]] = []
+        for key, var in (
+            ("opt_finger", self.finger_var),
+            ("opt_coverage", self.coverage_var),
+            ("opt_people", self.people_var),
+            ("opt_map", self.map_preview_var),
+            ("opt_ai", self.ai_var),
+            ("opt_dry", self.dry_run_var),
         ):
             chk = ttk.Checkbutton(
                 self.advanced_frame,
-                text=text,
+                text=t(key),
                 variable=var,
                 command=self._sync_dependent_controls,
             )
             chk.pack(anchor=tk.W, pady=1)
+            self._adv_checks.append((chk, key))
             if var is self.dry_run_var:
                 self.dry_run_chk = chk
 
@@ -511,11 +519,13 @@ class PhotobookApp(tk.Tk):
 
         actions = ttk.Frame(body, style="App.TFrame")
         actions.pack(fill=tk.X, pady=(12, 6))
-        self.start_btn = ttk.Button(actions, text="Auswahl starten", style="Start.TButton", command=self._start)
+        self.start_btn = ttk.Button(
+            actions, text=t("start"), style="Start.TButton", command=self._start
+        )
         self.start_btn.pack(side=tk.RIGHT)
         self.cancel_btn = ttk.Button(
             actions,
-            text="Abbrechen",
+            text=t("cancel"),
             style="Browse.TButton",
             command=self._cancel,
             state=tk.DISABLED,
@@ -523,23 +533,21 @@ class PhotobookApp(tk.Tk):
         self.cancel_btn.pack(side=tk.RIGHT, padx=(0, 8))
         self.review_btn = ttk.Button(
             actions,
-            text="Auswahl prüfen / fortsetzen",
+            text=t("review"),
             style="Browse.TButton",
             command=self._open_review,
         )
         self.review_btn.pack(side=tk.RIGHT, padx=(0, 8))
         self.map_btn = ttk.Button(
-            actions, text="Karte", style="Browse.TButton", command=self._open_map_preview
+            actions, text=t("map"), style="Browse.TButton", command=self._open_map_preview
         )
         self.map_btn.pack(side=tk.RIGHT, padx=(0, 8))
 
-        self.next_step_var = tk.StringVar(
-            value="Nächster Schritt: Ordner wählen, dann „Auswahl starten“."
-        )
+        self.next_step_var = tk.StringVar(value=t("next_pick_folders"))
         ttk.Label(body, textvariable=self.next_step_var, style="Next.TLabel").pack(
             anchor=tk.W, pady=(0, 4)
         )
-        self.status_var = tk.StringVar(value="Lade Erkennungsmodule…")
+        self.status_var = tk.StringVar(value=t("loading_modules"))
         ttk.Label(body, textvariable=self.status_var, style="Sub.TLabel").pack(anchor=tk.W)
 
         prog_row = ttk.Frame(body, style="App.TFrame")
@@ -549,18 +557,19 @@ class PhotobookApp(tk.Tk):
         self.progress = ttk.Progressbar(prog_row, mode="determinate", maximum=100)
         self.progress.pack(fill=tk.X, pady=(2, 0))
 
-        phase_box = ttk.LabelFrame(
+        self._phase_box = ttk.LabelFrame(
             body,
-            text="  Schritte  (orange = läuft, grün = fertig)  ",
+            text=f"  {t('steps_hint')}  ",
             style="Card.TLabelframe",
             padding=6,
         )
-        phase_box.pack(fill=tk.X, pady=(8, 0))
-        self._phase_inner = ttk.Frame(phase_box, style="Card.TFrame")
+        self._phase_box.pack(fill=tk.X, pady=(8, 0))
+        self._phase_inner = ttk.Frame(self._phase_box, style="Card.TFrame")
         self._phase_inner.pack(fill=tk.X)
         self._build_phase_chips()
 
-        log_frame = ttk.LabelFrame(body, text="  Verlauf  ", style="Card.TLabelframe", padding=6)
+        log_frame = ttk.LabelFrame(body, text=f"  {t('log')}  ", style="Card.TLabelframe", padding=6)
+        self._log_frame = log_frame
         log_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
         log_row = ttk.Frame(log_frame, style="Card.TFrame")
         log_row.pack(fill=tk.BOTH, expand=True)
@@ -660,16 +669,72 @@ class PhotobookApp(tk.Tk):
         hint: str,
         var: tk.StringVar,
         command,
-    ) -> None:
-        ttk.Label(parent, text=title, style="Body.TLabel").pack(anchor=tk.W)
+    ) -> ttk.Label:
+        title_lbl = ttk.Label(parent, text=title, style="Body.TLabel")
+        title_lbl.pack(anchor=tk.W)
         if hint:
             ttk.Label(parent, text=hint, style="Field.TLabel").pack(anchor=tk.W, pady=(0, 4))
         row = ttk.Frame(parent, style="Card.TFrame")
         row.pack(fill=tk.X, pady=(2, 0))
         ttk.Entry(row, textvariable=var).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(row, text="Durchsuchen", style="Browse.TButton", command=command).pack(
-            side=tk.LEFT, padx=(8, 0)
+        browse = ttk.Button(
+            row, text=t("browse"), style="Browse.TButton", command=command
         )
+        browse.pack(side=tk.LEFT, padx=(8, 0))
+        title_lbl._browse_btn = browse  # type: ignore[attr-defined]
+        return title_lbl
+
+    def _open_settings(self) -> None:
+        from .settings_dialog import open_settings_dialog
+
+        open_settings_dialog(self, on_saved=self._on_settings_saved)
+
+    def _on_settings_saved(self, settings) -> None:
+        self.app_settings = settings
+        global COLORS
+        COLORS = theme_colors(settings.theme)
+        self.configure(bg=COLORS["bg"])
+        self._setup_style()
+        self._apply_ui_language()
+        try:
+            self.log.configure(bg=COLORS["log_bg"], fg=COLORS["log_fg"])
+        except tk.TclError:
+            pass
+        self._build_phase_chips()
+
+    def _apply_ui_language(self) -> None:
+        """Aktualisiert sichtbare Haupttexte nach Sprachwechsel."""
+        try:
+            self.title(t("app_title"))
+            self._brand_lbl.configure(text=t("brand"))
+            self._target_lbl.configure(text=t("target_count"))
+            self._options_box.configure(text=t("options_box"))
+            self._phase_box.configure(text=f"  {t('steps_hint')}  ")
+            self._log_frame.configure(text=f"  {t('log')}  ")
+            self.start_btn.configure(text=t("start"))
+            self.cancel_btn.configure(text=t("cancel"))
+            self.review_btn.configure(text=t("review"))
+            self.map_btn.configure(text=t("map"))
+            self._explain_btn.configure(text=t("explain_options"))
+            self.advanced_toggle.configure(
+                text=t("more_options_open") if self._advanced_open else t("more_options")
+            )
+            self._input_title.configure(text=t("photos_folder"))
+            self._output_title.configure(text=t("output_folder"))
+            for lbl in (self._input_title, self._output_title):
+                btn = getattr(lbl, "_browse_btn", None)
+                if btn is not None:
+                    btn.configure(text=t("browse"))
+            for chk, key in self._core_checks + self._adv_checks:
+                chk.configure(text=t(key))
+            if not self._is_analysis_running() and self.status_var.get() in (
+                "Lade Erkennungsmodule…",
+                "Loading detection modules…",
+                t("loading_modules"),
+            ):
+                self.status_var.set(t("loading_modules"))
+        except tk.TclError:
+            pass
 
     def _on_coverage_scale(self, _value=None) -> None:
         pct = int(round(float(self.coverage_intensity_var.get()) * 100))
@@ -836,11 +901,11 @@ class PhotobookApp(tk.Tk):
         self._advanced_open = not self._advanced_open
         if self._advanced_open:
             self.advanced_frame.pack(fill=tk.X, pady=(6, 0))
-            self.advanced_toggle.configure(text="Weitere Optionen ▾")
+            self.advanced_toggle.configure(text=t("more_options_open"))
             self._sync_dependent_controls()
         else:
             self.advanced_frame.pack_forget()
-            self.advanced_toggle.configure(text="Weitere Optionen ▸")
+            self.advanced_toggle.configure(text=t("more_options"))
 
     def _build_phase_chips(self) -> None:
         for child in self._phase_inner.winfo_children():

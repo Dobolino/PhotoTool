@@ -358,6 +358,60 @@ def chapter_sections(photos: list[Photo], include_indices: list[int]) -> list[tu
     return sections
 
 
+def alternatives_for_index(
+    photos: list[Photo],
+    idx: int,
+    kept: set[int],
+    limit: int = 4,
+) -> list[int]:
+    """Beste Alternativen zum aktuellen Bild (Review-Diashow), ohne kept."""
+    if idx < 0 or idx >= len(photos):
+        return []
+    folder = photos[idx].chapter_folder or ""
+    if not folder:
+        # Fallback: gleiche Region / Szene
+        region = photos[idx].region
+        pool = [
+            i
+            for i, p in enumerate(photos)
+            if i not in kept
+            and i != idx
+            and p.is_candidate
+            and not p.is_duplicate
+            and not getattr(p, "is_burst_reject", False)
+            and not getattr(p, "is_aside", False)
+            and (not region or p.region == region)
+        ]
+        pool.sort(
+            key=lambda i: photos[i].final_score or photos[i].technical_score,
+            reverse=True,
+        )
+        return pool[:limit]
+    alts = candidate_alternatives(photos, folder, limit=max(limit * 3, 12))
+    # candidate_alternatives nutzt is_selected – zusätzlich kept filtern
+    out = [i for i in alts if i not in kept and i != idx]
+    if len(out) < limit:
+        # ergänzen mit Kandidaten derselben Region
+        region = photos[idx].region
+        extra = [
+            i
+            for i, p in enumerate(photos)
+            if i not in kept
+            and i != idx
+            and i not in out
+            and p.is_candidate
+            and not p.is_duplicate
+            and not getattr(p, "is_aside", False)
+            and (p.region == region or (p.chapter_folder or "") == folder)
+        ]
+        extra.sort(
+            key=lambda i: photos[i].final_score or photos[i].technical_score,
+            reverse=True,
+        )
+        out.extend(extra)
+    return out[:limit]
+
+
 def candidate_alternatives(
     photos: list[Photo],
     chapter_folder: str,

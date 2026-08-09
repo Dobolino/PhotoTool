@@ -12,8 +12,10 @@ from typing import Callable, Optional
 
 from PIL import Image, ImageTk
 
+from .i18n import sync_language_from_settings, t
 from .models import BookPlan, Photo
 from .review_export import (
+    alternatives_for_index,
     apply_manual_selection,
     candidate_alternatives,
     chapter_sections,
@@ -23,20 +25,10 @@ from .selection_draft import (
     load_selection_draft,
     save_selection_draft,
 )
+from .settings import load_settings, save_settings, theme_colors
 from .utils import load_image_scaled
 
-COLORS = {
-    "bg": "#F3EFE7",
-    "surface": "#FFFCF7",
-    "ink": "#1F1A17",
-    "muted": "#6E645C",
-    "line": "#D9D0C4",
-    "accent": "#2F5D50",
-    "accent_hover": "#244A40",
-    "reject": "#8B3A2C",
-    "keep_border": "#2F5D50",
-    "reject_border": "#C4B8AA",
-}
+COLORS = theme_colors()
 
 THUMB = 140
 STRIP = 68
@@ -57,7 +49,11 @@ class ReviewWindow(tk.Toplevel):
         on_saved: Optional[Callable[[], None]] = None,
     ) -> None:
         super().__init__(master)
-        self.title("Auswahl prüfen")
+        sync_language_from_settings()
+        self.settings = load_settings()
+        global COLORS
+        COLORS = theme_colors(self.settings.theme)
+        self.title(t("review_title"))
         self.minsize(900, 640)
         self.resizable(True, True)
         self.configure(bg=COLORS["bg"])
@@ -67,6 +63,13 @@ class ReviewWindow(tk.Toplevel):
         self.plan = plan
         self.output_dir = Path(output_dir)
         self.on_saved = on_saved
+        self._filter_mode = "all"  # all | kept | removed
+        self._chapter_filter = ""  # "" = alle
+        self._auto_advance = bool(self.settings.slideshow_auto_advance)
+        self._show_alt_panel = bool(self.settings.slideshow_show_alternative)
+        self._alt_idx: int | None = None
+        self._alt_img_ref: ImageTk.PhotoImage | None = None
+        self._chapters: list[str] = []
 
         # Startzustand: Auswahl aus CSV, ggf. Entwurf überschreibt/ergänzt
         self.kept: set[int] = {i for i, p in enumerate(photos) if p.is_selected}
@@ -126,6 +129,10 @@ class ReviewWindow(tk.Toplevel):
         self.bind("<Escape>", self._slide_key_escape)
         self.bind("<Delete>", self._slide_key_remove)
         self.bind("<BackSpace>", self._slide_key_remove)
+        self.bind("<a>", self._slide_key_take_alt)
+        self.bind("<A>", self._slide_key_take_alt)
+        self.bind("<Prior>", self._slide_key_chapter_prev)  # PageUp
+        self.bind("<Next>", self._slide_key_chapter_next)  # PageDown
 
     def _open_large(self) -> None:
         """Groß öffnen (möglichst maximiert), frei skalierbar."""
@@ -186,16 +193,16 @@ class ReviewWindow(tk.Toplevel):
         band.pack(fill=tk.X)
         tk.Label(
             band,
-            text="Auswahl prüfen",
+            text=t("review_title"),
             bg=COLORS["accent"],
-            fg="#F7F3EC",
+            fg=COLORS.get("hero_fg", "#F7F3EC"),
             font=("Georgia", 15, "bold"),
         ).pack(anchor=tk.W)
         self._hero_hint = tk.Label(
             band,
-            text="Raster: Klick = raus/rein · Diashow: großes Bild, Pfeile + Leertaste.",
+            text=t("review_hint_grid"),
             bg=COLORS["accent"],
-            fg="#D5E4DE",
+            fg=COLORS.get("hero_muted", "#D5E4DE"),
             font=("Segoe UI", 10),
         )
         self._hero_hint.pack(anchor=tk.W, pady=(4, 0))
@@ -205,13 +212,13 @@ class ReviewWindow(tk.Toplevel):
         self.count_var = tk.StringVar()
         ttk.Label(bar, textvariable=self.count_var, style="RevHead.TLabel").pack(side=tk.LEFT)
         self.mode_btn = ttk.Button(
-            bar, text="Diashow-Ansicht", command=self._toggle_slideshow
+            bar, text=t("slideshow"), command=self._toggle_slideshow
         )
         self.mode_btn.pack(side=tk.LEFT, padx=(16, 0))
-        ttk.Button(bar, text="Speichern & Ordner neu schreiben", style="RevSave.TButton", command=self._save).pack(
-            side=tk.RIGHT
-        )
-        ttk.Button(bar, text="Schließen (Entwurf bleibt)", command=self._close).pack(
+        ttk.Button(
+            bar, text=t("save_export"), style="RevSave.TButton", command=self._save
+        ).pack(side=tk.RIGHT)
+        ttk.Button(bar, text=t("close_draft"), command=self._close).pack(
             side=tk.RIGHT, padx=(0, 8)
         )
         if self._draft_note:
@@ -220,8 +227,7 @@ class ReviewWindow(tk.Toplevel):
             )
         ttk.Label(
             self,
-            text="Änderungen werden automatisch als selection_draft.json gesichert "
-            "(Absturz/Pause → später „Auswahl prüfen“ fortsetzen, ohne neue KI).",
+            text=t("draft_auto"),
             style="RevMuted.TLabel",
         ).pack(anchor=tk.W, padx=16, pady=(0, 6))
 
@@ -326,33 +332,105 @@ class ReviewWindow(tk.Toplevel):
 
     def _build_slideshow_ui(self) -> None:
         host = self._slide_host
-        tip = ttk.Label(
-            host,
-            text="← → blättern · Klick auf Vorschau springt · Leertaste = raus/rein · Esc = Raster",
-            style="RevMuted.TLabel",
-        )
-        tip.pack(anchor=tk.W, pady=(0, 8))
+        self._slide_tip = ttk.Label(host, text=t("slide_tip"), style="RevMuted.TLabel")
+        self._slide_tip.pack(anchor=tk.W, pady=(0, 6))
 
-        stage = tk.Frame(host, bg=COLORS["ink"], padx=8, pady=8)
-        stage.pack(fill=tk.BOTH, expand=True)
+        tools = ttk.Frame(host, style="Rev.TFrame")
+        tools.pack(fill=tk.X, pady=(0, 8))
+        self._filter_var = tk.StringVar(value=self._filter_mode)
+        for mode, key in (
+            ("all", "filter_all"),
+            ("kept", "filter_kept"),
+            ("removed", "filter_removed"),
+        ):
+            ttk.Radiobutton(
+                tools,
+                text=t(key),
+                value=mode,
+                variable=self._filter_var,
+                command=self._on_filter_changed,
+            ).pack(side=tk.LEFT, padx=(0, 8))
+
+        self._chapter_var = tk.StringVar(value=t("chapter_all"))
+        self._chapter_combo = ttk.Combobox(
+            tools, textvariable=self._chapter_var, state="readonly", width=28
+        )
+        self._chapter_combo.pack(side=tk.LEFT, padx=(12, 0))
+        self._chapter_combo.bind("<<ComboboxSelected>>", self._on_chapter_changed)
+
+        self._auto_btn = ttk.Button(
+            tools,
+            text=t("auto_on") if self._auto_advance else t("auto_off"),
+            command=self._toggle_auto_advance,
+        )
+        self._auto_btn.pack(side=tk.RIGHT)
+
+        stage_row = ttk.Frame(host, style="Rev.TFrame")
+        stage_row.pack(fill=tk.BOTH, expand=True)
+
+        stage = tk.Frame(
+            stage_row, bg=COLORS.get("slide_stage", COLORS["ink"]), padx=8, pady=8
+        )
+        stage.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._slide_image_lbl = tk.Label(
             stage,
-            text="Bild wird geladen…",
-            bg=COLORS["ink"],
-            fg="#E8E2D8",
+            text=t("loading_image"),
+            bg=COLORS.get("slide_stage", COLORS["ink"]),
+            fg=COLORS.get("slide_fg", "#E8E2D8"),
             font=("Segoe UI", 12),
             cursor="hand2",
         )
         self._slide_image_lbl.pack(fill=tk.BOTH, expand=True)
-        # Großes Bild: Klick = raus/rein; Mausrad = blättern
         self._slide_image_lbl.bind("<Button-1>", self._slide_toggle_current)
         self._slide_image_lbl.bind("<MouseWheel>", self._slide_mousewheel)
         self._slide_image_lbl.bind("<Button-4>", lambda e: self._slide_prev())
         self._slide_image_lbl.bind("<Button-5>", lambda e: self._slide_next())
 
+        self._alt_panel = tk.Frame(
+            stage_row, bg=COLORS.get("slide_stage", COLORS["ink"]), padx=8, pady=8, width=320
+        )
+        self._alt_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(8, 0))
+        self._alt_panel.pack_propagate(False)
+        self._alt_title_lbl = tk.Label(
+            self._alt_panel,
+            text=t("alt_title"),
+            bg=COLORS.get("slide_stage", COLORS["ink"]),
+            fg=COLORS.get("slide_fg", "#E8E2D8"),
+            font=("Segoe UI Semibold", 10),
+        )
+        self._alt_title_lbl.pack(anchor=tk.W)
+        self._alt_image_lbl = tk.Label(
+            self._alt_panel,
+            text=t("alt_none"),
+            bg=COLORS.get("slide_stage", COLORS["ink"]),
+            fg=COLORS.get("slide_fg", "#E8E2D8"),
+            font=("Segoe UI", 10),
+            cursor="hand2",
+        )
+        self._alt_image_lbl.pack(fill=tk.BOTH, expand=True, pady=(8, 8))
+        self._alt_image_lbl.bind("<Button-1>", self._slide_take_alternative)
+        self._alt_caption = tk.StringVar(value="")
+        tk.Label(
+            self._alt_panel,
+            textvariable=self._alt_caption,
+            bg=COLORS.get("slide_stage", COLORS["ink"]),
+            fg=COLORS.get("slide_fg", "#E8E2D8"),
+            font=("Segoe UI", 9),
+            wraplength=280,
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W)
+        self._alt_take_btn = ttk.Button(
+            self._alt_panel, text=t("alt_take"), command=self._slide_take_alternative
+        )
+        self._alt_take_btn.pack(anchor=tk.W, pady=(8, 0))
+        if not self._show_alt_panel:
+            self._alt_panel.pack_forget()
+
         strip_wrap = ttk.Frame(host, style="Rev.TFrame", padding=(0, 10, 0, 0))
         strip_wrap.pack(fill=tk.X)
-        ttk.Label(strip_wrap, text="Umgebung", style="RevMuted.TLabel").pack(anchor=tk.W)
+        ttk.Label(strip_wrap, text=t("surroundings"), style="RevMuted.TLabel").pack(
+            anchor=tk.W
+        )
         self._strip_bar = tk.Frame(strip_wrap, bg=COLORS["bg"])
         self._strip_bar.pack(fill=tk.X, pady=(4, 0))
         self._strip_bar.bind("<MouseWheel>", self._slide_mousewheel)
@@ -370,20 +448,26 @@ class ReviewWindow(tk.Toplevel):
 
         controls = ttk.Frame(host, style="Rev.TFrame", padding=(0, 12, 0, 0))
         controls.pack(fill=tk.X)
-        ttk.Button(controls, text="← Zurück", command=self._slide_prev).pack(side=tk.LEFT)
-        ttk.Button(controls, text="Weiter →", command=self._slide_next).pack(
+        ttk.Button(controls, text=t("prev"), command=self._slide_prev).pack(side=tk.LEFT)
+        ttk.Button(controls, text=t("next"), command=self._slide_next).pack(
             side=tk.LEFT, padx=(8, 0)
         )
+        ttk.Button(
+            controls, text=t("chapter_jump_prev"), command=self._slide_chapter_prev
+        ).pack(side=tk.LEFT, padx=(16, 0))
+        ttk.Button(
+            controls, text=t("chapter_jump_next"), command=self._slide_chapter_next
+        ).pack(side=tk.LEFT, padx=(8, 0))
         self._slide_toggle_btn = ttk.Button(
             controls,
-            text="Rausnehmen",
+            text=t("remove"),
             style="RevSave.TButton",
             command=self._slide_toggle_current,
         )
         self._slide_toggle_btn.pack(side=tk.LEFT, padx=(24, 0))
-        ttk.Button(
-            controls, text="Zurück zum Raster", command=self._exit_slideshow
-        ).pack(side=tk.RIGHT)
+        ttk.Button(controls, text=t("back_grid"), command=self._exit_slideshow).pack(
+            side=tk.RIGHT
+        )
 
     def _enqueue_job(self, kind: str, idx: int, priority: int) -> None:
         self._load_queue.put((priority, next(self._load_seq), (kind, idx)))
@@ -405,14 +489,16 @@ class ReviewWindow(tk.Toplevel):
                     if real not in self._thumb_cache:
                         thumb = img.copy()
                         thumb.thumbnail((THUMB, THUMB), Image.Resampling.BILINEAR)
-                        canvas_img = Image.new("RGB", (THUMB, THUMB), (245, 241, 233))
+                        pad = COLORS.get("thumb_pad", "#F5F1E9")
+                        canvas_img = Image.new("RGB", (THUMB, THUMB), pad)
                         x = (THUMB - thumb.width) // 2
                         y = (THUMB - thumb.height) // 2
                         canvas_img.paste(thumb, (x, y))
                         self._ready_queue.put((real, canvas_img))
                 else:
                     img = load_image_scaled(photo.path, THUMB)
-                    canvas_img = Image.new("RGB", (THUMB, THUMB), (245, 241, 233))
+                    pad = COLORS.get("thumb_pad", "#F5F1E9")
+                    canvas_img = Image.new("RGB", (THUMB, THUMB), pad)
                     x = (THUMB - img.width) // 2
                     y = (THUMB - img.height) // 2
                     canvas_img.paste(img, (x, y))
@@ -484,18 +570,112 @@ class ReviewWindow(tk.Toplevel):
                 self._photo_images.append(tk_img)
                 if self._slideshow and self._slide_showing_idx == idx:
                     self._show_slide_image(idx)
+                if self._slideshow and self._alt_idx == idx:
+                    self._alt_img_ref = tk_img
+                    try:
+                        self._alt_image_lbl.configure(image=tk_img, text="")
+                    except tk.TclError:
+                        pass
         except queue.Empty:
             pass
         if self.winfo_exists():
             self.after(40, self._drain_slides)
 
     def _update_count(self) -> None:
-        self.count_var.set(f"{len(self.kept)} Bilder ausgewählt (Entwurf auto-gespeichert)")
+        self.count_var.set(t("selected_count", n=len(self.kept)))
         if self._slideshow:
             self._refresh_slide_meta()
 
     def _display_indices(self) -> list[int]:
+        """Alle Bilder der Review-Menge (Baseline ∪ Kept)."""
         return sorted(self.baseline | self.kept)
+
+    def _chapter_list(self) -> list[str]:
+        folders: list[str] = []
+        seen: set[str] = set()
+        for i in self._display_indices():
+            folder = self.photos[i].chapter_folder or self.photos[i].region or ""
+            if folder and folder not in seen:
+                seen.add(folder)
+                folders.append(folder)
+        return folders
+
+    def _filtered_slide_indices(self) -> list[int]:
+        indices = self._display_indices()
+        if self._chapter_filter:
+            indices = [
+                i
+                for i in indices
+                if (self.photos[i].chapter_folder or self.photos[i].region or "")
+                == self._chapter_filter
+            ]
+        if self._filter_mode == "kept":
+            indices = [i for i in indices if i in self.kept]
+        elif self._filter_mode == "removed":
+            indices = [i for i in indices if i not in self.kept]
+        return indices
+
+    def _refresh_chapter_combo(self) -> None:
+        self._chapters = self._chapter_list()
+        values = [t("chapter_all")] + self._chapters
+        try:
+            self._chapter_combo.configure(values=values)
+            if self._chapter_filter and self._chapter_filter in self._chapters:
+                self._chapter_var.set(self._chapter_filter)
+            else:
+                self._chapter_filter = ""
+                self._chapter_var.set(t("chapter_all"))
+        except tk.TclError:
+            pass
+
+    def _on_filter_changed(self) -> None:
+        self._filter_mode = self._filter_var.get() or "all"
+        self._reapply_slide_filter(keep_photo=True)
+
+    def _on_chapter_changed(self, _event=None) -> None:
+        val = self._chapter_var.get()
+        if val == t("chapter_all") or not val:
+            self._chapter_filter = ""
+        else:
+            self._chapter_filter = val
+        self._reapply_slide_filter(keep_photo=True)
+
+    def _toggle_auto_advance(self) -> None:
+        self._auto_advance = not self._auto_advance
+        try:
+            self._auto_btn.configure(
+                text=t("auto_on") if self._auto_advance else t("auto_off")
+            )
+        except tk.TclError:
+            pass
+        try:
+            self.settings.slideshow_auto_advance = self._auto_advance
+            save_settings(self.settings)
+        except Exception:
+            pass
+
+    def _reapply_slide_filter(self, keep_photo: bool = True) -> None:
+        current = None
+        if keep_photo and self._slide_indices and 0 <= self._slide_pos < len(self._slide_indices):
+            current = self._slide_indices[self._slide_pos]
+        indices = self._filtered_slide_indices()
+        self._slide_indices = indices
+        if current is not None and current in indices:
+            self._slide_pos = indices.index(current)
+        else:
+            self._slide_pos = 0
+        if self._slideshow:
+            if not indices:
+                try:
+                    self._slide_image_lbl.configure(
+                        image="", text=t("no_slide_photos")
+                    )
+                except tk.TclError:
+                    pass
+                self._slide_status.set(t("no_slide_photos"))
+                self._clear_alt_panel()
+                return
+            self._show_current_slide()
 
     def _toggle_slideshow(self) -> None:
         if self._slideshow:
@@ -504,18 +684,18 @@ class ReviewWindow(tk.Toplevel):
             self._enter_slideshow()
 
     def _enter_slideshow(self) -> None:
-        indices = self._display_indices()
-        if not indices:
+        if not self._display_indices():
             messagebox.showinfo(
-                "Keine Bilder",
-                "Noch keine Auswahl zum Durchblättern. "
-                "Füge zuerst Bilder hinzu oder starte die Analyse.",
+                t("review_title"),
+                t("no_slide_photos"),
             )
             return
         current_idx = None
         if self._slide_indices and 0 <= self._slide_pos < len(self._slide_indices):
             current_idx = self._slide_indices[self._slide_pos]
         self._slideshow = True
+        self._refresh_chapter_combo()
+        indices = self._filtered_slide_indices()
         self._slide_indices = indices
         if current_idx is not None and current_idx in indices:
             self._slide_pos = indices.index(current_idx)
@@ -526,10 +706,13 @@ class ReviewWindow(tk.Toplevel):
         except tk.TclError:
             pass
         self._slide_host.pack(fill=tk.BOTH, expand=True)
-        self.mode_btn.configure(text="Raster-Ansicht")
-        self._hero_hint.configure(
-            text="Diashow: großes Bild prüfen · Leertaste = raus/rein · Esc = Raster."
-        )
+        self.mode_btn.configure(text=t("grid_view"))
+        self._hero_hint.configure(text=t("review_hint_slide"))
+        if self._show_alt_panel:
+            try:
+                self._alt_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(8, 0))
+            except tk.TclError:
+                pass
         self._unbind_wheel()
         self._show_current_slide()
         try:
@@ -546,11 +729,8 @@ class ReviewWindow(tk.Toplevel):
         except tk.TclError:
             pass
         self._grid_host.pack(fill=tk.BOTH, expand=True)
-        self.mode_btn.configure(text="Diashow-Ansicht")
-        self._hero_hint.configure(
-            text="Raster: Klick = raus/rein · Diashow: großes Bild, Pfeile + Leertaste."
-        )
-        # Raster an geänderte Auswahl anpassen
+        self.mode_btn.configure(text=t("slideshow"))
+        self._hero_hint.configure(text=t("review_hint_grid"))
         self._render()
 
     def _show_current_slide(self) -> None:
@@ -561,26 +741,26 @@ class ReviewWindow(tk.Toplevel):
         self._slide_showing_idx = idx
         self._refresh_slide_meta()
         self._rebuild_filmstrip()
+        self._refresh_alt_panel()
         cached = self._slide_cache.get(idx)
         if cached is not None:
             self._show_slide_image(idx)
         else:
-            # Sofort Thumb zeigen (fühlt sich viel schneller an), dann scharf nachladen
             if not self._show_slide_placeholder(idx):
                 try:
                     self._slide_image_lbl.configure(
-                        image="", text="Bild wird geladen…", fg="#E8E2D8"
+                        image="",
+                        text=t("loading_image"),
+                        fg=COLORS.get("slide_fg", "#E8E2D8"),
                     )
                 except tk.TclError:
                     pass
                 self._slide_img_ref = None
             self._request_slide(idx, priority=0)
-        # Aktuelle + Nachbarn vorladen (Priorität nach Nähe)
         for dist in range(1, 5):
             for n in (self._slide_pos + dist, self._slide_pos - dist):
                 if 0 <= n < len(self._slide_indices):
-                    prio = dist
-                    self._request_slide(self._slide_indices[n], priority=prio)
+                    self._request_slide(self._slide_indices[n], priority=dist)
 
     def _show_slide_placeholder(self, idx: int) -> bool:
         tk_img = self._thumb_cache.get(idx)
@@ -709,18 +889,18 @@ class ReviewWindow(tk.Toplevel):
 
     def _refresh_slide_meta(self) -> None:
         if not self._slide_indices:
-            self._slide_status.set("Keine Bilder")
+            self._slide_status.set(t("no_slide_photos"))
             self._slide_caption.set("")
             return
         pos = max(0, min(self._slide_pos, len(self._slide_indices) - 1))
         idx = self._slide_indices[pos]
         photo = self.photos[idx]
         kept = idx in self.kept
-        state = "DABEI" if kept else "ENTFERNT"
+        state = t("kept_state") if kept else t("removed_state")
         folder = photo.chapter_folder or photo.region or ""
         self._slide_status.set(
             f"{pos + 1} / {len(self._slide_indices)}  ·  {state}  ·  "
-            f"{len(self.kept)} ausgewählt"
+            f"{t('selected_count', n=len(self.kept))}"
         )
         meta = photo.scene_type or photo.chapter_type or ""
         score = photo.final_score or photo.technical_score
@@ -729,10 +909,105 @@ class ReviewWindow(tk.Toplevel):
         )
         try:
             self._slide_toggle_btn.configure(
-                text="Wieder reinnehmen" if not kept else "Rausnehmen"
+                text=t("restore") if not kept else t("remove")
             )
         except tk.TclError:
             pass
+
+    def _clear_alt_panel(self) -> None:
+        self._alt_idx = None
+        self._alt_img_ref = None
+        try:
+            self._alt_image_lbl.configure(image="", text=t("alt_none"))
+            self._alt_caption.set("")
+            self._alt_take_btn.configure(state=tk.DISABLED)
+        except tk.TclError:
+            pass
+
+    def _refresh_alt_panel(self) -> None:
+        if not self._show_alt_panel or not self._slide_indices:
+            self._clear_alt_panel()
+            return
+        idx = self._slide_indices[self._slide_pos]
+        alts = alternatives_for_index(self.photos, idx, self.kept, limit=1)
+        if not alts:
+            self._clear_alt_panel()
+            return
+        alt = alts[0]
+        self._alt_idx = alt
+        photo = self.photos[alt]
+        score = photo.final_score or photo.technical_score
+        self._alt_caption.set(f"{photo.filename}  ·  Score {score:.0f}")
+        try:
+            self._alt_take_btn.configure(state=tk.NORMAL)
+        except tk.TclError:
+            pass
+        cached = self._slide_cache.get(alt) or self._thumb_cache.get(alt)
+        if cached is not None:
+            self._alt_img_ref = cached
+            try:
+                self._alt_image_lbl.configure(image=cached, text="")
+            except tk.TclError:
+                pass
+        else:
+            try:
+                self._alt_image_lbl.configure(image="", text=t("loading_image"))
+            except tk.TclError:
+                pass
+            self._request_slide(alt, priority=2)
+            self._request_thumb(alt, priority=3)
+
+    def _slide_take_alternative(self, _event=None) -> None:
+        if not self._slideshow or self._alt_idx is None or not self._slide_indices:
+            return
+        cur = self._slide_indices[self._slide_pos]
+        alt = self._alt_idx
+        folder = self.photos[cur].chapter_folder or ""
+        if cur in self.kept:
+            self.kept.remove(cur)
+        self.kept.add(alt)
+        self.baseline.add(alt)
+        if folder:
+            self.photos[alt].chapter_folder = folder
+            self.photos[alt].chapter_type = self.photos[cur].chapter_type or self.photos[alt].chapter_type
+        self._update_count()
+        self._autosave_draft()
+        # Aktuelle Position auf Alternative legen (bleibt in „alle“/„dabei“)
+        if alt not in self._slide_indices:
+            self._reapply_slide_filter(keep_photo=False)
+            if alt in self._slide_indices:
+                self._slide_pos = self._slide_indices.index(alt)
+        else:
+            self._slide_pos = self._slide_indices.index(alt)
+        self._show_current_slide()
+
+    def _slide_chapter_of(self, idx: int) -> str:
+        return self.photos[idx].chapter_folder or self.photos[idx].region or ""
+
+    def _slide_chapter_prev(self) -> None:
+        if not self._slideshow or not self._slide_indices:
+            return
+        cur_ch = self._slide_chapter_of(self._slide_indices[self._slide_pos])
+        for pos in range(self._slide_pos - 1, -1, -1):
+            if self._slide_chapter_of(self._slide_indices[pos]) != cur_ch:
+                # Anfang dieses Kapitels
+                ch = self._slide_chapter_of(self._slide_indices[pos])
+                start = pos
+                while start > 0 and self._slide_chapter_of(self._slide_indices[start - 1]) == ch:
+                    start -= 1
+                self._slide_pos = start
+                self._show_current_slide()
+                return
+
+    def _slide_chapter_next(self) -> None:
+        if not self._slideshow or not self._slide_indices:
+            return
+        cur_ch = self._slide_chapter_of(self._slide_indices[self._slide_pos])
+        for pos in range(self._slide_pos + 1, len(self._slide_indices)):
+            if self._slide_chapter_of(self._slide_indices[pos]) != cur_ch:
+                self._slide_pos = pos
+                self._show_current_slide()
+                return
 
     def _slide_prev(self) -> None:
         if not self._slideshow or not self._slide_indices:
@@ -752,8 +1027,10 @@ class ReviewWindow(tk.Toplevel):
         if not self._slideshow or not self._slide_indices:
             return
         idx = self._slide_indices[self._slide_pos]
+        removed = False
         if idx in self.kept:
             self.kept.remove(idx)
+            removed = True
         else:
             self.kept.add(idx)
             self.baseline.add(idx)
@@ -762,6 +1039,13 @@ class ReviewWindow(tk.Toplevel):
         self._apply_tile_visual(("keep", idx))
         self._refresh_slide_meta()
         self._refresh_strip_borders()
+        self._refresh_alt_panel()
+        if removed and self._auto_advance:
+            # Bei Filter „Dabei“ fällt das Bild raus → Liste neu, sonst weiter
+            if self._filter_mode == "kept":
+                self._reapply_slide_filter(keep_photo=False)
+            else:
+                self._slide_next()
 
     def _slide_mousewheel(self, event) -> None:
         if not self._slideshow:
@@ -797,7 +1081,28 @@ class ReviewWindow(tk.Toplevel):
             self._apply_tile_visual(("keep", idx))
             self._refresh_slide_meta()
             self._refresh_strip_borders()
+            self._refresh_alt_panel()
+            if self._auto_advance:
+                if self._filter_mode == "kept":
+                    self._reapply_slide_filter(keep_photo=False)
+                else:
+                    self._slide_next()
         return "break"
+
+    def _slide_key_take_alt(self, _event=None) -> None:
+        if self._slideshow:
+            self._slide_take_alternative()
+            return "break"
+
+    def _slide_key_chapter_prev(self, _event=None) -> None:
+        if self._slideshow:
+            self._slide_chapter_prev()
+            return "break"
+
+    def _slide_key_chapter_next(self, _event=None) -> None:
+        if self._slideshow:
+            self._slide_chapter_next()
+            return "break"
 
     def _slide_key_escape(self, _event=None) -> None:
         if self._slideshow:

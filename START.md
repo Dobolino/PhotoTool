@@ -89,9 +89,11 @@ Fotobuch starten.bat
 5. **Auswahl starten** – der Fortschrittsbalken zeigt die Phasen.
 6. Bei „Fertig" die Frage **Auswahl prüfen?** → **Ja**:
    - **Raster:** Klick auf ein Bild = **raus / wieder rein**.
-   - **Diashow:** Button **Diashow-Ansicht** – großes Bild, kleine Vorschau
-     der Nachbarbilder darunter; ← → blättern, Klick auf Vorschau springt,
-     Leertaste = raus/rein, Esc zurück zum Raster.
+   - **Diashow:** großes Bild, Nachbar-Vorschau, Filter (Alle/Dabei/Entfernt),
+     Kapitel-Sprung, beste Alternative daneben (Taste **A**), optional
+     Auto-weiter nach Entfernen; Esc zurück zum Raster.
+   - **Darstellung & Sprache** (oben rechts): Deutsch/English, Design
+     (Wald / Schiefer / Tinte), Diashow-Optionen.
    - Unten **Alternativen** und der **Dokumente-Pool** zum Hinzufügen.
    - **Speichern & Ordner neu schreiben**.
 
