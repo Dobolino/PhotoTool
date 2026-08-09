@@ -45,8 +45,9 @@ Bei Problemen: siehe `START.md` („Wenn nur ein leeres Fenster kommt“).
 3. **Zielanzahl** einstellen (z. B. 80) — so viele Bilder sollen ungefähr im Buch landen
 4. Auf **Auswahl starten** klicken — der Balken zeigt die aktuelle Phase
 5. Warten, bis „Fertig“ erscheint
-6. Bei Nachfrage **Ja** → **Auswahl prüfen** (Thumbnails)
-   - Klick auf ein Bild = rausnehmen / wieder reinnehmen (sofort, ohne Neuaufbau)
+6. Bei Nachfrage **Ja** → **Auswahl prüfen** (Thumbnails oder Diashow)
+   - Raster: Klick auf ein Bild = rausnehmen / wieder reinnehmen
+   - Diashow: Button **Diashow-Ansicht** – großes Bild, ← →, Leertaste = raus/rein
    - Unten Alternativen mit **+ HINZUFÜGEN**
    - **Speichern & Ordner neu schreiben**
 
