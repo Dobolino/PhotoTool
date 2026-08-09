@@ -321,6 +321,8 @@ Ausführen: `pytest` (im venv).
 8. **Unassigned:** Fotos ohne Region landen nicht automatisch im Buchkontingent.
 9. **`burst_min_size`:** in Config, aber nicht als CLI-Flag.
 10. **Finger-Filter:** Heuristik (Haut + Weichheit + Rand) kann False Positives haben (z. B. große weiche Hautflächen); deshalb **default aus**. Ohne Hand-Modell bleibt nur die Heuristik. Manuell im Review trotzdem wieder einfügbar, falls gewünscht.
+11. **EXIF-Orientierung:** `load_image` wendet `ImageOps.exif_transpose` an – Analyse/Thumbnails nutzen die sichtbare Ausrichtung.
+12. **Modell-Downloads:** zentral über `utils.download_model` mit Timeout (30 s) und Mindestgröße; abgeschnittene Dateien werden verworfen.
 
 ---
 

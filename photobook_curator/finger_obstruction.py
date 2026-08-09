@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.request import urlretrieve
 
 import cv2
 import numpy as np
 from tqdm import tqdm
 
 from .models import Photo
-from .utils import load_image, to_cv_bgr
+from .utils import download_model, load_image, to_cv_bgr
 
 _HAND_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
@@ -25,20 +24,7 @@ HAND_AREA_RATIO = 0.12  # große Hand nahe Kamera
 
 
 def _ensure_hand_model(cache_dir: Path) -> Path | None:
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    model_path = cache_dir / "hand_landmarker.task"
-    if model_path.exists() and model_path.stat().st_size > 1000:
-        return model_path
-    try:
-        urlretrieve(_HAND_MODEL_URL, model_path)
-        if model_path.stat().st_size < 1000:
-            model_path.unlink(missing_ok=True)
-            return None
-        return model_path
-    except Exception:
-        if model_path.exists():
-            model_path.unlink(missing_ok=True)
-        return None
+    return download_model(_HAND_MODEL_URL, cache_dir / "hand_landmarker.task")
 
 
 def skin_mask_bgr(bgr: np.ndarray) -> np.ndarray:

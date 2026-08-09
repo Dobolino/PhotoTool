@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.request import urlretrieve
 
 import cv2
 import numpy as np
@@ -12,7 +11,7 @@ from tqdm import tqdm
 
 from .models import Photo
 from .quality import compute_technical_score
-from .utils import load_image, to_cv_bgr
+from .utils import download_model, load_image, to_cv_bgr
 
 _LANDMARKER_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
@@ -47,24 +46,11 @@ class FaceQualityResult:
 
 
 def _ensure_landmarker_model(cache_dir: Path) -> Path | None:
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    model_path = cache_dir / "face_landmarker.task"
     # Alte/fehlerhafte .tflite-Caches entfernen
     legacy = cache_dir / "face_landmarker.tflite"
     if legacy.exists():
         legacy.unlink(missing_ok=True)
-    if model_path.exists() and model_path.stat().st_size > 1000:
-        return model_path
-    try:
-        urlretrieve(_LANDMARKER_URL, model_path)
-        if model_path.stat().st_size < 1000:
-            model_path.unlink(missing_ok=True)
-            return None
-        return model_path
-    except Exception:
-        if model_path.exists():
-            model_path.unlink(missing_ok=True)
-        return None
+    return download_model(_LANDMARKER_URL, cache_dir / "face_landmarker.task")
 
 
 def eye_aspect_ratio(points: np.ndarray) -> float:

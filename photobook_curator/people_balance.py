@@ -12,7 +12,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from .models import Photo
-from .utils import load_image, to_cv_bgr
+from .utils import download_model, load_image, to_cv_bgr
 
 # MediaPipe Face Detector Modell (gleich wie faces.py)
 _MP_MODEL_URL = (
@@ -22,19 +22,7 @@ _MP_MODEL_URL = (
 
 
 def _ensure_detector_model(cache_dir: Path) -> Path | None:
-    from urllib.request import urlretrieve
-
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    model_path = cache_dir / "blaze_face_short_range.tflite"
-    if model_path.exists() and model_path.stat().st_size > 1000:
-        return model_path
-    try:
-        urlretrieve(_MP_MODEL_URL, model_path)
-        return model_path
-    except Exception:
-        if model_path.exists():
-            model_path.unlink(missing_ok=True)
-        return None
+    return download_model(_MP_MODEL_URL, cache_dir / "blaze_face_short_range.tflite")
 
 
 def _face_signature(crop_bgr: np.ndarray) -> str | None:

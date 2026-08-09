@@ -1,14 +1,18 @@
-"""Hilfsfunktionen: Bildladen, HEIC-Support, Normalisierung."""
+"""Hilfsfunktionen: Bildladen, HEIC-Support, Normalisierung, Modell-Download."""
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
 from typing import Optional
+from urllib.request import urlretrieve
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
+DEFAULT_DOWNLOAD_TIMEOUT_S = 30.0
+MIN_MODEL_BYTES = 1000
 
 # Typische Screenshot-Auflösungen (Breite x Höhe, beide Orientierungen)
 SCREEN_RESOLUTIONS = {
@@ -47,14 +51,47 @@ def is_image_file(path: Path) -> bool:
 
 
 def load_image(path: Path) -> Image.Image:
+    """Lädt ein Bild und wendet EXIF-Orientierung an (iPhone hochkant korrekt)."""
     register_heif()
     img = Image.open(path)
     img.load()
+    img = ImageOps.exif_transpose(img)
     if img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
     elif img.mode == "L":
         img = img.convert("RGB")
     return img
+
+
+def download_model(
+    url: str,
+    dest: Path,
+    *,
+    timeout: float = DEFAULT_DOWNLOAD_TIMEOUT_S,
+    min_bytes: int = MIN_MODEL_BYTES,
+) -> Path | None:
+    """
+    Lädt ein Modell mit Timeout herunter.
+    Verwirft unvollständige Dateien; bei Fehler None.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists() and dest.stat().st_size > min_bytes:
+        return dest
+
+    old_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(timeout)
+    try:
+        urlretrieve(url, dest)
+        if not dest.exists() or dest.stat().st_size < min_bytes:
+            dest.unlink(missing_ok=True)
+            return None
+        return dest
+    except Exception:
+        if dest.exists():
+            dest.unlink(missing_ok=True)
+        return None
+    finally:
+        socket.setdefaulttimeout(old_timeout)
 
 
 def to_cv_bgr(img: Image.Image) -> np.ndarray:
