@@ -1494,9 +1494,8 @@ class ReviewWindow(tk.Toplevel):
                 font=("Segoe UI", 10),
             )
             self._thumb_labels.setdefault(idx, []).append(lbl)
-            # Keep-Kacheln sofort anfragen; Varianten erst beim Aufklappen (weniger Last)
-            if mode == "keep":
-                self._request_thumb(idx, priority=30)
+            # Keep sofort; Varianten nur wenn der Block aufgeklappt wurde (dann entsteht die Kachel)
+            self._request_thumb(idx, priority=30 if mode == "keep" else 45)
         lbl.pack()
 
         folder_bit = ""
