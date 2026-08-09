@@ -25,6 +25,7 @@ dependencies = [
 
 [project.scripts]
 photobook-curator = "photobook_curator.cli:main"
+photobook-curator-gui = "photobook_curator.gui:main"
 
 [tool.setuptools.packages.find]
 include = ["photobook_curator*"]

@@ -113,11 +113,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Gesichtserkennung überspringen (schneller für Tests)",
     )
+    p.add_argument(
+        "--gui",
+        action="store_true",
+        help="Einfache Fenster-Oberfläche starten",
+    )
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
+    # GUI braucht keine Pflicht-Args -i/-o
+    if argv is None:
+        import sys
+
+        raw = sys.argv[1:]
+    else:
+        raw = list(argv)
+    if "--gui" in raw or (len(raw) == 1 and raw[0] == "gui"):
+        from .gui import main as gui_main
+
+        return gui_main()
+
     args = parser.parse_args(argv)
 
     if not args.input.is_dir():
