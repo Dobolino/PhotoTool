@@ -207,27 +207,35 @@ def write_chapter_map(
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Fotobuch – Kapitel-Karte</title>
+<title>Fotobuch – Weltkarte</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
-  body {{ margin: 0; font-family: Georgia, "Times New Roman", serif; background: #F3EFE7; color: #1F1A17; }}
-  header {{ padding: 16px 20px 8px; }}
-  h1 {{ margin: 0; font-size: 1.4rem; }}
-  p {{ margin: 6px 0 0; color: #6E645C; font-family: "Segoe UI", sans-serif; font-size: 0.9rem; }}
+  body {{ margin: 0; font-family: "Segoe UI", sans-serif; background: #12141C; color: #E8EAF2; }}
+  header {{ padding: 16px 20px 8px; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }}
+  h1 {{ margin: 0; font-size: 1.35rem; font-weight: 600; }}
+  p {{ margin: 6px 0 0; color: #9AA3B5; font-size: 0.9rem; flex: 1; }}
+  .btn {{ background: #7B6CFF; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px;
+          font: 600 0.88rem "Segoe UI", sans-serif; cursor: pointer; }}
+  .btn.secondary {{ background: #262C40; color: #E8EAF2; }}
   #wrap {{ display: flex; gap: 12px; padding: 0 16px 16px; height: calc(100vh - 88px); box-sizing: border-box; }}
-  #map {{ flex: 1; min-height: 360px; border-radius: 4px; border: 1px solid #D9D0C4; }}
-  aside {{ width: 300px; overflow: auto; background: #FFFCF7; border: 1px solid #D9D0C4; border-radius: 4px; padding: 12px 14px; font-family: "Segoe UI", sans-serif; font-size: 0.88rem; }}
-  aside h2 {{ font-family: Georgia, serif; font-size: 1rem; margin: 0 0 10px; }}
+  #map {{ flex: 1; min-height: 360px; border-radius: 10px; border: 1px solid #2C3348; }}
+  aside {{ width: 300px; overflow: auto; background: #1C2030; border: 1px solid #2C3348; border-radius: 10px;
+           padding: 14px 16px; font-size: 0.88rem; }}
+  aside h2 {{ font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; color: #9AA3B5; margin: 0 0 12px; }}
   aside ul {{ list-style: none; padding: 0; margin: 0; }}
-  aside li {{ margin: 0 0 10px; line-height: 1.35; }}
-  aside li span {{ display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 8px; vertical-align: middle; }}
-  .empty {{ padding: 24px; color: #6E645C; }}
+  aside li {{ margin: 0 0 12px; line-height: 1.4; }}
+  aside li span {{ display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: middle; }}
+  .empty {{ padding: 24px; color: #9AA3B5; }}
 </style>
 </head>
 <body>
 <header>
-  <h1>Kapitel-Vorschau</h1>
-  <p>Ausgewählte Orte auf der Karte – Reihenfolge entspricht dem geplanten Fotobuch.</p>
+  <div>
+    <h1>Weltkarte · Kapitel</h1>
+    <p>OpenStreetMap – Reise-Route und Kapitel auf der Weltkarte.</p>
+  </div>
+  <button class="btn secondary" type="button" onclick="showWorld()">Weltkarte</button>
+  <button class="btn" type="button" onclick="showTrip()">Reise</button>
 </header>
 <div id="wrap">
   <div id="map"></div>
@@ -240,13 +248,13 @@ def write_chapter_map(
 <script>
 const geo = {geojson};
 const line = {line_json};
-const map = L.map('map').setView([{center_lat}, {center_lon}], {zoom});
-L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+const map = L.map('map', {{ worldCopyJump: true }}).setView([{center_lat}, {center_lon}], {zoom});
+L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
   maxZoom: 18,
-  attribution: '&copy; OpenStreetMap'
+  attribution: '&copy; OpenStreetMap, &copy; CARTO'
 }}).addTo(map);
 if (line.length >= 2) {{
-  L.polyline(line.map(c => [c[1], c[0]]), {{color: '#2F5D50', weight: 3, opacity: 0.75}}).addTo(map);
+  L.polyline(line.map(c => [c[1], c[0]]), {{color: '#7B6CFF', weight: 3, opacity: 0.85}}).addTo(map);
 }}
 const bounds = [];
 L.geoJSON(geo, {{
@@ -255,8 +263,8 @@ L.geoJSON(geo, {{
     const isCenter = p.kind === 'center';
     const marker = L.circleMarker(latlng, {{
       radius: isCenter ? 9 : 5,
-      color: p.color || '#2F5D50',
-      fillColor: p.color || '#2F5D50',
+      color: p.color || '#7B6CFF',
+      fillColor: p.color || '#7B6CFF',
       fillOpacity: isCenter ? 0.95 : 0.55,
       weight: isCenter ? 2 : 1
     }});
@@ -268,7 +276,12 @@ L.geoJSON(geo, {{
     return marker;
   }}
 }}).addTo(map);
-if (bounds.length) {{ map.fitBounds(bounds, {{padding: [30, 30]}}); }}
+function showTrip() {{
+  if (bounds.length) {{ map.fitBounds(bounds, {{padding: [40, 40], maxZoom: 10}}); }}
+  else {{ map.setView([{center_lat}, {center_lon}], {zoom}); }}
+}}
+function showWorld() {{ map.setView([20, 10], 2); }}
+showTrip();
 </script>
 </body>
 </html>
@@ -313,6 +326,7 @@ from .i18n import t
 from .settings import theme_colors
 from .ui_widgets import PaddedButton
 from .window_layout import place_window
+from .world_basemap import draw_world_basemap, lonlat_to_xy, trip_bounds, world_view_bounds
 
 
 def _short_date(iso: str) -> str:
@@ -393,6 +407,7 @@ class MapPreviewWindow(tk.Toplevel):
         self.map_path = write_chapter_map(photos, plan, self.output_dir, order)
         self._decided = False
         self._selected = 0
+        self._world_view = False  # False = Reise-Ausschnitt mit Landkarte
         self._row_frames: list[tk.Frame] = []
         self._build()
         place_window(
@@ -509,6 +524,15 @@ class MapPreviewWindow(tk.Toplevel):
             padx=16,
             pady=11,
         ).pack(side=tk.LEFT)
+        self._view_btn = PaddedButton(
+            actions,
+            t("map_world"),
+            c,
+            command=self._toggle_world_view,
+            padx=16,
+            pady=11,
+        )
+        self._view_btn.pack(side=tk.LEFT, padx=(10, 0))
 
         if self.await_export:
             PaddedButton(
@@ -593,6 +617,16 @@ class MapPreviewWindow(tk.Toplevel):
             row._meta_lbl.configure(bg=bg, fg=muted)  # type: ignore[attr-defined]
         self._draw_map()
 
+    def _toggle_world_view(self) -> None:
+        self._world_view = not self._world_view
+        try:
+            self._view_btn.configure(
+                text=t("map_trip") if self._world_view else t("map_world")
+            )
+        except tk.TclError:
+            pass
+        self._draw_map()
+
     def _draw_map(self) -> None:
         ui = self.colors
         c = self.canvas
@@ -605,6 +639,26 @@ class MapPreviewWindow(tk.Toplevel):
                 pts.append((lat, lon, ch.color, ch.title, i))
             if ch.mean_lat is not None and ch.mean_lon is not None:
                 pts.append((ch.mean_lat, ch.mean_lon, ch.color, ch.title, i))
+
+        if self._world_view or not pts:
+            west, east, south, north = world_view_bounds()
+        else:
+            west, east, south, north = trip_bounds([(p[0], p[1]) for p in pts])
+
+        draw_world_basemap(
+            c,
+            width=w,
+            height=h,
+            land_fill=ui.get("chip_bg", "#262C40"),
+            land_outline=ui.get("line", "#2C3348"),
+            water_fill=ui.get("map_canvas", "#161A28"),
+            grid_color=ui.get("line", "#2C3348"),
+            west=west,
+            east=east,
+            south=south,
+            north=north,
+        )
+
         if not pts:
             c.create_text(
                 w / 2,
@@ -614,18 +668,19 @@ class MapPreviewWindow(tk.Toplevel):
                 font=("Segoe UI", 11),
             )
             return
-        lats = [p[0] for p in pts]
-        lons = [p[1] for p in pts]
-        min_lat, max_lat = min(lats), max(lats)
-        min_lon, max_lon = min(lons), max(lons)
-        pad = 36
-        span_lat = max(max_lat - min_lat, 0.01)
-        span_lon = max(max_lon - min_lon, 0.01)
 
         def xy(lat: float, lon: float) -> tuple[float, float]:
-            x = pad + (lon - min_lon) / span_lon * (w - 2 * pad)
-            y = pad + (max_lat - lat) / span_lat * (h - 2 * pad)
-            return x, y
+            return lonlat_to_xy(
+                lon,
+                lat,
+                width=w,
+                height=h,
+                west=west,
+                east=east,
+                south=south,
+                north=north,
+                pad=16.0,
+            )
 
         region_centers = [
             (ch.mean_lat, ch.mean_lon)
@@ -637,7 +692,7 @@ class MapPreviewWindow(tk.Toplevel):
             for lat, lon in region_centers:
                 x, y = xy(lat, lon)  # type: ignore[arg-type]
                 flat.extend([x, y])
-            c.create_line(*flat, fill=ui["accent"], width=2, smooth=True)
+            c.create_line(*flat, fill=ui["accent"], width=3, smooth=True)
 
         for lat, lon, color, _title, idx in pts:
             x, y = xy(lat, lon)
@@ -648,19 +703,20 @@ class MapPreviewWindow(tk.Toplevel):
             if ch.mean_lat is None or ch.mean_lon is None:
                 continue
             x, y = xy(ch.mean_lat, ch.mean_lon)
-            r = 11 if i == self._selected else 8
+            r = 12 if i == self._selected else 8
             width = 3 if i == self._selected else 2
             c.create_oval(
                 x - r, y - r, x + r, y + r, outline=ch.color, width=width
             )
-            label = ch.title.split(": ", 1)[-1][:20]
-            c.create_text(
-                x,
-                y - (18 if i == self._selected else 14),
-                text=label,
-                fill=ui["ink"] if i == self._selected else ui["muted"],
-                font=("Segoe UI Semibold", 9) if i == self._selected else ("Segoe UI", 8),
-            )
+            if i == self._selected or self._world_view:
+                label = ch.title.split(": ", 1)[-1][:22]
+                c.create_text(
+                    x,
+                    y - (20 if i == self._selected else 14),
+                    text=label,
+                    fill=ui["ink"] if i == self._selected else ui["muted"],
+                    font=("Segoe UI Semibold", 9) if i == self._selected else ("Segoe UI", 8),
+                )
 
     def _open_browser(self) -> None:
         try:

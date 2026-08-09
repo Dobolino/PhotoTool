@@ -125,6 +125,26 @@ def test_window_layout_helpers() -> None:
     assert callable(screen_size)
 
 
+def test_world_basemap_data() -> None:
+    from photobook_curator.world_basemap import load_land_rings, trip_bounds, world_view_bounds
+
+    rings = load_land_rings()
+    assert len(rings) > 50
+    assert len(rings[0]) >= 3
+    w, e, s, n = world_view_bounds()
+    assert w < e and s < n
+    tw, te, ts, tn = trip_bounds([(35.0, 139.0), (34.0, 135.0)])
+    assert tw < te
+
+
+def test_review_has_night_header_and_wheel_fix() -> None:
+    src = Path("photobook_curator/review_gui.py").read_text(encoding="utf-8")
+    assert "_install_wheel" in src
+    assert "soft_banner" in src
+    assert "pack_propagate(False)" in src
+    assert 'font=("Georgia"' not in src
+
+
 def test_alternatives_helper_exists() -> None:
     from photobook_curator.review_export import alternatives_for_index
 

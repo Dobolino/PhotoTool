@@ -29,3 +29,6 @@ photobook-curator-gui = "photobook_curator.gui:main"
 
 [tool.setuptools.packages.find]
 include = ["photobook_curator*"]
+
+[tool.setuptools.package-data]
+photobook_curator = ["data/*.json"]

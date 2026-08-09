@@ -100,9 +100,10 @@ class ReviewWindow(tk.Toplevel):
         self._slide_queue: queue.Queue[tuple[int, Image.Image | None]] = queue.Queue()
         self._pending_slides: set[int] = set()
         self._scroll_job: str | None = None
+        self._reflow_job: str | None = None
         self._wheel_bound = False
         self._grid_cols = 6
-        self._section_grids: dict[str, ttk.Frame] = {}
+        self._section_grids: dict[str, tk.Misc] = {}
         self._section_counts: dict[str, int] = {}
         self._session_added: set[int] = set()  # als Variante hinzugefügt
         self._add_outers: dict[int, list[tk.Frame]] = {}
@@ -177,6 +178,12 @@ class ReviewWindow(tk.Toplevel):
             "RevHead.TLabel",
             background=COLORS["bg"],
             foreground=COLORS["ink"],
+            font=("Segoe UI Semibold", 12),
+        )
+        style.configure(
+            "RevCardHead.TLabel",
+            background=COLORS["surface"],
+            foreground=COLORS["ink"],
             font=("Segoe UI Semibold", 11),
         )
         style.configure(
@@ -186,64 +193,117 @@ class ReviewWindow(tk.Toplevel):
             font=("Segoe UI", 9),
         )
         style.configure(
+            "RevCardMuted.TLabel",
+            background=COLORS["surface"],
+            foreground=COLORS["muted"],
+            font=("Segoe UI", 9),
+        )
+        style.configure(
             "RevSave.TButton",
             font=("Segoe UI Semibold", 10),
-            padding=(14, 8),
+            padding=(16, 10),
             background=COLORS["accent"],
-            foreground="#FFFFFF",
+            foreground=COLORS.get("hero_fg", "#FFFFFF"),
         )
         style.map(
             "RevSave.TButton",
             background=[("active", COLORS["accent_hover"])],
         )
+        style.configure(
+            "Rev.TButton",
+            font=("Segoe UI Semibold", 10),
+            padding=(14, 9),
+            background=COLORS.get("chip_bg", COLORS["surface"]),
+            foreground=COLORS["ink"],
+        )
+        style.map(
+            "Rev.TButton",
+            background=[("active", COLORS["line"])],
+        )
+        style.configure(
+            "Rev.TRadiobutton",
+            background=COLORS["bg"],
+            foreground=COLORS["ink"],
+            font=("Segoe UI", 10),
+            focuscolor=COLORS["bg"],
+        )
+        style.map("Rev.TRadiobutton", background=[("active", COLORS["bg"])])
 
     def _build(self) -> None:
-        hero = ttk.Frame(self, style="Rev.TFrame")
-        hero.pack(fill=tk.X)
-        band = tk.Frame(hero, bg=COLORS["accent"], padx=20, pady=14)
-        band.pack(fill=tk.X)
+        from .ui_widgets import PaddedButton, soft_banner
+
+        # Nacht-Header wie Hauptfenster (kein alter Akzent-Banner)
+        tk.Frame(self, bg=COLORS["accent"], height=3).pack(fill=tk.X)
+        header = tk.Frame(self, bg=COLORS["bg"], padx=20, pady=14)
+        header.pack(fill=tk.X)
+        titles = tk.Frame(header, bg=COLORS["bg"])
+        titles.pack(side=tk.LEFT, fill=tk.X, expand=True)
         tk.Label(
-            band,
+            titles,
             text=t("review_title"),
-            bg=COLORS["accent"],
-            fg=COLORS.get("hero_fg", "#F7F3EC"),
-            font=("Georgia", 15, "bold"),
+            bg=COLORS["bg"],
+            fg=COLORS["ink"],
+            font=("Segoe UI Semibold", 20),
         ).pack(anchor=tk.W)
         self._hero_hint = tk.Label(
-            band,
+            titles,
             text=t("review_hint_grid"),
-            bg=COLORS["accent"],
-            fg=COLORS.get("hero_muted", "#D5E4DE"),
+            bg=COLORS["bg"],
+            fg=COLORS["muted"],
             font=("Segoe UI", 10),
+            wraplength=720,
+            justify=tk.LEFT,
         )
         self._hero_hint.pack(anchor=tk.W, pady=(4, 0))
 
-        bar = ttk.Frame(self, style="Rev.TFrame", padding=(16, 10))
+        actions = tk.Frame(header, bg=COLORS["bg"])
+        actions.pack(side=tk.RIGHT)
+        PaddedButton(
+            actions,
+            t("save_export"),
+            COLORS,
+            command=self._save,
+            primary=True,
+            padx=16,
+            pady=10,
+        ).pack(side=tk.RIGHT)
+        PaddedButton(
+            actions,
+            t("close_draft"),
+            COLORS,
+            command=self._close,
+            padx=14,
+            pady=10,
+        ).pack(side=tk.RIGHT, padx=(0, 10))
+
+        bar = tk.Frame(self, bg=COLORS["bg"], padx=20, pady=(0, 8))
         bar.pack(fill=tk.X)
         self.count_var = tk.StringVar()
-        ttk.Label(bar, textvariable=self.count_var, style="RevHead.TLabel").pack(side=tk.LEFT)
-        self.mode_btn = ttk.Button(
-            bar, text=t("slideshow"), command=self._toggle_slideshow
+        tk.Label(
+            bar,
+            textvariable=self.count_var,
+            bg=COLORS["bg"],
+            fg=COLORS["ink"],
+            font=("Segoe UI Semibold", 11),
+        ).pack(side=tk.LEFT)
+        self.mode_btn = PaddedButton(
+            bar,
+            t("slideshow"),
+            COLORS,
+            command=self._toggle_slideshow,
+            padx=14,
+            pady=8,
         )
         self.mode_btn.pack(side=tk.LEFT, padx=(16, 0))
-        ttk.Button(
-            bar, text=t("save_export"), style="RevSave.TButton", command=self._save
-        ).pack(side=tk.RIGHT)
-        ttk.Button(bar, text=t("close_draft"), command=self._close).pack(
-            side=tk.RIGHT, padx=(0, 8)
-        )
-        if self._draft_note:
-            ttk.Label(self, text=self._draft_note, style="RevMuted.TLabel").pack(
-                anchor=tk.W, padx=16, pady=(0, 4)
-            )
-        ttk.Label(
-            self,
-            text=t("draft_auto"),
-            style="RevMuted.TLabel",
-        ).pack(anchor=tk.W, padx=16, pady=(0, 6))
+
+        tip_host = tk.Frame(self, bg=COLORS["bg"], padx=20)
+        tip_host.pack(fill=tk.X, pady=(0, 8))
+        tip_text = self._draft_note or t("draft_auto")
+        self._tip_banner = soft_banner(tip_host, tip_text, COLORS)
+        self._tip_banner.pack(fill=tk.X)
 
         self._body = ttk.Frame(self, style="Rev.TFrame")
-        self._body.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+        self._body.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 14))
 
         self._grid_host = ttk.Frame(self._body, style="Rev.TFrame")
         self._grid_host.pack(fill=tk.BOTH, expand=True)
@@ -258,13 +318,8 @@ class ReviewWindow(tk.Toplevel):
         self._win = self.canvas.create_window((0, 0), window=self.inner, anchor=tk.NW)
         self.inner.bind("<Configure>", self._schedule_scrollregion)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
-        # Mausrad nur über dem Canvas – nicht global (weniger Konflikte/Ruckeln)
-        self.canvas.bind("<Enter>", self._bind_wheel)
-        self.canvas.bind("<Leave>", self._unbind_wheel)
-        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
-        # Linux
-        self.canvas.bind("<Button-4>", lambda e: self._scroll_units(-3))
-        self.canvas.bind("<Button-5>", lambda e: self._scroll_units(3))
+        # Mausrad: einmal global für dieses Review – funktioniert auch über Kacheln
+        self._install_wheel()
 
         self._slide_host = ttk.Frame(self._body, style="Rev.TFrame")
         self._build_slideshow_ui()
@@ -280,7 +335,9 @@ class ReviewWindow(tk.Toplevel):
     def _update_scrollregion(self) -> None:
         self._scroll_job = None
         try:
-            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            bbox = self.canvas.bbox("all")
+            if bbox:
+                self.canvas.configure(scrollregion=bbox)
         except tk.TclError:
             pass
 
@@ -289,53 +346,83 @@ class ReviewWindow(tk.Toplevel):
             self.canvas.itemconfigure(self._win, width=event.width)
         except tk.TclError:
             return
-        # Spaltenanzahl an Fensterbreite anpassen
-        cols = max(4, min(10, int(event.width) // (THUMB + 28)))
+        cols = max(4, min(10, int(event.width) // (THUMB + 36)))
         if cols != self._grid_cols:
             self._grid_cols = cols
+            if not self._slideshow:
+                if self._reflow_job is not None:
+                    try:
+                        self.after_cancel(self._reflow_job)
+                    except Exception:
+                        pass
+                self._reflow_job = self.after(220, self._reflow_grid)
 
-    def _bind_wheel(self, _event=None) -> None:
-        if not self._wheel_bound:
-            self.bind_all("<MouseWheel>", self._on_mousewheel)
-            self._wheel_bound = True
+    def _reflow_grid(self) -> None:
+        self._reflow_job = None
+        if self._slideshow or not self.winfo_exists():
+            return
+        # Scrollposition merken
+        try:
+            top = self.canvas.yview()[0]
+        except tk.TclError:
+            top = 0.0
+        self._render()
+        try:
+            self.canvas.yview_moveto(top)
+        except tk.TclError:
+            pass
+
+    def _install_wheel(self) -> None:
+        if self._wheel_bound:
+            return
+        self.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.bind_all("<Button-4>", self._on_linux_scroll_up)
+        self.bind_all("<Button-5>", self._on_linux_scroll_down)
+        self._wheel_bound = True
 
     def _unbind_wheel(self, _event=None) -> None:
-        if self._wheel_bound:
+        if not self._wheel_bound:
+            return
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             try:
-                self.unbind_all("<MouseWheel>")
+                self.unbind_all(seq)
             except Exception:
                 pass
-            self._wheel_bound = False
+        self._wheel_bound = False
 
-    def _scroll_units(self, units: int) -> None:
-        if self.winfo_exists():
-            self.canvas.yview_scroll(units, "units")
-
-    def _on_mousewheel(self, event) -> None:
-        # Nur scrollen, wenn Zeiger über diesem Review-Fenster liegt
+    def _pointer_in_grid(self) -> bool:
         try:
-            if not self.winfo_exists():
-                return
+            if not self.winfo_exists() or self._slideshow:
+                return False
             x, y = self.winfo_pointerxy()
             widget = self.winfo_containing(x, y)
-            if widget is None:
-                return
-            # Gehört der Widget-Pfad zu diesem Fenster?
             w = widget
-            ok = False
             while w is not None:
-                if w == self or w == self.canvas or w == self.inner:
-                    ok = True
-                    break
-                w = w.master if hasattr(w, "master") else None
-            if not ok:
-                return
+                if w in (self.canvas, self.inner):
+                    return True
+                w = getattr(w, "master", None)
+            return False
         except tk.TclError:
+            return False
+
+    def _scroll_units(self, units: int) -> None:
+        if self.winfo_exists() and not self._slideshow:
+            self.canvas.yview_scroll(units, "units")
+
+    def _on_linux_scroll_up(self, _event=None) -> None:
+        if self._pointer_in_grid():
+            self._scroll_units(-3)
+
+    def _on_linux_scroll_down(self, _event=None) -> None:
+        if self._pointer_in_grid():
+            self._scroll_units(3)
+
+    def _on_mousewheel(self, event) -> None:
+        if not self._pointer_in_grid():
             return
         delta = int(getattr(event, "delta", 0) or 0)
         if delta == 0:
             return
-        # Größere Schritte, weniger Events → spürbar flüssiger
         steps = -1 if delta > 0 else 1
         if abs(delta) >= 120:
             steps = int(-1 * (delta / 120))
@@ -360,6 +447,7 @@ class ReviewWindow(tk.Toplevel):
                 value=mode,
                 variable=self._filter_var,
                 command=self._on_filter_changed,
+                style="Rev.TRadiobutton",
             ).pack(side=tk.LEFT, padx=(0, 8))
 
         self._chapter_var = tk.StringVar(value=t("chapter_all"))
@@ -568,7 +656,8 @@ class ReviewWindow(tk.Toplevel):
                 for lbl in self._thumb_labels.get(idx, []):
                     try:
                         if lbl.winfo_exists():
-                            lbl.configure(image=tk_img, text="", width=0, height=0)
+                            # Feste Kachelgröße: kein width/height-Reset → weniger Scroll-Sprünge
+                            lbl.configure(image=tk_img, text="")
                     except tk.TclError:
                         pass
                 # Diashow: Thumb sofort als Platzhalter, Filmstreifen aktualisieren
@@ -583,7 +672,8 @@ class ReviewWindow(tk.Toplevel):
                 updated += 1
         except queue.Empty:
             pass
-        if updated:
+        # scrollregion nur selten – feste Kachelhöhe macht ständiges Nachziehen unnötig
+        if updated and updated >= 4:
             self._schedule_scrollregion()
         if self.winfo_exists():
             delay = 30 if updated else 80
@@ -881,7 +971,6 @@ class ReviewWindow(tk.Toplevel):
                 w.bind("<Button-1>", jump)
             self._strip_frames[idx] = outer
             self._strip_thumb_labels[idx] = lbl
-            self._thumb_labels.setdefault(idx, []).append(lbl)
 
     def _jump_slide(self, pos: int) -> None:
         if not self._slideshow or not self._slide_indices:
@@ -1181,7 +1270,7 @@ class ReviewWindow(tk.Toplevel):
             )
         self.photos[idx].is_selected = True
 
-    def _ensure_chapter_grid(self, folder: str) -> ttk.Frame:
+    def _ensure_chapter_grid(self, folder: str) -> tk.Misc:
         try:
             grid = self._section_grids.get(folder)
             if grid is not None and grid.winfo_exists():
@@ -1189,13 +1278,27 @@ class ReviewWindow(tk.Toplevel):
         except tk.TclError:
             pass
         title = folder.replace("/", " · ").replace("\\", " · ") or "Kapitel"
-        wrap = ttk.Frame(self.inner, style="Rev.TFrame", padding=(8, 10))
-        wrap.pack(fill=tk.X, anchor=tk.NW)
-        ttk.Label(wrap, text=title, style="RevHead.TLabel").pack(anchor=tk.W)
-        ttk.Label(wrap, text=t("in_chapter_hint"), style="RevMuted.TLabel").pack(
-            anchor=tk.W, pady=(0, 6)
-        )
-        grid = ttk.Frame(wrap, style="Rev.TFrame")
+        shell = tk.Frame(self.inner, bg=COLORS["line"], padx=1, pady=1)
+        shell.pack(fill=tk.X, anchor=tk.NW, pady=(0, 12), padx=4)
+        wrap = tk.Frame(shell, bg=COLORS["surface"], padx=16, pady=14)
+        wrap.pack(fill=tk.X)
+        tk.Label(
+            wrap,
+            text=title,
+            bg=COLORS["surface"],
+            fg=COLORS["ink"],
+            font=("Segoe UI Semibold", 12),
+            anchor=tk.W,
+        ).pack(anchor=tk.W)
+        tk.Label(
+            wrap,
+            text=t("in_chapter_hint"),
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 9),
+            anchor=tk.W,
+        ).pack(anchor=tk.W, pady=(4, 10))
+        grid = tk.Frame(wrap, bg=COLORS["surface"])
         grid.pack(fill=tk.X)
         self._section_grids[folder] = grid
         self._section_counts.setdefault(folder, 0)
@@ -1306,16 +1409,28 @@ class ReviewWindow(tk.Toplevel):
         indices: list[int],
         alternatives: bool = False,
     ) -> None:
-        wrap = ttk.Frame(self.inner, style="Rev.TFrame", padding=(8, 10))
-        wrap.pack(fill=tk.X, anchor=tk.NW)
-        ttk.Label(wrap, text=title, style="RevHead.TLabel").pack(anchor=tk.W)
-        ttk.Label(
+        shell = tk.Frame(self.inner, bg=COLORS["line"], padx=1, pady=1)
+        shell.pack(fill=tk.X, anchor=tk.NW, pady=(0, 12), padx=4)
+        wrap = tk.Frame(shell, bg=COLORS["surface"], padx=16, pady=14)
+        wrap.pack(fill=tk.X)
+        tk.Label(
+            wrap,
+            text=title,
+            bg=COLORS["surface"],
+            fg=COLORS["ink"],
+            font=("Segoe UI Semibold", 12),
+            anchor=tk.W,
+        ).pack(anchor=tk.W)
+        tk.Label(
             wrap,
             text=t("in_chapter_hint"),
-            style="RevMuted.TLabel",
-        ).pack(anchor=tk.W, pady=(0, 6))
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 9),
+            anchor=tk.W,
+        ).pack(anchor=tk.W, pady=(4, 10))
 
-        grid = ttk.Frame(wrap, style="Rev.TFrame")
+        grid = tk.Frame(wrap, bg=COLORS["surface"])
         grid.pack(fill=tk.X)
         self._section_grids[folder] = grid
         self._section_counts[folder] = len(indices)
@@ -1343,7 +1458,7 @@ class ReviewWindow(tk.Toplevel):
         self,
         title: str,
         indices: list[int],
-        parent: Optional[ttk.Frame] = None,
+        parent: Optional[tk.Misc] = None,
         folder: str = "",
         collapsed: bool = True,
     ) -> None:
@@ -1352,10 +1467,18 @@ class ReviewWindow(tk.Toplevel):
         indices = [i for i in indices if i not in self.kept]
         if not indices:
             return
-        box = ttk.Frame(host, style="Rev.TFrame", padding=(0, 8, 0, 0))
-        box.pack(fill=tk.X)
-        ttk.Label(box, text=title, style="RevMuted.TLabel").pack(anchor=tk.W)
-        grid = ttk.Frame(box, style="Rev.TFrame")
+        bg = COLORS["surface"] if parent is not None else COLORS["bg"]
+        box = tk.Frame(host, bg=bg)
+        box.pack(fill=tk.X, pady=(10, 0))
+        tk.Label(
+            box,
+            text=title,
+            bg=bg,
+            fg=COLORS["muted"],
+            font=("Segoe UI", 9),
+            anchor=tk.W,
+        ).pack(anchor=tk.W)
+        grid = tk.Frame(box, bg=bg)
         state = {"open": False}
 
         def _fill() -> None:
@@ -1371,23 +1494,23 @@ class ReviewWindow(tk.Toplevel):
             if state["open"]:
                 state["open"] = False
                 for child in grid.winfo_children():
-                    # zugehörige add-outer tracking bereinigen
-                    pass
-                for child in grid.winfo_children():
                     child.destroy()
                 grid.pack_forget()
                 btn.configure(text=t("show_variants", n=len(indices)))
             else:
                 state["open"] = True
                 _fill()
-                grid.pack(fill=tk.X, pady=(4, 0))
+                grid.pack(fill=tk.X, pady=(6, 0))
                 btn.configure(text=t("hide_variants"))
             self._schedule_scrollregion()
 
         btn = ttk.Button(
-            box, text=t("show_variants", n=len(indices)), command=_toggle
+            box,
+            text=t("show_variants", n=len(indices)),
+            style="Rev.TButton",
+            command=_toggle,
         )
-        btn.pack(anchor=tk.W, pady=(4, 0))
+        btn.pack(anchor=tk.W, pady=(6, 0))
         if not collapsed:
             _toggle()
 
@@ -1462,7 +1585,7 @@ class ReviewWindow(tk.Toplevel):
 
     def _tile(
         self,
-        parent: ttk.Frame,
+        parent: tk.Misc,
         idx: int,
         col: int,
         row: int,
@@ -1472,7 +1595,7 @@ class ReviewWindow(tk.Toplevel):
         kept = idx in self.kept
         border = COLORS["keep_border"] if kept else COLORS["reject_border"]
         outer = tk.Frame(parent, bg=border, padx=2, pady=2)
-        outer.grid(row=row, column=col, padx=6, pady=6, sticky=tk.NW)
+        outer.grid(row=row, column=col, padx=8, pady=8, sticky=tk.NW)
 
         inner = tk.Frame(outer, bg=COLORS["surface"])
         inner.pack()
@@ -1484,24 +1607,33 @@ class ReviewWindow(tk.Toplevel):
         meta = photo.scene_type or photo.chapter_type or ""
         score = photo.final_score or photo.technical_score
 
+        # Feste Bildfläche – verhindert Layout-Sprünge beim Scrollen/Nachladen
+        img_host = tk.Frame(
+            inner,
+            bg=COLORS.get("thumb_pad", COLORS["line"]),
+            width=THUMB,
+            height=THUMB,
+        )
+        img_host.pack_propagate(False)
+        img_host.pack()
+
         tk_img = self._thumb_cache.get(idx)
         if tk_img is not None:
-            lbl = tk.Label(inner, image=tk_img, bg=COLORS["surface"], cursor="hand2")
+            lbl = tk.Label(
+                img_host, image=tk_img, bg=COLORS.get("thumb_pad", COLORS["line"]), cursor="hand2"
+            )
         else:
             lbl = tk.Label(
-                inner,
+                img_host,
                 text="…",
-                width=14,
-                height=7,
-                bg=COLORS["line"],
+                bg=COLORS.get("thumb_pad", COLORS["line"]),
                 cursor="hand2",
                 fg=COLORS["muted"],
                 font=("Segoe UI", 10),
             )
             self._thumb_labels.setdefault(idx, []).append(lbl)
-            # Keep sofort; Varianten nur wenn der Block aufgeklappt wurde (dann entsteht die Kachel)
             self._request_thumb(idx, priority=30 if mode == "keep" else 45)
-        lbl.pack()
+        lbl.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
         folder_bit = ""
         if mode == "keep" and folder:
@@ -1515,8 +1647,9 @@ class ReviewWindow(tk.Toplevel):
             font=("Segoe UI", 8),
             justify=tk.CENTER,
             cursor="hand2",
+            width=18,
         )
-        info.pack(pady=(4, 2))
+        info.pack(pady=(6, 4))
 
         def toggle(_event=None, i=idx, m=mode, folder_name=folder):
             if m == "add":
@@ -1556,7 +1689,7 @@ class ReviewWindow(tk.Toplevel):
             "idx": idx,
         }
         # Klicks auf alle sichtbaren Teile (inkl. Overlay/+HINZUFÜGEN)
-        for widget in (lbl, info, inner, outer):
+        for widget in (lbl, info, inner, outer, img_host):
             self._bind_tile_click(widget, toggle)
         self._apply_tile_visual(key)
 
@@ -1571,25 +1704,25 @@ class ReviewWindow(tk.Toplevel):
             )
         if warn:
             badge = tk.Label(
-                inner,
-                text=warn,
-                bg="#A65B2A",
-                fg="white",
+                img_host,
+                text=f" {warn} ",
+                bg=COLORS.get("phase_run_bg", "#C47A3A"),
+                fg=COLORS.get("phase_run_fg", "#FFF8F0"),
                 font=("Segoe UI Semibold", 7),
                 cursor="hand2",
             )
-            badge.place(relx=0.02, rely=0.02, anchor=tk.NW)
+            badge.place(relx=0.03, rely=0.03, anchor=tk.NW)
             self._bind_tile_click(badge, toggle)
         elif mode == "keep" and idx in self._session_added:
             neu = tk.Label(
-                inner,
-                text=t("new_badge"),
+                img_host,
+                text=f" {t('new_badge')} ",
                 bg=COLORS["accent"],
-                fg="white",
+                fg=COLORS.get("hero_fg", "#FFFFFF"),
                 font=("Segoe UI Semibold", 7),
                 cursor="hand2",
             )
-            neu.place(relx=0.02, rely=0.02, anchor=tk.NW)
+            neu.place(relx=0.03, rely=0.03, anchor=tk.NW)
             self._bind_tile_click(neu, toggle)
 
     def _save(self) -> None:
