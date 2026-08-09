@@ -443,9 +443,11 @@ class ReviewWindow(tk.Toplevel):
                 bg=COLORS["reject"],
                 fg="white",
                 font=("Segoe UI Semibold", 8),
+                cursor="hand2",
             )
             overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
             state["overlay"] = overlay
+            self._bind_tile_click(overlay, state.get("toggle"))
         elif mode == "add" and idx not in self.kept:
             overlay = tk.Label(
                 inner,
@@ -453,9 +455,22 @@ class ReviewWindow(tk.Toplevel):
                 bg=COLORS["accent"],
                 fg="white",
                 font=("Segoe UI Semibold", 8),
+                cursor="hand2",
             )
             overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
             state["overlay"] = overlay
+            # Wichtig: Overlay liegt oben – ohne Bind greift der Klick nicht
+            self._bind_tile_click(overlay, state.get("toggle"))
+
+    @staticmethod
+    def _bind_tile_click(widget, toggle) -> None:
+        if toggle is None or widget is None:
+            return
+        try:
+            widget.bind("<Button-1>", toggle)
+            widget.configure(cursor="hand2")
+        except tk.TclError:
+            pass
 
     def _tile(
         self,
@@ -506,37 +521,9 @@ class ReviewWindow(tk.Toplevel):
             fg=COLORS["muted"] if (mode == "keep" and not kept) else COLORS["ink"],
             font=("Segoe UI", 8),
             justify=tk.CENTER,
+            cursor="hand2",
         )
         info.pack(pady=(4, 2))
-
-        key = (mode, idx)
-        self._tile_state[key] = {
-            "outer": outer,
-            "inner": inner,
-            "info": info,
-            "lbl": lbl,
-            "overlay": None,
-        }
-        self._apply_tile_visual(key)
-
-        warn = None
-        if getattr(photo, "finger_on_lens", False) or "finger_on_lens" in photo.flags:
-            warn = "Finger"
-        elif getattr(photo, "bad_face", False) or "eyes_closed" in photo.flags:
-            warn = (
-                "Augen zu"
-                if getattr(photo, "eyes_closed", False) or "eyes_closed" in photo.flags
-                else "Gesicht?"
-            )
-        if warn:
-            badge = tk.Label(
-                inner,
-                text=warn,
-                bg="#A65B2A",
-                fg="white",
-                font=("Segoe UI Semibold", 7),
-            )
-            badge.place(relx=0.02, rely=0.02, anchor=tk.NW)
 
         def toggle(_event=None, i=idx, m=mode, folder_name=folder):
             if m == "add":
@@ -565,8 +552,40 @@ class ReviewWindow(tk.Toplevel):
                 self._update_count()
                 self._apply_tile_visual(("keep", i))
 
+        key = (mode, idx)
+        self._tile_state[key] = {
+            "outer": outer,
+            "inner": inner,
+            "info": info,
+            "lbl": lbl,
+            "overlay": None,
+            "toggle": toggle,
+        }
+        # Klicks auf alle sichtbaren Teile (inkl. Overlay/+HINZUFÜGEN)
         for widget in (lbl, info, inner, outer):
-            widget.bind("<Button-1>", toggle)
+            self._bind_tile_click(widget, toggle)
+        self._apply_tile_visual(key)
+
+        warn = None
+        if getattr(photo, "finger_on_lens", False) or "finger_on_lens" in photo.flags:
+            warn = "Finger"
+        elif getattr(photo, "bad_face", False) or "eyes_closed" in photo.flags:
+            warn = (
+                "Augen zu"
+                if getattr(photo, "eyes_closed", False) or "eyes_closed" in photo.flags
+                else "Gesicht?"
+            )
+        if warn:
+            badge = tk.Label(
+                inner,
+                text=warn,
+                bg="#A65B2A",
+                fg="white",
+                font=("Segoe UI Semibold", 7),
+                cursor="hand2",
+            )
+            badge.place(relx=0.02, rely=0.02, anchor=tk.NW)
+            self._bind_tile_click(badge, toggle)
 
     def _save(self) -> None:
         if not self.kept:
