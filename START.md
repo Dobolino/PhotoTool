@@ -71,6 +71,7 @@ Fotobuch starten.bat
 | Schwarzes Fenster ohne Text / schließt sofort | Python fehlt oder Start bricht ab | Erneut starten; Text lesen; ggf. Python neu installieren |
 | Schwarzes Fenster mit Fehlermeldung | Installation unvollständig | Meldung lesen; Bat erneut starten (repariert `.venv`) |
 | Kein Programmfenster | Fehler beim GUI-Start | Dateien `start_log.txt` und `fehler_beim_start.txt` im Ordner öffnen |
+| Leeres graues Fenster | UI-Aufbau abgebrochen / Update unvollständig | `Programm aktualisieren.bat`, danach erneut starten. Wenn Fehlertext im Fenster: lesen oder `fehler_beim_start.txt` öffnen |
 
 ### Schritt 3: Bedienung
 
