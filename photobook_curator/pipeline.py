@@ -8,12 +8,13 @@ from typing import Any, Optional
 
 from .ai_review import ensure_scene_types, run_ai_review
 from .bursts import mark_bursts
+from .documents import mark_aside_documents
 from .duplicates import mark_duplicates
 from .face_quality import analyze_face_quality
 from .faces import count_faces
 from .geocoding import GeocodeCache
 from .models import BookPlan, Photo
-from .output import copy_selected, write_csv, write_markdown_overview
+from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
 from .quality import analyze_all
 from .regions import build_location_plan
 from .scan import scan_photos
@@ -52,6 +53,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     photos = scan_photos(cfg.input_dir)
     print(f"  {len(photos)} Bilder gefunden")
     analyze_all(photos)
+    aside_count = mark_aside_documents(photos)
+    print(f"  {aside_count} Screenshots/Dokumente → Optional-Pool (nicht Auto-Kapitel)")
     dup_count, burst_from_dup = mark_duplicates(
         photos,
         burst_seconds=cfg.burst_max_seconds,
@@ -152,9 +155,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     print("=== Ausgabe ===")
     write_csv(photos, cfg.output_dir / "photos_analysis.csv")
     copy_selected(photos, order, cfg.output_dir)
+    aside_copied = copy_aside_pool(photos, cfg.output_dir)
     write_markdown_overview(photos, plan, order, cfg.output_dir / "inhaltsverzeichnis.md")
     print(f"  CSV: {cfg.output_dir / 'photos_analysis.csv'}")
     print(f"  Auswahl: {cfg.output_dir / 'selected'}")
+    if aside_copied:
+        print(f"  Optional-Pool: {cfg.output_dir / 'optional_dokumente'} ({aside_copied} Dateien)")
     print(f"  Übersicht: {cfg.output_dir / 'inhaltsverzeichnis.md'}")
 
     return {

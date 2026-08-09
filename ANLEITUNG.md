@@ -57,6 +57,8 @@ Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter 
 
 **Serien/Bursts:** Aus ähnlichen Fotos innerhalb von ~30 Sekunden behält es nur die besten 1–2 Bilder.
 
+**Dokumente & Screenshots** (Tickets, Karten, Chat-Screens …) kommen **nicht** automatisch ins Buch, sondern in den Ordner `optional_dokumente/`. In **Auswahl prüfen** kannst du sie bei Bedarf mit einem Klick ins Album übernehmen (`99_Optional_Dokumente`).
+
 Optional: Haken bei **KI-Bewertung** setzen und API-Key eintragen (braucht Account auf [console.anthropic.com](https://console.anthropic.com/) — Claude-Chat-Abo reicht nicht).
 
 ---

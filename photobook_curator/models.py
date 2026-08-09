@@ -48,6 +48,8 @@ class Photo:
     contrast: float = 0.0
     saturation: float = 0.0
     is_screenshot: bool = False
+    is_aside: bool = False  # Screenshot/Dokument – optional, nicht Auto-Kapitel
+    aside_type: Optional[str] = None  # screenshot|dokument|karte|ticket
     is_duplicate: bool = False
     is_burst_reject: bool = False
     burst_group_id: Optional[int] = None
@@ -137,6 +139,8 @@ class Photo:
             "is_burst_reject": self.is_burst_reject,
             "burst_group_id": self.burst_group_id if self.burst_group_id is not None else "",
             "is_screenshot": self.is_screenshot,
+            "is_aside": self.is_aside,
+            "aside_type": self.aside_type or "",
             "assigned_by_time": self.assigned_by_time,
             "fine_cluster_id": (
                 self.fine_cluster_id if self.fine_cluster_id is not None else ""

@@ -8,8 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from .documents import ASIDE_FOLDER
 from .models import BookPlan, Photo, Region, TransitSection
-from .output import copy_selected, write_csv, write_markdown_overview
+from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
 
 
 def rebuild_order_from_kept(
@@ -85,6 +86,11 @@ def apply_manual_selection(
                 photo.flags = [f for f in photo.flags if f != "manual_reject"]
             if was_selected is False and "manual_add" not in photo.flags:
                 photo.add_flag("manual_add")
+            # Aside → eigenes Optional-Kapitel im Buch
+            if getattr(photo, "is_aside", False):
+                photo.chapter_folder = ASIDE_FOLDER
+                photo.chapter_type = "Optional"
+                photo.region = photo.region or "Optional"
         else:
             photo.book_position = None
             if was_selected and "manual_reject" not in photo.flags:
@@ -99,6 +105,7 @@ def apply_manual_selection(
 
     write_csv(photos, output_dir / "photos_analysis.csv")
     copy_selected(photos, order, output_dir)
+    copy_aside_pool(photos, output_dir)
     write_markdown_overview(photos, plan, order, output_dir / "inhaltsverzeichnis.md")
     return order
 
@@ -238,6 +245,8 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 is_burst_reject=_bool("is_burst_reject"),
                 burst_group_id=_int("burst_group_id") if (row.get("burst_group_id") or "").strip() else None,
                 is_screenshot=_bool("is_screenshot"),
+                is_aside=_bool("is_aside"),
+                aside_type=(row.get("aside_type") or None) or None,
                 assigned_by_time=_bool("assigned_by_time"),
                 eyes_closed=_bool("eyes_closed"),
                 face_cut_off=_bool("face_cut_off"),

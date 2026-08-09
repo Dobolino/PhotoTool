@@ -75,6 +75,10 @@ def build_regions(photos: list[Photo], clusters: list[FineCluster]) -> list[Regi
         city = cluster.city
         city_country[city] = cluster.country
         for idx in cluster.photo_indices:
+            if getattr(photos[idx], "is_aside", False):
+                # Screenshots/Dokumente bleiben im Optional-Pool
+                photos[idx].region = "Optional"
+                continue
             photos[idx].region = city
             photos[idx].country = cluster.country
             photos[idx].place_label = city
@@ -119,6 +123,9 @@ def assign_photos_without_gps(
     threshold = timedelta(hours=max_hours)
 
     for i, photo in enumerate(photos):
+        if getattr(photo, "is_aside", False):
+            photo.region = "Optional"
+            continue
         if photo.region is not None:
             continue
         if photo.datetime_taken is None or not regions:

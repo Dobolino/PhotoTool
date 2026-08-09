@@ -267,6 +267,30 @@ def create_dataset(out_dir: Path, base_date: datetime | None = None) -> None:
     path = out_dir / f"{seq:03d}_screenshot.png"
     Image.new("RGB", (1170, 2532), (20, 20, 40)).save(path)
 
+    # Boarding-Pass / Ticket (helles Dokument)
+    seq += 1
+    path = out_dir / f"{seq:03d}_boarding_pass_ticket.jpg"
+    ticket = Image.new("RGB", (1200, 500), (245, 245, 240))
+    tdraw = ImageDraw.Draw(ticket)
+    tdraw.rectangle([40, 40, 1160, 460], outline=(30, 30, 30), width=3)
+    tdraw.rectangle([80, 100, 700, 160], fill=(30, 30, 30))
+    tdraw.rectangle([80, 200, 1100, 220], fill=(60, 60, 60))
+    tdraw.rectangle([80, 250, 900, 270], fill=(80, 80, 80))
+    # Pseudo-Barcode
+    for x in range(800, 1100, 4):
+        tdraw.line([(x, 320), (x, 420)], fill=(0, 0, 0), width=2)
+    ticket.save(path, quality=92)
+
+    # Karten-Screenshot (Dateiname-Hinweis)
+    seq += 1
+    path = out_dir / f"{seq:03d}_maps_screenshot.png"
+    amap = Image.new("RGB", (1170, 2532), (230, 235, 230))
+    mdraw = ImageDraw.Draw(amap)
+    mdraw.rectangle([0, 0, 1170, 180], fill=(255, 255, 255))
+    mdraw.ellipse([500, 1100, 680, 1280], outline=(200, 60, 60), width=8)
+    mdraw.line([(100, 400), (1000, 2000)], fill=(100, 140, 220), width=10)
+    amap.save(path)
+
     print(f"Datensatz erzeugt in {out_dir} ({seq} Dateien)")
 
 

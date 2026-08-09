@@ -31,6 +31,7 @@ def mark_candidates(
             for i in indices
             if not photos[i].is_duplicate
             and not getattr(photos[i], "is_burst_reject", False)
+            and not getattr(photos[i], "is_aside", False)
             and "unreadable" not in photos[i].flags
         ]
         eligible.sort(key=lambda i: photos[i].technical_score, reverse=True)
@@ -232,7 +233,11 @@ def select_for_region(
     """Gibt (hauptteil_indices, essen_indices) zurück, chronologisch sortiert."""
     # Nur Kandidaten bevorzugen, Fallback auf alle nicht-Duplikate
     def _ok(i: int) -> bool:
-        return not photos[i].is_duplicate and not getattr(photos[i], "is_burst_reject", False)
+        return (
+            not photos[i].is_duplicate
+            and not getattr(photos[i], "is_burst_reject", False)
+            and not getattr(photos[i], "is_aside", False)
+        )
 
     cand = [i for i in indices if photos[i].is_candidate and _ok(i)]
     if not cand:
@@ -279,7 +284,11 @@ def select_for_transit(
     similarity_threshold: float = 0.92,
 ) -> list[int]:
     def _ok(i: int) -> bool:
-        return not photos[i].is_duplicate and not getattr(photos[i], "is_burst_reject", False)
+        return (
+            not photos[i].is_duplicate
+            and not getattr(photos[i], "is_burst_reject", False)
+            and not getattr(photos[i], "is_aside", False)
+        )
 
     cand = [i for i in indices if photos[i].is_candidate and _ok(i)]
     if not cand:

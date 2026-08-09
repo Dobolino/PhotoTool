@@ -198,13 +198,39 @@ class ReviewWindow(tk.Toplevel):
             ).pack(anchor=tk.W, padx=8, pady=16)
 
         for title, folder, indices in sections:
-            self._section(title, folder, indices, alternatives=True)
+            # Keine normalen Alternativen unter dem Optional-Kapitel
+            show_alts = not folder.startswith("99_")
+            self._section(title, folder, indices, alternatives=show_alts)
+
+        # Optional-Pool: Screenshots/Dokumente zum Einfügen
+        from .documents import ASIDE_FOLDER, aside_indices
+
+        aside = [
+            i
+            for i in aside_indices(self.photos)
+            if i not in self.kept and not self.photos[i].is_duplicate
+        ]
+        if aside:
+            aside.sort(
+                key=lambda i: (
+                    self.photos[i].aside_type or "",
+                    self.photos[i].filename,
+                )
+            )
+            self._alt_block(
+                "Optional: Dokumente & Screenshots (tippen = ins Buch)",
+                aside[:40],
+                folder=ASIDE_FOLDER,
+            )
 
         if not sections:
             alts = [
                 i
                 for i, p in enumerate(self.photos)
-                if p.is_candidate and not p.is_duplicate and i not in self.kept
+                if p.is_candidate
+                and not p.is_duplicate
+                and not getattr(p, "is_aside", False)
+                and i not in self.kept
             ]
             alts.sort(
                 key=lambda i: self.photos[i].final_score or self.photos[i].technical_score,
@@ -344,13 +370,17 @@ class ReviewWindow(tk.Toplevel):
                 self.baseline.add(i)
                 if folder_name:
                     self.photos[i].chapter_folder = folder_name
-                    self.photos[i].chapter_type = (
-                        "Transit"
-                        if "Transit" in folder_name
-                        else "Essen"
-                        if folder_name.endswith("essen")
-                        else "Hauptteil"
-                    )
+                    if folder_name.startswith("99_") or getattr(self.photos[i], "is_aside", False):
+                        self.photos[i].chapter_type = "Optional"
+                        self.photos[i].region = self.photos[i].region or "Optional"
+                    else:
+                        self.photos[i].chapter_type = (
+                            "Transit"
+                            if "Transit" in folder_name
+                            else "Essen"
+                            if folder_name.endswith("essen")
+                            else "Hauptteil"
+                        )
             else:
                 if i in self.kept:
                     self.kept.remove(i)
