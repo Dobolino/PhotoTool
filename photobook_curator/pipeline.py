@@ -13,6 +13,7 @@ from .duplicates import mark_duplicates
 from .face_quality import analyze_face_quality
 from .faces import count_faces
 from .geocoding import GeocodeCache
+from .finger_obstruction import analyze_finger_obstruction
 from .map_preview import write_chapter_map
 from .models import BookPlan, Photo
 from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
@@ -44,6 +45,7 @@ class PipelineConfig:
     enable_faces: bool = True
     enable_bursts: bool = True
     enable_document_aside: bool = True
+    enable_finger_filter: bool = False  # Finger vor der Linse aussortieren
     coverage_intensity: float = 0.0  # 0=aus, 1=starke Tages-Abdeckung
     people_balance_intensity: float = 0.0  # 0=aus, 1=starke Personen-Balance
     enable_map_preview: bool = False
@@ -113,6 +115,10 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         print(f"  Gesichtsqualität: {fq_backend} ({closed} Augen zu, {bad} problematisch)")
     else:
         print("  Gesichtserkennung übersprungen")
+    if cfg.enable_finger_filter:
+        finger_backend = analyze_finger_obstruction(photos)
+        n_finger = sum(1 for p in photos if p.finger_on_lens)
+        print(f"  Finger vor Linse: {finger_backend} ({n_finger} aussortiert)")
     if cfg.people_balance_intensity > 0:
         pb_backend = analyze_people_clusters(photos)
         n_clustered = sum(1 for p in photos if p.person_cluster_ids)

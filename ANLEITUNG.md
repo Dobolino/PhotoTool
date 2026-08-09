@@ -36,7 +36,7 @@ Danach öffnet sich ein Fenster.
 
 1. **Fotos-Ordner** → `Durchsuchen` → z. B. `OneDrive\Bilder\Urlaubfotos\Japan`
 2. **Ausgabe-Ordner** → `Durchsuchen` → neuen leeren Ordner wählen
-3. **Zielanzahl** einstellen (z. B. 80)
+3. **Zielanzahl** einstellen (z. B. 80) — so viele Bilder sollen ungefähr im Buch landen
 4. Auf **Auswahl starten** klicken
 5. Warten, bis „Fertig“ erscheint
 6. Bei Nachfrage **Ja** → **Auswahl prüfen** (Thumbnails)
@@ -66,6 +66,7 @@ Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter 
 | Gesichtserkennung / Augen zu | an | `--faces` / `--no-faces` |
 | Serien/Bursts | an | `--bursts` / `--no-bursts` |
 | Dokumente separat | an | `--aside-documents` / `--no-aside-documents` |
+| Finger vor der Linse | aus | Checkbox, CLI: `--finger-filter` / `--no-finger-filter` |
 | Tages-Abdeckung | aus | Checkbox + Stärke-Regler, CLI: `--coverage-intensity 0.0–1.0` |
 | Personen-Balance | aus | Checkbox + Stärke-Regler, CLI: `--people-balance-intensity 0.0–1.0` |
 | Kapitel-/Karten-Vorschau | aus | Checkbox, CLI: `--map-preview` |
@@ -77,6 +78,8 @@ Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter 
 
 **Personen-Balance:** Verhindert, dass dieselbe Person das Album dominiert; unterrepräsentierte Gesichter werden bevorzugt.  
 `0` = aus, `0.5` = sanft, `1.0` = stark ausgewogen.
+
+**Finger vor der Linse:** Erkennt typische Verdeckungen (weicher Haut-Blob am Bildrand / große Hand nahe Kamera) und nimmt diese Fotos aus der Auto-Auswahl.
 
 **Kapitel-/Karten-Vorschau:** Zeigt vor dem Kopieren die Kapitelreihenfolge und GPS-Punkte (Fenster + `kapitel_karte.html`).  
 Erst nach „So exportieren“ werden `selected/` und Co. geschrieben. In der CLI erzeugt `--map-preview` die HTML-Karte mit.

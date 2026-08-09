@@ -352,9 +352,13 @@ class ReviewWindow(tk.Toplevel):
             )
             overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
 
-        # Warnhinweis bei schlechten Gesichtern
-        if getattr(photo, "bad_face", False) or "eyes_closed" in photo.flags:
+        # Warnhinweis bei schlechten Gesichtern / Finger
+        warn = None
+        if getattr(photo, "finger_on_lens", False) or "finger_on_lens" in photo.flags:
+            warn = "Finger"
+        elif getattr(photo, "bad_face", False) or "eyes_closed" in photo.flags:
             warn = "Augen zu" if getattr(photo, "eyes_closed", False) or "eyes_closed" in photo.flags else "Gesicht?"
+        if warn:
             badge = tk.Label(
                 inner,
                 text=warn,

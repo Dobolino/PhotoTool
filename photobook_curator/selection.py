@@ -33,6 +33,7 @@ def mark_candidates(
             if not photos[i].is_duplicate
             and not getattr(photos[i], "is_burst_reject", False)
             and not getattr(photos[i], "is_aside", False)
+            and not getattr(photos[i], "finger_on_lens", False)
             and "unreadable" not in photos[i].flags
         ]
         eligible.sort(key=lambda i: photos[i].technical_score, reverse=True)
@@ -427,6 +428,7 @@ def select_for_region(
             not photos[i].is_duplicate
             and not getattr(photos[i], "is_burst_reject", False)
             and not getattr(photos[i], "is_aside", False)
+            and not getattr(photos[i], "finger_on_lens", False)
         )
 
     cand = [i for i in indices if photos[i].is_candidate and _ok(i)]
@@ -488,6 +490,7 @@ def select_for_transit(
             not photos[i].is_duplicate
             and not getattr(photos[i], "is_burst_reject", False)
             and not getattr(photos[i], "is_aside", False)
+            and not getattr(photos[i], "finger_on_lens", False)
         )
 
     cand = [i for i in indices if photos[i].is_candidate and _ok(i)]

@@ -59,6 +59,7 @@ class Photo:
     face_cut_off: bool = False
     face_too_small: bool = False
     bad_face: bool = False
+    finger_on_lens: bool = False
     person_cluster_ids: list[int] = field(default_factory=list)
     technical_score: float = 0.0
     phash: Optional[str] = None
@@ -123,6 +124,7 @@ class Photo:
             "face_cut_off": self.face_cut_off,
             "face_too_small": self.face_too_small,
             "bad_face": self.bad_face,
+            "finger_on_lens": self.finger_on_lens,
             "person_cluster_ids": "|".join(str(x) for x in self.person_cluster_ids),
             "technical_score": round(self.technical_score, 2),
             "aesthetic_score": self.aesthetic_score if self.aesthetic_score is not None else "",

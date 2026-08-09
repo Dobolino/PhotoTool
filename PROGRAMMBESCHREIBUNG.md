@@ -70,6 +70,7 @@ CLI exportiert immer sofort; `--map-preview` schreibt zusätzlich `kapitel_karte
 | `documents.py` | Heuristik: Screenshot/Dokument/Karte/Ticket → Aside-Pool |
 | `faces.py` | Gesichtszählung (MediaPipe / Haar-Fallback) |
 | `face_quality.py` | Augen zu, abgeschnitten, zu klein → `bad_face` |
+| `finger_obstruction.py` | Optional: Finger vor der Linse → `finger_on_lens`, aus Auswahl |
 | `people_balance.py` | Gesichtscrops clustern → `person_cluster_ids`, Penalty in Auswahl |
 | `geocoding.py` | Nominatim + Cache; Offline-Stadt-Fallback |
 | `regions.py` | DBSCAN auf GPS → Städte/Regionen; GPS-lose per Zeit zuordnen |
@@ -147,6 +148,7 @@ ai_concurrency = 5
 enable_faces = True
 enable_bursts = True
 enable_document_aside = True
+enable_finger_filter = False     # Finger vor Linse aussortieren
 coverage_intensity = 0.0         # 0=aus … 1=stark gleichmäßig über Tage
 people_balance_intensity = 0.0   # 0=aus … 1=starke Personen-Balance
 enable_map_preview = False

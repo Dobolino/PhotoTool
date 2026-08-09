@@ -42,6 +42,7 @@ class PhotobookApp(tk.Tk):
         self.faces_var = tk.BooleanVar(value=True)
         self.bursts_var = tk.BooleanVar(value=True)
         self.aside_var = tk.BooleanVar(value=True)
+        self.finger_var = tk.BooleanVar(value=False)
         self.coverage_var = tk.BooleanVar(value=False)
         self.coverage_intensity_var = tk.DoubleVar(value=0.5)
         self.people_var = tk.BooleanVar(value=False)
@@ -202,6 +203,7 @@ class PhotobookApp(tk.Tk):
             ("Gesichtserkennung / Augen zu", self.faces_var),
             ("Serien/Bursts (beste 1–2 behalten)", self.bursts_var),
             ("Dokumente & Screenshots separat (Optional-Pool)", self.aside_var),
+            ("Finger vor der Linse erkennen & aussortieren", self.finger_var),
             ("Tages-Abdeckung (nicht alles vom ersten Tag)", self.coverage_var),
             ("Personen-Balance (nicht immer dieselbe Person)", self.people_var),
             ("Kapitel-/Karten-Vorschau vor dem Export", self.map_preview_var),
@@ -383,6 +385,7 @@ class PhotobookApp(tk.Tk):
             enable_faces=bool(self.faces_var.get()),
             enable_bursts=bool(self.bursts_var.get()),
             enable_document_aside=bool(self.aside_var.get()),
+            enable_finger_filter=bool(self.finger_var.get()),
             coverage_intensity=coverage_intensity,
             people_balance_intensity=people_balance_intensity,
             enable_map_preview=map_preview,
