@@ -34,7 +34,9 @@ class PhotobookApp(tk.Tk):
         self.minsize(720, 640)
         self.geometry("780x700")
         self.configure(bg=COLORS["bg"])
+        self._set_icon()
 
+        self.found_var = tk.StringVar(value="")
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
         self.target_var = tk.IntVar(value=80)
@@ -55,6 +57,8 @@ class PhotobookApp(tk.Tk):
         self._log_queue: queue.Queue[str] = queue.Queue()
         self._progress_queue: queue.Queue[tuple[str, float]] = queue.Queue()
         self._cancel_event = threading.Event()
+        self._status_shown = False       # tqdm-Zwischenstand als eine ersetzbare Zeile
+        self._status_mark = "log_status"
         self._worker: threading.Thread | None = None
         self._last_photos = None
         self._last_plan = None
@@ -188,6 +192,7 @@ class PhotobookApp(tk.Tk):
         card.pack(fill=tk.X)
 
         self._folder_row(card, "Fotos-Ordner", "Deine Japan-/Urlaubsfotos", self.input_var, self._pick_input)
+        ttk.Label(card, textvariable=self.found_var, style="Field.TLabel").pack(anchor=tk.W, pady=(4, 0))
         ttk.Separator(card, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=12)
         self._folder_row(card, "Ausgabe-Ordner", "Hier landen Auswahl und Übersicht", self.output_var, self._pick_output)
 
@@ -212,21 +217,26 @@ class PhotobookApp(tk.Tk):
             ("KI-Bewertung aktivieren (Anthropic API)", self.ai_var),
             ("Nur Kosten schätzen (kein echter KI-Lauf)", self.dry_run_var),
         ):
-            ttk.Checkbutton(settings, text=text, variable=var).pack(anchor=tk.W, pady=2)
+            chk = ttk.Checkbutton(
+                settings, text=text, variable=var, command=self._sync_dependent_controls
+            )
+            chk.pack(anchor=tk.W, pady=2)
+            if var is self.dry_run_var:
+                self.dry_run_chk = chk
 
         cov_row = ttk.Frame(settings, style="Card.TFrame")
         cov_row.pack(fill=tk.X, pady=(8, 0))
         ttk.Label(cov_row, text="Abdeckung-Stärke", style="Field.TLabel").pack(side=tk.LEFT)
         self.coverage_label = ttk.Label(cov_row, text="50%", style="Field.TLabel")
         self.coverage_label.pack(side=tk.RIGHT)
-        scale = ttk.Scale(
+        self.coverage_scale = ttk.Scale(
             settings,
             from_=0.1,
             to=1.0,
             variable=self.coverage_intensity_var,
             command=self._on_coverage_scale,
         )
-        scale.pack(fill=tk.X, pady=(2, 0))
+        self.coverage_scale.pack(fill=tk.X, pady=(2, 0))
         ttk.Label(
             settings,
             text="Nur wirksam, wenn „Tages-Abdeckung“ aktiv. Links = sanft, rechts = stark gleichmäßig.",
@@ -238,14 +248,14 @@ class PhotobookApp(tk.Tk):
         ttk.Label(people_row, text="Personen-Stärke", style="Field.TLabel").pack(side=tk.LEFT)
         self.people_label = ttk.Label(people_row, text="50%", style="Field.TLabel")
         self.people_label.pack(side=tk.RIGHT)
-        people_scale = ttk.Scale(
+        self.people_scale = ttk.Scale(
             settings,
             from_=0.1,
             to=1.0,
             variable=self.people_intensity_var,
             command=self._on_people_scale,
         )
-        people_scale.pack(fill=tk.X, pady=(2, 0))
+        self.people_scale.pack(fill=tk.X, pady=(2, 0))
         ttk.Label(
             settings,
             text="Nur wirksam, wenn „Personen-Balance“ aktiv. Links = sanft, rechts = stark ausgewogen.",
@@ -255,7 +265,8 @@ class PhotobookApp(tk.Tk):
         key_box = ttk.Frame(settings, style="Card.TFrame")
         key_box.pack(fill=tk.X, pady=(10, 0))
         ttk.Label(key_box, text="API-Key (optional)", style="Field.TLabel").pack(anchor=tk.W)
-        ttk.Entry(key_box, textvariable=self.api_key_var, show="•").pack(fill=tk.X, pady=(4, 0))
+        self.api_entry = ttk.Entry(key_box, textvariable=self.api_key_var, show="•")
+        self.api_entry.pack(fill=tk.X, pady=(4, 0))
 
         actions = ttk.Frame(body, style="App.TFrame")
         actions.pack(fill=tk.X, pady=(14, 8))
@@ -309,6 +320,41 @@ class PhotobookApp(tk.Tk):
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.log.configure(yscrollcommand=scroll.set)
 
+        self._sync_dependent_controls()
+
+    def _set_icon(self) -> None:
+        """Ersetzt das Standard-Tk-Icon (blaue Feder) durch ein eigenes."""
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+
+            n = 64
+            img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+            d = ImageDraw.Draw(img)
+            d.rounded_rectangle([2, 2, n - 3, n - 3], radius=12, fill="#2F5D50")
+            # weißes „Foto/Buch"-Feld mit kleiner Landschaft
+            d.rectangle([14, 18, 50, 46], fill="#F7F3EC")
+            d.polygon([(18, 44), (28, 30), (36, 44)], fill="#6B705C")   # Berg
+            d.polygon([(32, 44), (40, 34), (48, 44)], fill="#8B5A2B")   # Berg 2
+            d.ellipse([40, 22, 47, 29], fill="#BC6C25")                 # Sonne
+            self._icon_img = ImageTk.PhotoImage(img)
+            self.iconphoto(True, self._icon_img)
+        except Exception:
+            pass
+
+    def _sync_dependent_controls(self) -> None:
+        """Regler/Felder nur aktiv, wenn die zugehörige Option angehakt ist."""
+        def enable(widget, on: bool) -> None:
+            try:
+                widget.state(["!disabled"] if on else ["disabled"])
+            except Exception:
+                pass
+
+        enable(self.coverage_scale, bool(self.coverage_var.get()))
+        enable(self.people_scale, bool(self.people_var.get()))
+        ai_on = bool(self.ai_var.get())
+        enable(self.api_entry, ai_on)
+        enable(self.dry_run_chk, ai_on)
+
     def _folder_row(
         self,
         parent: ttk.Frame,
@@ -338,6 +384,23 @@ class PhotobookApp(tk.Tk):
         path = filedialog.askdirectory(title="Fotos-Ordner wählen")
         if path:
             self.input_var.set(path)
+            self._update_found_count(path)
+
+    def _update_found_count(self, path: str) -> None:
+        """Zeigt sofort, wie viele Bilder im Ordner liegen (Zielanzahl realistisch setzen)."""
+        self.found_var.set("Zähle Bilder…")
+
+        def worker() -> None:
+            try:
+                from .scan import find_images
+
+                n = len(find_images(Path(path)))
+                msg = f"{n} Bilder gefunden" if n else "Keine Bilder in diesem Ordner gefunden"
+            except Exception:
+                msg = ""
+            self.after(0, lambda: self.found_var.set(msg))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _pick_output(self) -> None:
         path = filedialog.askdirectory(title="Ausgabe-Ordner wählen")
@@ -345,8 +408,25 @@ class PhotobookApp(tk.Tk):
             self.output_var.set(path)
 
     def _append_log(self, text: str) -> None:
+        """Feste Log-Zeile (bleibt stehen)."""
         self.log.configure(state=tk.NORMAL)
+        if self._status_shown:
+            self.log.delete(self._status_mark, tk.END)
+            self._status_shown = False
         self.log.insert(tk.END, text + "\n")
+        self.log.see(tk.END)
+        self.log.configure(state=tk.DISABLED)
+
+    def _append_status(self, text: str) -> None:
+        """Sich fortlaufend ersetzende Zeile (tqdm-Fortschritt) – zeigt, dass es läuft."""
+        self.log.configure(state=tk.NORMAL)
+        if self._status_shown:
+            self.log.delete(self._status_mark, tk.END)
+        else:
+            self.log.mark_set(self._status_mark, tk.END)
+            self.log.mark_gravity(self._status_mark, tk.LEFT)
+        self.log.insert(tk.END, text)
+        self._status_shown = True
         self.log.see(tk.END)
         self.log.configure(state=tk.DISABLED)
 
@@ -359,7 +439,15 @@ class PhotobookApp(tk.Tk):
     def _drain_queues(self) -> None:
         try:
             while True:
-                self._append_log(self._log_queue.get_nowait())
+                item = self._log_queue.get_nowait()
+                if isinstance(item, tuple):
+                    mode, text = item
+                else:
+                    mode, text = "line", item
+                if mode == "status":
+                    self._append_status(text)
+                else:
+                    self._append_log(text)
         except queue.Empty:
             pass
         try:
@@ -455,10 +543,21 @@ class PhotobookApp(tk.Tk):
                     except Exception:
                         pass
                 self._buf += s
-                while "\n" in self._buf:
-                    line, self._buf = self._buf.split("\n", 1)
-                    if line.strip():
-                        self.q.put(line)
+                # Segmente an \n (feste Zeile) und \r (tqdm-Zwischenstand) trennen,
+                # damit der Fortschritt live sichtbar ist statt erst am Phasenende.
+                while True:
+                    nl = self._buf.find("\n")
+                    cr = self._buf.find("\r")
+                    if nl == -1 and cr == -1:
+                        break
+                    if cr == -1 or (nl != -1 and nl < cr):
+                        idx, mode = nl, "line"
+                    else:
+                        idx, mode = cr, "status"
+                    seg = self._buf[:idx].strip("\r")
+                    self._buf = self._buf[idx + 1:]
+                    if seg.strip():
+                        self.q.put((mode, seg))
                 return len(s)
 
             def flush(self) -> None:
