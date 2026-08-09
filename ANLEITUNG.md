@@ -68,6 +68,7 @@ Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter 
 | Dokumente separat | an | `--aside-documents` / `--no-aside-documents` |
 | Tages-Abdeckung | aus | Checkbox + Stärke-Regler, CLI: `--coverage-intensity 0.0–1.0` |
 | Personen-Balance | aus | Checkbox + Stärke-Regler, CLI: `--people-balance-intensity 0.0–1.0` |
+| Kapitel-/Karten-Vorschau | aus | Checkbox, CLI: `--map-preview` |
 | KI-Bewertung | aus | `--ai-review` |
 | Auswahl prüfen | nach dem Lauf | manuell |
 
@@ -76,6 +77,9 @@ Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter 
 
 **Personen-Balance:** Verhindert, dass dieselbe Person das Album dominiert; unterrepräsentierte Gesichter werden bevorzugt.  
 `0` = aus, `0.5` = sanft, `1.0` = stark ausgewogen.
+
+**Kapitel-/Karten-Vorschau:** Zeigt vor dem Kopieren die Kapitelreihenfolge und GPS-Punkte (Fenster + `kapitel_karte.html`).  
+Erst nach „So exportieren“ werden `selected/` und Co. geschrieben. In der CLI erzeugt `--map-preview` die HTML-Karte mit.
 
 Optional: Haken bei **KI-Bewertung** setzen und API-Key eintragen (braucht Account auf [console.anthropic.com](https://console.anthropic.com/) — Claude-Chat-Abo reicht nicht).
 

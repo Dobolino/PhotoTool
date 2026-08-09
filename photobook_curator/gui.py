@@ -46,6 +46,7 @@ class PhotobookApp(tk.Tk):
         self.coverage_intensity_var = tk.DoubleVar(value=0.5)
         self.people_var = tk.BooleanVar(value=False)
         self.people_intensity_var = tk.DoubleVar(value=0.5)
+        self.map_preview_var = tk.BooleanVar(value=False)
         self.ai_var = tk.BooleanVar(value=False)
         self.dry_run_var = tk.BooleanVar(value=False)
         self.api_key_var = tk.StringVar(value=os.environ.get("ANTHROPIC_API_KEY", ""))
@@ -54,6 +55,7 @@ class PhotobookApp(tk.Tk):
         self._worker: threading.Thread | None = None
         self._last_photos = None
         self._last_plan = None
+        self._last_order = None
         self._last_output: Path | None = None
         self._setup_style()
         self._build()
@@ -202,6 +204,7 @@ class PhotobookApp(tk.Tk):
             ("Dokumente & Screenshots separat (Optional-Pool)", self.aside_var),
             ("Tages-Abdeckung (nicht alles vom ersten Tag)", self.coverage_var),
             ("Personen-Balance (nicht immer dieselbe Person)", self.people_var),
+            ("Kapitel-/Karten-Vorschau vor dem Export", self.map_preview_var),
             ("KI-Bewertung aktivieren (Anthropic API)", self.ai_var),
             ("Nur Kosten schätzen (kein echter KI-Lauf)", self.dry_run_var),
         ):
@@ -254,6 +257,10 @@ class PhotobookApp(tk.Tk):
         actions.pack(fill=tk.X, pady=(14, 8))
         self.status_var = tk.StringVar(value="Bereit")
         ttk.Label(actions, textvariable=self.status_var, style="Sub.TLabel").pack(side=tk.LEFT)
+        self.map_btn = ttk.Button(
+            actions, text="Karte zeigen", style="Browse.TButton", command=self._open_map_preview
+        )
+        self.map_btn.pack(side=tk.RIGHT, padx=(0, 8))
         self.review_btn = ttk.Button(
             actions, text="Auswahl prüfen", style="Browse.TButton", command=self._open_review
         )
@@ -365,6 +372,7 @@ class PhotobookApp(tk.Tk):
         if self.people_var.get():
             people_balance_intensity = float(self.people_intensity_var.get())
 
+        map_preview = bool(self.map_preview_var.get())
         cfg = PipelineConfig(
             input_dir=input_dir.resolve(),
             output_dir=output_dir.resolve(),
@@ -377,6 +385,8 @@ class PhotobookApp(tk.Tk):
             enable_document_aside=bool(self.aside_var.get()),
             coverage_intensity=coverage_intensity,
             people_balance_intensity=people_balance_intensity,
+            enable_map_preview=map_preview,
+            skip_export=map_preview,  # Export erst nach Bestätigung in der Vorschau
         )
 
         self.start_btn.configure(state=tk.DISABLED)
@@ -428,6 +438,7 @@ class PhotobookApp(tk.Tk):
             self._log_queue.put(f"Ergebnisordner: {cfg.output_dir}")
             self._last_photos = result.get("photo_objects")
             self._last_plan = result.get("plan")
+            self._last_order = result.get("order")
             self._last_output = result.get("output_dir") or cfg.output_dir
             self.after(0, lambda: self.status_var.set("Fertig"))
             self.after(0, lambda r=result: self._on_finished(r, cfg))
@@ -446,6 +457,58 @@ class PhotobookApp(tk.Tk):
                 "Kostenschätzung fertig. Siehe Verlauf für Details.",
             )
             return
+
+        if cfg.enable_map_preview and not result.get("exported"):
+            from .map_preview import open_map_preview
+
+            open_map_preview(
+                self,
+                result.get("photo_objects") or [],
+                result.get("plan"),
+                cfg.output_dir,
+                order=result.get("order"),
+                await_export=True,
+                on_confirm=lambda: self._confirm_export_after_preview(result, cfg),
+                on_cancel=lambda: self._cancel_export_after_preview(cfg),
+            )
+            return
+
+        self._ask_open_review(cfg)
+
+    def _confirm_export_after_preview(self, result: dict, cfg: PipelineConfig) -> None:
+        from .pipeline import export_book_outputs
+
+        photos = result.get("photo_objects") or self._last_photos
+        plan = result.get("plan") or self._last_plan
+        order = result.get("order") or self._last_order
+        if photos is None or plan is None or order is None:
+            messagebox.showerror("Export", "Keine Auswahl zum Exportieren vorhanden.")
+            return
+        try:
+            export_book_outputs(
+                photos,
+                plan,
+                order,
+                cfg.output_dir,
+                write_map=True,
+            )
+            self._append_log(f"Export fertig: {cfg.output_dir}")
+            self.status_var.set("Exportiert")
+        except Exception as exc:
+            messagebox.showerror("Export", str(exc))
+            return
+        self._ask_open_review(cfg)
+
+    def _cancel_export_after_preview(self, cfg: PipelineConfig) -> None:
+        self._append_log("Export abgebrochen (Kapitel-Vorschau).")
+        self.status_var.set("Export abgebrochen")
+        messagebox.showinfo(
+            "Abgebrochen",
+            "Es wurden keine Ordner kopiert.\n"
+            f"Analyse-CSV liegt ggf. unter:\n{cfg.output_dir / 'photos_analysis.csv'}",
+        )
+
+    def _ask_open_review(self, cfg: PipelineConfig) -> None:
         open_review = messagebox.askyesno(
             "Fertig",
             f"Auswahl erstellt in:\n{cfg.output_dir}\n\n"
@@ -453,6 +516,45 @@ class PhotobookApp(tk.Tk):
         )
         if open_review:
             self._open_review()
+
+    def _open_map_preview(self) -> None:
+        from .map_preview import open_map_preview
+        from .review_export import load_photos_from_csv, plan_from_photos
+
+        photos = self._last_photos
+        plan = self._last_plan
+        order = self._last_order
+        output_dir = self._last_output
+
+        if photos is None or plan is None:
+            out = Path(self.output_var.get().strip() or "")
+            csv_path = out / "photos_analysis.csv"
+            if not csv_path.is_file():
+                messagebox.showinfo(
+                    "Keine Auswahl",
+                    "Bitte zuerst „Auswahl starten“, oder einen Ausgabeordner mit "
+                    "photos_analysis.csv wählen.",
+                )
+                return
+            try:
+                photos = load_photos_from_csv(csv_path)
+                plan = plan_from_photos(photos)
+                output_dir = out
+                self._last_photos = photos
+                self._last_plan = plan
+                self._last_output = output_dir
+            except Exception as exc:
+                messagebox.showerror("Laden fehlgeschlagen", str(exc))
+                return
+
+        open_map_preview(
+            self,
+            photos,
+            plan,
+            Path(output_dir),
+            order=order,
+            await_export=False,
+        )
 
     def _open_review(self) -> None:
         from .review_export import load_photos_from_csv, plan_from_photos

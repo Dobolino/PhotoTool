@@ -144,6 +144,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Personen-Balance 0.0–1.0 (0=aus, 1=stark ausgewogen; Standard: 0)",
     )
     p.add_argument(
+        "--map-preview",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Kapitel-Karte (kapitel_karte.html) schreiben (Standard: aus)",
+    )
+    p.add_argument(
         "--burst-seconds",
         type=float,
         default=30.0,
@@ -205,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
         people_balance_intensity=max(
             0.0, min(1.0, float(args.people_balance_intensity))
         ),
+        enable_map_preview=bool(args.map_preview),
         burst_max_seconds=args.burst_seconds,
         burst_keep=args.burst_keep,
     )

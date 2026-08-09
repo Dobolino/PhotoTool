@@ -13,6 +13,7 @@ from .duplicates import mark_duplicates
 from .face_quality import analyze_face_quality
 from .faces import count_faces
 from .geocoding import GeocodeCache
+from .map_preview import write_chapter_map
 from .models import BookPlan, Photo
 from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
 from .people_balance import analyze_people_clusters
@@ -45,6 +46,8 @@ class PipelineConfig:
     enable_document_aside: bool = True
     coverage_intensity: float = 0.0  # 0=aus, 1=starke Tages-Abdeckung
     people_balance_intensity: float = 0.0  # 0=aus, 1=starke Personen-Balance
+    enable_map_preview: bool = False
+    skip_export: bool = False  # GUI: Export nach Kapitel-Vorschau
     burst_max_seconds: float = 30.0
     burst_keep: int = 2
     burst_min_size: int = 3
@@ -52,6 +55,33 @@ class PipelineConfig:
     @property
     def skip_faces(self) -> bool:
         return not self.enable_faces
+
+
+def export_book_outputs(
+    photos: list[Photo],
+    plan: BookPlan,
+    order: list[tuple[int, str, str]],
+    output_dir: Path,
+    *,
+    write_map: bool = False,
+) -> dict[str, Any]:
+    """Schreibt CSV, selected/, Optional-Pool, Markdown und optional die Karte."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_csv(photos, output_dir / "photos_analysis.csv")
+    copy_selected(photos, order, output_dir)
+    aside_copied = copy_aside_pool(photos, output_dir)
+    write_markdown_overview(photos, plan, order, output_dir / "inhaltsverzeichnis.md")
+    map_path = None
+    if write_map:
+        map_path = write_chapter_map(photos, plan, output_dir, order)
+    print(f"  CSV: {output_dir / 'photos_analysis.csv'}")
+    print(f"  Auswahl: {output_dir / 'selected'}")
+    if aside_copied:
+        print(f"  Optional-Pool: {output_dir / 'optional_dokumente'} ({aside_copied} Dateien)")
+    print(f"  Übersicht: {output_dir / 'inhaltsverzeichnis.md'}")
+    if map_path:
+        print(f"  Karte: {map_path}")
+    return {"aside_copied": aside_copied, "map_path": map_path}
 
 
 def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
@@ -181,16 +211,26 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     )
     print(f"  {len(order)} Bilder ausgewählt")
 
-    print("=== Ausgabe ===")
-    write_csv(photos, cfg.output_dir / "photos_analysis.csv")
-    copy_selected(photos, order, cfg.output_dir)
-    aside_copied = copy_aside_pool(photos, cfg.output_dir)
-    write_markdown_overview(photos, plan, order, cfg.output_dir / "inhaltsverzeichnis.md")
-    print(f"  CSV: {cfg.output_dir / 'photos_analysis.csv'}")
-    print(f"  Auswahl: {cfg.output_dir / 'selected'}")
-    if aside_copied:
-        print(f"  Optional-Pool: {cfg.output_dir / 'optional_dokumente'} ({aside_copied} Dateien)")
-    print(f"  Übersicht: {cfg.output_dir / 'inhaltsverzeichnis.md'}")
+    map_path = None
+    if cfg.enable_map_preview:
+        map_path = write_chapter_map(photos, plan, cfg.output_dir, order)
+        print(f"  Kapitel-Karte: {map_path}")
+
+    exported = False
+    if cfg.skip_export:
+        print("=== Ausgabe zurückgestellt (Kapitel-Vorschau) ===")
+        write_csv(photos, cfg.output_dir / "photos_analysis.csv")
+        print(f"  CSV: {cfg.output_dir / 'photos_analysis.csv'}")
+    else:
+        print("=== Ausgabe ===")
+        export_book_outputs(
+            photos,
+            plan,
+            order,
+            cfg.output_dir,
+            write_map=False,  # Karte ggf. schon oben geschrieben
+        )
+        exported = True
 
     return {
         "photos": len(photos),
@@ -204,4 +244,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         "plan": plan,
         "order": order,
         "output_dir": cfg.output_dir,
+        "map_path": map_path,
+        "exported": exported,
+        "enable_map_preview": cfg.enable_map_preview,
     }
