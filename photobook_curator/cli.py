@@ -1,0 +1,154 @@
+"""Kommandozeilen-Interface für das Fotobuch-Kuratierungs-Tool."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from .pipeline import PipelineConfig, run_pipeline
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="photobook-curator",
+        description=(
+            "Lokales Tool zur Kuratierung eines Urlaubs-Fotobuchs aus einer "
+            "iPhone/iCloud-Fotosammlung."
+        ),
+    )
+    p.add_argument(
+        "-i",
+        "--input",
+        required=True,
+        type=Path,
+        help="Eingabeordner mit Fotos (rekursiv)",
+    )
+    p.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        type=Path,
+        help="Ausgabeordner für CSV, Auswahl und Übersicht",
+    )
+    p.add_argument(
+        "-n",
+        "--target-count",
+        type=int,
+        default=80,
+        help="Zielanzahl N ausgewählter Bilder (Standard: 80)",
+    )
+    p.add_argument(
+        "-k",
+        "--candidate-factor",
+        type=float,
+        default=4.0,
+        help="Kandidatenfaktor K (Standard: 4)",
+    )
+    p.add_argument(
+        "--geocode",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Reverse Geocoding via Nominatim (Standard: an)",
+    )
+    p.add_argument(
+        "--ai-review",
+        action="store_true",
+        help="KI-gestützte Inhaltsbewertung via Anthropic API aktivieren",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Mit --ai-review: nur Kostenschätzung, kein API-Aufruf",
+    )
+    p.add_argument(
+        "--food-ratio",
+        type=float,
+        default=0.15,
+        help="Maximaler Essens-Anteil pro Region (Standard: 0.15)",
+    )
+    p.add_argument(
+        "--max-landmarks",
+        type=int,
+        default=3,
+        help="Maximale Landmark-Bilder pro Region (Standard: 3)",
+    )
+    p.add_argument(
+        "--min-transit-photos",
+        type=int,
+        default=3,
+        help="Mindestanzahl Bilder für eigenen Transit-Abschnitt (Standard: 3)",
+    )
+    p.add_argument(
+        "--max-transit-quota",
+        type=int,
+        default=5,
+        help="Maximale Bilder pro Transit-Abschnitt (Standard: 5)",
+    )
+    p.add_argument(
+        "--similarity-threshold",
+        type=float,
+        default=0.92,
+        help="Ähnlichkeits-Schwellenwert 0–1 für Diversitätsfilter (Standard: 0.92)",
+    )
+    p.add_argument(
+        "--gps-time-hours",
+        type=float,
+        default=6.0,
+        help="Max. Stunden Abstand für GPS-lose Zuordnung (Standard: 6)",
+    )
+    p.add_argument(
+        "--cluster-eps-meters",
+        type=float,
+        default=400.0,
+        help="DBSCAN-Radius in Metern für feine Cluster (Standard: 400)",
+    )
+    p.add_argument(
+        "--ai-concurrency",
+        type=int,
+        default=5,
+        help="Gleichzeitige AI-Anfragen (Standard: 5)",
+    )
+    p.add_argument(
+        "--skip-faces",
+        action="store_true",
+        help="Gesichtserkennung überspringen (schneller für Tests)",
+    )
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if not args.input.is_dir():
+        parser.error(f"Eingabeordner nicht gefunden: {args.input}")
+
+    cfg = PipelineConfig(
+        input_dir=args.input.resolve(),
+        output_dir=args.output.resolve(),
+        target_n=args.target_count,
+        candidate_factor=args.candidate_factor,
+        geocode=args.geocode,
+        ai_review=args.ai_review,
+        dry_run=args.dry_run,
+        food_ratio=args.food_ratio,
+        max_landmarks=args.max_landmarks,
+        min_transit_photos=args.min_transit_photos,
+        max_transit_quota=args.max_transit_quota,
+        similarity_threshold=args.similarity_threshold,
+        gps_time_hours=args.gps_time_hours,
+        cluster_eps_meters=args.cluster_eps_meters,
+        ai_concurrency=args.ai_concurrency,
+        skip_faces=args.skip_faces,
+    )
+    try:
+        result = run_pipeline(cfg)
+    except RuntimeError as exc:
+        print(f"Fehler: {exc}")
+        return 1
+    print("Fertig:", result)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

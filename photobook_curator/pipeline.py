@@ -1,0 +1,142 @@
+"""Orchestriert alle Phasen der Fotobuch-Kuratierung."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional
+
+from .ai_review import ensure_scene_types, run_ai_review
+from .duplicates import mark_duplicates
+from .faces import count_faces
+from .geocoding import GeocodeCache
+from .models import BookPlan, Photo
+from .output import copy_selected, write_csv, write_markdown_overview
+from .quality import analyze_all
+from .regions import build_location_plan
+from .scan import scan_photos
+from .selection import build_book_order, mark_candidates
+from .transit import detect_transits
+
+
+@dataclass
+class PipelineConfig:
+    input_dir: Path
+    output_dir: Path
+    target_n: int = 80
+    candidate_factor: float = 4.0
+    geocode: bool = True
+    ai_review: bool = False
+    dry_run: bool = False
+    food_ratio: float = 0.15
+    max_landmarks: int = 3
+    min_transit_photos: int = 3
+    max_transit_quota: int = 5
+    similarity_threshold: float = 0.92
+    gps_time_hours: float = 6.0
+    cluster_eps_meters: float = 400.0
+    ai_concurrency: int = 5
+    skip_faces: bool = False
+
+
+def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
+    cfg.output_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cfg.output_dir / "geocode_cache.json"
+
+    print("=== Phase 1: Einlesen & technische Vorfilterung ===")
+    photos = scan_photos(cfg.input_dir)
+    print(f"  {len(photos)} Bilder gefunden")
+    analyze_all(photos)
+    mark_duplicates(photos)
+    dup_count = sum(1 for p in photos if p.is_duplicate)
+    print(f"  {dup_count} Duplikate markiert")
+    if not cfg.skip_faces:
+        backend = count_faces(photos)
+        print(f"  Gesichtserkennung: {backend}")
+    else:
+        print("  Gesichtserkennung übersprungen")
+
+    print("=== Phase 2: Orte & Regionen ===")
+    cache = GeocodeCache(cache_path, enabled=cfg.geocode)
+    plan = build_location_plan(
+        photos,
+        cache,
+        eps_meters=cfg.cluster_eps_meters,
+        gps_time_hours=cfg.gps_time_hours,
+    )
+    print(f"  {len(plan.regions)} Regionen: {[r.name for r in plan.regions]}")
+    print(f"  {len(plan.unassigned_indices)} unbestimmt")
+
+    print("=== Phase 3: Transit ===")
+    detect_transits(
+        photos,
+        plan,
+        min_photos=cfg.min_transit_photos,
+        max_transit_quota=cfg.max_transit_quota,
+    )
+    print(f"  {len(plan.transits)} Transit-Abschnitte")
+    for t in plan.transits:
+        print(f"    - {t.name} ({len(t.photo_indices)} Fotos, Quota {t.quota})")
+
+    print("=== Kandidatenauswahl ===")
+    candidates = mark_candidates(
+        photos,
+        plan,
+        target_n=cfg.target_n,
+        candidate_factor=cfg.candidate_factor,
+        max_transit_quota=cfg.max_transit_quota,
+    )
+    print(f"  {len(candidates)} Kandidaten (Faktor {cfg.candidate_factor})")
+
+    ai_stats: dict[str, Any] = {}
+    if cfg.ai_review:
+        print("=== Phase 4: AI-Review ===")
+        ai_stats = run_ai_review(
+            photos,
+            candidates,
+            dry_run=cfg.dry_run,
+            concurrency=cfg.ai_concurrency,
+        )
+    else:
+        print("=== Phase 4: AI-Review übersprungen ===")
+        ensure_scene_types(photos, candidates)
+
+    if cfg.dry_run and cfg.ai_review:
+        # Im Dry-Run nach Kostenschätzung stoppen, trotzdem CSV der bisherigen Analyse schreiben
+        write_csv(photos, cfg.output_dir / "photos_analysis.csv")
+        return {
+            "photos": len(photos),
+            "regions": [r.name for r in plan.regions],
+            "transits": [t.name for t in plan.transits],
+            "candidates": len(candidates),
+            "ai": ai_stats,
+            "dry_run": True,
+        }
+
+    print("=== Phase 5: Auswahl & Buchstruktur ===")
+    order = build_book_order(
+        photos,
+        plan,
+        food_ratio=cfg.food_ratio,
+        max_landmarks=cfg.max_landmarks,
+        similarity_threshold=cfg.similarity_threshold,
+    )
+    print(f"  {len(order)} Bilder ausgewählt")
+
+    print("=== Ausgabe ===")
+    write_csv(photos, cfg.output_dir / "photos_analysis.csv")
+    copy_selected(photos, order, cfg.output_dir)
+    write_markdown_overview(photos, plan, order, cfg.output_dir / "inhaltsverzeichnis.md")
+    print(f"  CSV: {cfg.output_dir / 'photos_analysis.csv'}")
+    print(f"  Auswahl: {cfg.output_dir / 'selected'}")
+    print(f"  Übersicht: {cfg.output_dir / 'inhaltsverzeichnis.md'}")
+
+    return {
+        "photos": len(photos),
+        "regions": [r.name for r in plan.regions],
+        "transits": [t.name for t in plan.transits],
+        "selected": len(order),
+        "candidates": len(candidates),
+        "ai": ai_stats,
+        "dry_run": False,
+    }
