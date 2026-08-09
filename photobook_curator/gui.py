@@ -72,10 +72,36 @@ class PhotobookApp(tk.Tk):
         self._pipeline_error: str | None = None
         self._setup_style()
         self._build()
+        self.protocol("WM_DELETE_WINDOW", self._on_close_request)
         self.after(150, self._drain_queues)
         # Schwere Module (OpenCV/MediaPipe) erst NACH dem Fenster laden,
         # sonst wirkt der Start wie ein leeres schwarzes Konsolenfenster.
         self.after(200, self._warmup_backend)
+
+    def _is_analysis_running(self) -> bool:
+        return bool(self._worker and self._worker.is_alive())
+
+    def _on_close_request(self) -> None:
+        """Beim Schließen nachfragen, wenn gerade eine Analyse läuft."""
+        if self._is_analysis_running():
+            ok = messagebox.askyesno(
+                "Analyse läuft noch",
+                "Es läuft gerade eine Analyse.\n\n"
+                "Wirklich schließen?\n"
+                "Der aktuelle Lauf wird abgebrochen – bisherige Zwischenstände "
+                "werden nicht als fertige Auswahl gespeichert.",
+                icon=messagebox.WARNING,
+                default=messagebox.NO,
+                parent=self,
+            )
+            if not ok:
+                return
+            self._cancel_event.set()
+            try:
+                self.status_var.set("Wird geschlossen…")
+            except tk.TclError:
+                pass
+        self.destroy()
 
     def _setup_style(self) -> None:
         style = ttk.Style(self)

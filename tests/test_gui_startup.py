@@ -19,6 +19,26 @@ def test_gui_does_not_import_pipeline_at_module_level() -> None:
                 assert "pipeline" not in alias.name
 
 
+def test_close_prompt_when_analysis_running() -> None:
+    from photobook_curator.gui import PhotobookApp
+
+    class AliveWorker:
+        def is_alive(self) -> bool:
+            return True
+
+    class DeadWorker:
+        def is_alive(self) -> bool:
+            return False
+
+    app = object.__new__(PhotobookApp)
+    app._worker = AliveWorker()
+    assert app._is_analysis_running() is True
+    app._worker = DeadWorker()
+    assert app._is_analysis_running() is False
+    app._worker = None
+    assert app._is_analysis_running() is False
+
+
 def test_gui_module_imports_without_cv2(monkeypatch) -> None:
     """Import von gui darf cv2/mediapipe nicht voraussetzen."""
     import importlib
