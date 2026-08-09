@@ -2,20 +2,25 @@
 
 Du brauchst: einen Computer mit Python 3.11+, deine Urlaubsfotos in einem Ordner, optional einen Anthropic-API-Key (nur für KI-Bewertung).
 
+Diese Anleitung ist für **Windows (PowerShell)** geschrieben. Am Ende gibt es kurz die macOS/Linux-Varianten.
+
 ---
 
 ## 1. Projekt holen
 
-Falls noch nicht geschehen: dieses Repository klonen und in den Ordner wechseln.
+Öffne PowerShell und wechsle in den Ordner, in dem das Projekt liegen soll:
 
-```bash
+```powershell
+cd $HOME\Downloads
 git clone https://github.com/Dobolino/PhotoTool.git
 cd PhotoTool
+git checkout cursor/photobook-curator-c6d6
 ```
 
-Wenn du den Pull Request nutzt:
+Falls du den Ordner schon hast (z. B. unter `Downloads\PhotoTool`):
 
-```bash
+```powershell
+cd $HOME\Downloads\PhotoTool
 git checkout cursor/photobook-curator-c6d6
 ```
 
@@ -23,19 +28,35 @@ git checkout cursor/photobook-curator-c6d6
 
 ## 2. Python-Umgebung einrichten (einmalig)
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
+In PowerShell, im Projektordner:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-Unter Windows statt `source .venv/bin/activate`:
+**Wichtig:** Unter Windows heißt der Befehl **nicht** `source`, sondern:
 
-```bash
-.venv\Scripts\activate
+```powershell
+.\.venv\Scripts\Activate.ps1
 ```
 
-Ab jetzt immer zuerst die Umgebung aktivieren (`source .venv/bin/activate`), bevor du Befehle ausführst.
+Wenn PowerShell meldet, dass Skripte nicht ausgeführt werden dürfen:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Danach nochmal `.\.venv\Scripts\Activate.ps1` ausführen.
+
+Wenn die Umgebung aktiv ist, steht vor dem Prompt oft `(.venv)`.
+
+In **cmd.exe** (nicht PowerShell) wäre es:
+
+```bat
+.venv\Scripts\activate.bat
+```
 
 ---
 
@@ -44,7 +65,7 @@ Ab jetzt immer zuerst die Umgebung aktivieren (`source .venv/bin/activate`), bev
 Lege deine iPhone-/Urlaubsfotos in einen Ordner, z. B.:
 
 ```text
-/Users/DU/Urlaubsfotos/
+C:\Users\Alexandre\Pictures\Urlaubsfotos
 ```
 
 Unterordner sind ok — das Tool sucht rekursiv nach `.jpg`, `.jpeg`, `.png`, `.heic`.
@@ -53,15 +74,16 @@ Unterordner sind ok — das Tool sucht rekursiv nach `.jpg`, `.jpeg`, `.png`, `.
 
 ## 4. Optional: kurz mit Beispieldaten testen
 
-Nur zum Ausprobieren, nicht mit deinen echten Fotos nötig:
+Nur zum Ausprobieren:
 
-```bash
-python scripts/create_sample_dataset.py
+```powershell
+.\.venv\Scripts\Activate.ps1
+python scripts\create_sample_dataset.py
 python -m photobook_curator -i sample_photos -o output_sample -n 20 --no-geocode
 ```
 
-Danach findest du unter `output_sample/`:
-- `selected/` — ausgewählte Bilder
+Danach findest du unter `output_sample\`:
+- `selected\` — ausgewählte Bilder
 - `photos_analysis.csv` — alle Bewertungen
 - `inhaltsverzeichnis.md` — Kapitelübersicht
 
@@ -71,12 +93,12 @@ Danach findest du unter `output_sample/`:
 
 Ersetze die Pfade durch deine:
 
-```bash
-source .venv/bin/activate
+```powershell
+.\.venv\Scripts\Activate.ps1
 
-python -m photobook_curator \
-  -i /Users/DU/Urlaubsfotos \
-  -o /Users/DU/Fotobuch_Ausgabe \
+python -m photobook_curator `
+  -i "C:\Users\Alexandre\Pictures\Urlaubsfotos" `
+  -o "C:\Users\Alexandre\Pictures\Fotobuch_Ausgabe" `
   -n 80
 ```
 
@@ -101,14 +123,14 @@ Im Ausgabeordner:
 
 | Datei / Ordner | Inhalt |
 |----------------|--------|
-| `selected/` | Die finalen Bilder, sortiert nach Kapiteln |
-| `01_Paris/hauptteil/` | Hauptteil einer Region |
-| `01_Paris/essen/` | Essensfotos dieser Region |
-| `01b_Transit_Paris-Lyon/` | Fotos der Reise dazwischen |
+| `selected\` | Die finalen Bilder, sortiert nach Kapiteln |
+| `01_Paris\hauptteil\` | Hauptteil einer Region |
+| `01_Paris\essen\` | Essensfotos dieser Region |
+| `01b_Transit_Paris-Lyon\` | Fotos der Reise dazwischen |
 | `inhaltsverzeichnis.md` | Kurze Übersicht pro Kapitel |
 | `photos_analysis.csv` | Alle Fotos mit Scores (auch nicht ausgewählte) |
 
-Öffne `inhaltsverzeichnis.md` und blättere durch `selected/`. Wenn dir zu wenig/zu viele Bilder gefallen: Schritt 5 mit anderem `-n` wiederholen.
+Öffne `inhaltsverzeichnis.md` und blättere durch `selected\`. Wenn dir zu wenig/zu viele Bilder gefallen: Schritt 5 mit anderem `-n` wiederholen.
 
 ---
 
@@ -121,36 +143,30 @@ Ein Claude-Chat-Abo reicht dafür **nicht**. Du brauchst einen API-Key:
 3. Zahlungsmittel hinterlegen (API wird getrennt abgerechnet)
 4. API-Key erzeugen und kopieren
 
-Dann im Terminal (Key nicht ins Repo legen):
+Dann in PowerShell (Key nicht ins Repo legen):
 
-**macOS / Linux:**
-```bash
-export ANTHROPIC_API_KEY='sk-ant-...'
-```
-
-**Windows (PowerShell):**
 ```powershell
 $env:ANTHROPIC_API_KEY='sk-ant-...'
 ```
 
 Zuerst Kosten schätzen:
 
-```bash
-python -m photobook_curator \
-  -i /Users/DU/Urlaubsfotos \
-  -o /Users/DU/Fotobuch_Ausgabe \
-  -n 80 \
-  --ai-review \
+```powershell
+python -m photobook_curator `
+  -i "C:\Users\Alexandre\Pictures\Urlaubsfotos" `
+  -o "C:\Users\Alexandre\Pictures\Fotobuch_Ausgabe" `
+  -n 80 `
+  --ai-review `
   --dry-run
 ```
 
 Wenn die Schätzung ok ist, denselben Befehl **ohne** `--dry-run` ausführen:
 
-```bash
-python -m photobook_curator \
-  -i /Users/DU/Urlaubsfotos \
-  -o /Users/DU/Fotobuch_Ausgabe \
-  -n 80 \
+```powershell
+python -m photobook_curator `
+  -i "C:\Users\Alexandre\Pictures\Urlaubsfotos" `
+  -o "C:\Users\Alexandre\Pictures\Fotobuch_Ausgabe" `
+  -n 80 `
   --ai-review
 ```
 
@@ -172,7 +188,7 @@ Die KI bewertet nur Kandidaten (nicht alle tausende Fotos), erkennt besser Essen
 
 Alle Optionen:
 
-```bash
+```powershell
 python -m photobook_curator --help
 ```
 
@@ -181,11 +197,28 @@ python -m photobook_curator --help
 ## Checkliste
 
 1. [ ] Repo geklont, Branch ausgecheckt  
-2. [ ] `.venv` erstellt und Dependencies installiert  
-3. [ ] Foto-Ordner bereit  
-4. [ ] Ersten Lauf mit `-i`, `-o`, `-n` gestartet  
-5. [ ] `selected/` und `inhaltsverzeichnis.md` geprüft  
-6. [ ] (Optional) Anthropic-API-Key gesetzt und `--ai-review` genutzt  
-7. [ ] Bilder aus `selected/` ins Fotobuch-Tool deiner Wahl übernehmen  
+2. [ ] `.venv` erstellt und mit `.\.venv\Scripts\Activate.ps1` aktiviert  
+3. [ ] Dependencies installiert (`pip install -r requirements.txt`)  
+4. [ ] Foto-Ordner bereit  
+5. [ ] Ersten Lauf mit `-i`, `-o`, `-n` gestartet  
+6. [ ] `selected\` und `inhaltsverzeichnis.md` geprüft  
+7. [ ] (Optional) Anthropic-API-Key gesetzt und `--ai-review` genutzt  
+8. [ ] Bilder aus `selected\` ins Fotobuch-Tool deiner Wahl übernehmen  
 
-Fertig — ab hier gestaltest du das Buch mit den ausgewählten Dateien.
+---
+
+## Anhang: macOS / Linux
+
+Umgebung aktivieren:
+
+```bash
+source .venv/bin/activate
+```
+
+API-Key setzen:
+
+```bash
+export ANTHROPIC_API_KEY='sk-ant-...'
+```
+
+Pfad-Beispiele dann z. B. `/Users/DU/Urlaubsfotos`.
