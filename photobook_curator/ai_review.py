@@ -102,6 +102,20 @@ def estimate_cost(num_candidates: int) -> dict[str, float]:
     }
 
 
+def estimate_candidate_count(
+    target_n: int,
+    found: int = 0,
+    candidate_factor: float = 4.0,
+) -> int:
+    """Grobe Obergrenze der KI-Kandidaten vor dem Lauf (Ziel × Faktor, max. Fotos)."""
+    target = max(0, int(target_n))
+    factor = max(0.1, float(candidate_factor))
+    n = max(1, int(round(target * factor))) if target else 0
+    if found and found > 0:
+        n = min(n, int(found))
+    return max(0, n)
+
+
 def _review_one(client, model: str, photo: Photo) -> tuple[Photo, Optional[dict], Optional[str]]:
     b64 = image_to_jpeg_b64(photo)
     if b64 is None:

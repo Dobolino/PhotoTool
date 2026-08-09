@@ -63,13 +63,47 @@ HELP_TEXT = (
     "2. Ausgabe-Ordner wählen (am besten leer / neu).\n"
     "3. Zielanzahl einstellen (z. B. 80).\n"
     "4. Optionen nach Bedarf lassen oder anpassen.\n"
-    "5. „Auswahl starten“ – unter Analyse-Schritte siehst du den Ablauf:\n"
-    "   Orange = läuft gerade, Grün = fertig, Blass = übersprungen.\n"
-    "   Bei vielen Fotos kann das mehrere Minuten dauern.\n"
-    "6. Wenn fertig: „Auswahl prüfen“ – einzelne Bilder rausnehmen oder\n"
-    "   Alternativen / Dokumente hinzufügen, dann speichern.\n\n"
-    "Tipp: Zum Aktualisieren des Programms „Programm aktualisieren.bat“\n"
-    "im PhotoTool-Ordner nutzen. Mehr Details stehen in START.md."
+    "5. „Auswahl starten“ – Schritte werden farbig angezeigt.\n"
+    "6. Wenn fertig: „Auswahl prüfen“, anpassen, speichern.\n\n"
+    "KI-Kosten siehst du dauerhaft unter der Zielanzahl (Schätzung).\n"
+    "Mit „Nur Kosten schätzen“ kannst du zuerst den echten Kandidaten-\n"
+    "Betrag messen und vergleichen.\n\n"
+    "Tipp: „Programm aktualisieren.bat“ für Updates. Details: START.md."
+)
+
+OPTIONS_HELP = (
+    "Was die Optionen steuern\n"
+    "────────────────────────\n\n"
+    "Zielanzahl Bilder\n"
+    "  Ungefähre Anzahl Fotos im fertigen Buch (z. B. 80 oder 400).\n\n"
+    "Ortsnamen per Internet\n"
+    "  GPS → Städtenamen (Englisch), z. B. Tokyo, Kyoto.\n"
+    "  Speichert Treffer in geocode_cache.json.\n\n"
+    "Gesichtserkennung / Augen zu\n"
+    "  Findet Gesichter, markiert geschlossene Augen / schlechte\n"
+    "  Ausschnitte – solche Fotos werden eher abgewertet.\n\n"
+    "Serien/Bursts\n"
+    "  Ähnliche Fotos kurz hintereinander → nur die besten 1–2 behalten.\n\n"
+    "Dokumente & Screenshots separat\n"
+    "  Tickets, Maps, Chats usw. nicht automatisch ins Buch, sondern\n"
+    "  in den Ordner optional_dokumente/ (später manuell reinnehmbar).\n\n"
+    "Finger vor der Linse\n"
+    "  Typische Fehlaufnahmen mit Finger/Hand vor der Kamera aussortieren.\n\n"
+    "Tages-Abdeckung (+ Stärke)\n"
+    "  Verhindert, dass fast alles vom ersten Tag kommt.\n"
+    "  Stärke: sanft bis stark gleichmäßig über die Tage.\n\n"
+    "Personen-Balance (+ Stärke)\n"
+    "  Verhindert, dass immer dieselbe Person das Album dominiert.\n\n"
+    "Kapitel-/Karten-Vorschau\n"
+    "  Vor dem Kopieren Kapitel und Karte zeigen, dann bestätigen.\n\n"
+    "KI-Bewertung (Anthropic API)\n"
+    "  Sendet Kandidatenbilder an die KI zur Qualitäts-/Szenenbewertung.\n"
+    "  Kostet Geld – siehe die Kostenzeile unter der Zielanzahl.\n\n"
+    "Nur Kosten schätzen\n"
+    "  Kein echter KI-Aufruf: zählt nur Kandidaten und schätzt den Betrag.\n"
+    "  Gut zum Vergleichen, bevor du den echten Lauf startest.\n\n"
+    "API-Key\n"
+    "  Dein Anthropic-Schlüssel (nur nötig bei echter KI-Bewertung)."
 )
 
 
@@ -146,6 +180,7 @@ class PhotobookApp(tk.Tk):
         self._advanced_open = False
 
         self.found_var = tk.StringVar(value="")
+        self.cost_var = tk.StringVar(value="")
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
         self.target_var = tk.IntVar(value=80)
@@ -162,6 +197,9 @@ class PhotobookApp(tk.Tk):
         self.ai_var = tk.BooleanVar(value=False)
         self.dry_run_var = tk.BooleanVar(value=False)
         self.api_key_var = tk.StringVar(value=os.environ.get("ANTHROPIC_API_KEY", ""))
+        self._found_count = 0
+        self._last_ai_cost: dict[str, Any] | None = None
+        self._candidate_factor = 4.0
 
         self._log_queue: queue.Queue = queue.Queue()
         self._progress_queue: queue.Queue = queue.Queue()
@@ -357,10 +395,25 @@ class PhotobookApp(tk.Tk):
         settings.pack(fill=tk.X, pady=(12, 0))
 
         count_row = ttk.Frame(settings, style="Card.TFrame")
-        count_row.pack(fill=tk.X, pady=(0, 6))
+        count_row.pack(fill=tk.X, pady=(0, 4))
         ttk.Label(count_row, text="Zielanzahl Bilder", style="Body.TLabel").pack(side=tk.LEFT)
-        spin = ttk.Spinbox(count_row, from_=10, to=500, textvariable=self.target_var, width=8)
+        spin = ttk.Spinbox(
+            count_row,
+            from_=10,
+            to=500,
+            textvariable=self.target_var,
+            width=8,
+            command=self._refresh_cost_estimate,
+        )
         spin.pack(side=tk.RIGHT)
+        try:
+            self.target_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
+            self.ai_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
+        except Exception:
+            pass
+        ttk.Label(settings, textvariable=self.cost_var, style="Field.TLabel").pack(
+            anchor=tk.W, pady=(0, 6)
+        )
 
         # Kern-Optionen immer sichtbar – Rest unter „Weitere Optionen“
         for text, var in (
@@ -373,13 +426,21 @@ class PhotobookApp(tk.Tk):
                 settings, text=text, variable=var, command=self._sync_dependent_controls
             ).pack(anchor=tk.W, pady=1)
 
+        opt_row = ttk.Frame(settings, style="Card.TFrame")
+        opt_row.pack(fill=tk.X, pady=(8, 0))
         self.advanced_toggle = ttk.Button(
-            settings,
+            opt_row,
             text="Weitere Optionen ▸",
             style="Help.TButton",
             command=self._toggle_advanced,
         )
-        self.advanced_toggle.pack(anchor=tk.W, pady=(8, 0))
+        self.advanced_toggle.pack(side=tk.LEFT)
+        ttk.Button(
+            opt_row,
+            text="Optionen erklären",
+            style="Help.TButton",
+            command=self._show_options_help,
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         self.advanced_frame = ttk.Frame(settings, style="Card.TFrame")
         for text, var in (
@@ -506,6 +567,7 @@ class PhotobookApp(tk.Tk):
         self.log.configure(yscrollcommand=scroll.set)
 
         self._sync_dependent_controls()
+        self._refresh_cost_estimate()
 
     def _set_icon(self) -> None:
         """Ersetzt das Standard-Tk-Icon (blaue Feder) durch ein eigenes."""
@@ -655,18 +717,101 @@ class PhotobookApp(tk.Tk):
                 n = len(find_images(Path(path)))
                 msg = f"{n} Bilder gefunden" if n else "Keine Bilder in diesem Ordner gefunden"
             except Exception:
+                n = 0
                 msg = ""
-            self.after(0, lambda: self.found_var.set(msg))
+            self.after(0, lambda: self._set_found_count(n, msg))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _set_found_count(self, n: int, msg: str) -> None:
+        self._found_count = int(n or 0)
+        self.found_var.set(msg)
+        self._refresh_cost_estimate()
 
     def _pick_output(self) -> None:
         path = filedialog.askdirectory(title="Ausgabe-Ordner wählen")
         if path:
             self.output_var.set(path)
 
+    def _refresh_cost_estimate(self, *_args) -> None:
+        """Dauerhafte KI-Kostenschätzung + Vergleich zum letzten gemessenen Lauf."""
+        try:
+            from .ai_review import (
+                ESTIMATED_COST_PER_IMAGE_USD,
+                estimate_candidate_count,
+                estimate_cost,
+            )
+
+            if not bool(self.ai_var.get()):
+                self.cost_var.set("KI-Kosten: aus (keine API-Kosten)")
+                return
+            try:
+                target = int(self.target_var.get())
+            except (TypeError, ValueError, tk.TclError):
+                target = 80
+            n_cand = estimate_candidate_count(
+                target, self._found_count, self._candidate_factor
+            )
+            est = estimate_cost(n_cand)
+            line = (
+                f"KI-Schätzung: ~${est['usd_total_estimate']:.2f} "
+                f"(ca. {int(est['candidates'])} Kandidaten × "
+                f"${ESTIMATED_COST_PER_IMAGE_USD:.3f})"
+            )
+            if self._last_ai_cost:
+                last_n = int(self._last_ai_cost.get("candidates") or 0)
+                last_usd = float(self._last_ai_cost.get("usd_total_estimate") or 0)
+                kind = "Dry-Run" if self._last_ai_cost.get("dry_run") else "letzter Lauf"
+                line += f"  ·  Vergleich ({kind}): ${last_usd:.2f} bei {last_n} Bildern"
+            self.cost_var.set(line)
+        except Exception:
+            self.cost_var.set("KI-Schätzung: –")
+
+    def _remember_ai_cost(self, result: dict) -> None:
+        ai = result.get("ai") or {}
+        if not ai:
+            return
+        if "usd_total_estimate" not in ai and "candidates" not in ai:
+            return
+        self._last_ai_cost = {
+            "candidates": float(ai.get("candidates") or 0),
+            "usd_total_estimate": float(ai.get("usd_total_estimate") or 0),
+            "dry_run": bool(result.get("dry_run") or ai.get("dry_run")),
+        }
+        self._refresh_cost_estimate()
+
+    def _show_text_window(self, title: str, body: str) -> None:
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.geometry("520x480")
+        win.transient(self)
+        win.configure(bg=COLORS["bg"])
+        frm = ttk.Frame(win, style="App.TFrame", padding=12)
+        frm.pack(fill=tk.BOTH, expand=True)
+        txt = tk.Text(
+            frm,
+            wrap=tk.WORD,
+            height=22,
+            bg=COLORS["surface"],
+            fg=COLORS["ink"],
+            relief=tk.FLAT,
+            font=("Segoe UI", 10),
+            padx=10,
+            pady=10,
+        )
+        txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll = ttk.Scrollbar(frm, command=txt.yview)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        txt.configure(yscrollcommand=scroll.set)
+        txt.insert("1.0", body)
+        txt.configure(state=tk.DISABLED)
+        ttk.Button(win, text="Schließen", command=win.destroy).pack(pady=(0, 10))
+
     def _show_help(self) -> None:
-        messagebox.showinfo("Hilfe – Fotobuch", HELP_TEXT, parent=self)
+        self._show_text_window("Hilfe – Fotobuch", HELP_TEXT + "\n\n" + OPTIONS_HELP)
+
+    def _show_options_help(self) -> None:
+        self._show_text_window("Optionen erklärt", OPTIONS_HELP)
 
     def _set_next_step(self, text: str) -> None:
         self.next_step_var.set(text)
@@ -983,13 +1128,21 @@ class PhotobookApp(tk.Tk):
             self.after(0, lambda: self.cancel_btn.configure(state=tk.DISABLED))
 
     def _on_finished(self, result: dict, cfg: Any) -> None:
+        self._remember_ai_cost(result)
         if result.get("dry_run"):
+            ai = result.get("ai") or {}
+            usd = float(ai.get("usd_total_estimate") or 0)
+            n = int(ai.get("candidates") or 0)
             self._set_next_step(
-                "Kostenschätzung fertig. Für echten Lauf „Nur Kosten schätzen“ aus und erneut starten."
+                f"Kostenschätzung fertig (~${usd:.2f} / {n} Kandidaten). "
+                "Für echten Lauf „Nur Kosten schätzen“ aus und erneut starten."
             )
             messagebox.showinfo(
                 "Dry-Run",
-                "Kostenschätzung fertig. Siehe Verlauf für Details.",
+                f"Kostenschätzung fertig:\n\n"
+                f"~ ${usd:.2f} für {n} Kandidatenbilder.\n\n"
+                "Der Betrag bleibt unter der Zielanzahl sichtbar zum Vergleichen.\n"
+                "Für den echten Lauf: „Nur Kosten schätzen“ aus → erneut starten.",
             )
             return
 
