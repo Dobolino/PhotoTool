@@ -1,4 +1,4 @@
-"""Einfache Desktop-Oberfläche für den Photobook Curator (tkinter)."""
+"""Einfache, optisch aufgeräumte Desktop-Oberfläche für den Photobook Curator."""
 
 from __future__ import annotations
 
@@ -11,13 +11,29 @@ from tkinter import filedialog, messagebox, ttk
 
 from .pipeline import PipelineConfig, run_pipeline
 
+# Ruhige Foto-Editor-Palette (kein Lila, kein Neon)
+COLORS = {
+    "bg": "#F3EFE7",
+    "surface": "#FFFCF7",
+    "ink": "#1F1A17",
+    "muted": "#6E645C",
+    "line": "#D9D0C4",
+    "accent": "#2F5D50",
+    "accent_hover": "#244A40",
+    "accent_soft": "#E2EDE8",
+    "danger": "#8B3A2C",
+    "log_bg": "#1C2421",
+    "log_fg": "#D7E0DB",
+}
+
 
 class PhotobookApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Fotobuch-Auswahl")
-        self.minsize(640, 520)
-        self.geometry("720x560")
+        self.minsize(720, 640)
+        self.geometry("780x700")
+        self.configure(bg=COLORS["bg"])
 
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
@@ -30,79 +46,204 @@ class PhotobookApp(tk.Tk):
 
         self._log_queue: queue.Queue[str] = queue.Queue()
         self._worker: threading.Thread | None = None
+        self._setup_style()
         self._build()
         self.after(150, self._drain_log)
 
+    def _setup_style(self) -> None:
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        font_ui = ("Segoe UI", 10)
+        font_title = ("Georgia", 18, "bold")
+        font_sub = ("Segoe UI", 10)
+        font_label = ("Segoe UI", 9)
+
+        style.configure("App.TFrame", background=COLORS["bg"])
+        style.configure("Card.TFrame", background=COLORS["surface"])
+        style.configure(
+            "Card.TLabelframe",
+            background=COLORS["surface"],
+            foreground=COLORS["ink"],
+            bordercolor=COLORS["line"],
+            relief="solid",
+        )
+        style.configure(
+            "Card.TLabelframe.Label",
+            background=COLORS["surface"],
+            foreground=COLORS["ink"],
+            font=("Segoe UI Semibold", 10),
+        )
+        style.configure(
+            "Title.TLabel",
+            background=COLORS["bg"],
+            foreground=COLORS["ink"],
+            font=font_title,
+        )
+        style.configure(
+            "Sub.TLabel",
+            background=COLORS["bg"],
+            foreground=COLORS["muted"],
+            font=font_sub,
+        )
+        style.configure(
+            "Field.TLabel",
+            background=COLORS["surface"],
+            foreground=COLORS["muted"],
+            font=font_label,
+        )
+        style.configure(
+            "Body.TLabel",
+            background=COLORS["surface"],
+            foreground=COLORS["ink"],
+            font=font_ui,
+        )
+        style.configure(
+            "Hero.TFrame",
+            background=COLORS["accent"],
+        )
+        style.configure(
+            "HeroTitle.TLabel",
+            background=COLORS["accent"],
+            foreground="#F7F3EC",
+            font=("Georgia", 16, "bold"),
+        )
+        style.configure(
+            "HeroSub.TLabel",
+            background=COLORS["accent"],
+            foreground="#D5E4DE",
+            font=("Segoe UI", 10),
+        )
+        style.configure(
+            "Browse.TButton",
+            font=font_ui,
+            padding=(12, 6),
+        )
+        style.configure(
+            "Start.TButton",
+            font=("Segoe UI Semibold", 11),
+            padding=(18, 10),
+            background=COLORS["accent"],
+            foreground="#FFFFFF",
+        )
+        style.map(
+            "Start.TButton",
+            background=[("active", COLORS["accent_hover"]), ("disabled", "#9AA9A3")],
+            foreground=[("disabled", "#EEF2F0")],
+        )
+        style.configure(
+            "TCheckbutton",
+            background=COLORS["surface"],
+            foreground=COLORS["ink"],
+            font=font_ui,
+            focuscolor=COLORS["surface"],
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground="#FFFFFF",
+            foreground=COLORS["ink"],
+            padding=6,
+        )
+        style.configure(
+            "TSpinbox",
+            fieldbackground="#FFFFFF",
+            foreground=COLORS["ink"],
+            padding=4,
+        )
+
     def _build(self) -> None:
-        pad = {"padx": 12, "pady": 6}
-        frm = ttk.Frame(self, padding=12)
-        frm.pack(fill=tk.BOTH, expand=True)
+        root = ttk.Frame(self, style="App.TFrame")
+        root.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frm, text="Fotobuch aus Urlaubsfotos zusammenstellen", font=("", 14, "bold")).pack(
-            anchor=tk.W, **pad
-        )
+        hero = ttk.Frame(root, style="Hero.TFrame", padding=(22, 18))
+        hero.pack(fill=tk.X)
+        ttk.Label(hero, text="Fotobuch", style="HeroTitle.TLabel").pack(anchor=tk.W)
         ttk.Label(
-            frm,
-            text="Ordner wählen, Zielanzahl einstellen, Start drücken.",
-            foreground="#444",
-        ).pack(anchor=tk.W, padx=12, pady=(0, 10))
+            hero,
+            text="Urlaubsfotos automatisch sortieren, filtern und als Kapitel vorbereiten.",
+            style="HeroSub.TLabel",
+        ).pack(anchor=tk.W, pady=(4, 0))
 
-        self._row_folder(frm, "Fotos-Ordner (Eingabe)", self.input_var, self._pick_input)
-        self._row_folder(frm, "Ausgabe-Ordner", self.output_var, self._pick_output)
+        body = ttk.Frame(root, style="App.TFrame", padding=18)
+        body.pack(fill=tk.BOTH, expand=True)
 
-        opts = ttk.LabelFrame(frm, text="Einstellungen", padding=10)
-        opts.pack(fill=tk.X, **pad)
+        card = ttk.Frame(body, style="Card.TFrame", padding=16)
+        card.pack(fill=tk.X)
 
-        row = ttk.Frame(opts)
-        row.pack(fill=tk.X, pady=4)
-        ttk.Label(row, text="Zielanzahl Bilder:").pack(side=tk.LEFT)
-        ttk.Spinbox(row, from_=10, to=500, textvariable=self.target_var, width=8).pack(
-            side=tk.LEFT, padx=8
-        )
+        self._folder_row(card, "Fotos-Ordner", "Deine Japan-/Urlaubsfotos", self.input_var, self._pick_input)
+        ttk.Separator(card, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=12)
+        self._folder_row(card, "Ausgabe-Ordner", "Hier landen Auswahl und Übersicht", self.output_var, self._pick_output)
 
-        ttk.Checkbutton(
-            opts, text="Ortsnamen per Internet bestimmen (Nominatim)", variable=self.geocode_var
-        ).pack(anchor=tk.W, pady=2)
-        ttk.Checkbutton(
-            opts, text="Gesichtserkennung überspringen (schneller)", variable=self.skip_faces_var
-        ).pack(anchor=tk.W, pady=2)
-        ttk.Checkbutton(
-            opts, text="KI-Bewertung aktivieren (Anthropic API)", variable=self.ai_var
-        ).pack(anchor=tk.W, pady=2)
-        ttk.Checkbutton(
-            opts, text="Nur Kosten schätzen (Dry-Run, keine echte KI-Anfrage)", variable=self.dry_run_var
-        ).pack(anchor=tk.W, pady=2)
+        settings = ttk.LabelFrame(body, text="  Einstellungen  ", style="Card.TLabelframe", padding=14)
+        settings.pack(fill=tk.X, pady=(14, 0))
 
-        key_row = ttk.Frame(opts)
-        key_row.pack(fill=tk.X, pady=6)
-        ttk.Label(key_row, text="API-Key (optional):").pack(side=tk.LEFT)
-        ttk.Entry(key_row, textvariable=self.api_key_var, show="*", width=48).pack(
-            side=tk.LEFT, padx=8, fill=tk.X, expand=True
-        )
+        count_row = ttk.Frame(settings, style="Card.TFrame")
+        count_row.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(count_row, text="Zielanzahl Bilder", style="Body.TLabel").pack(side=tk.LEFT)
+        spin = ttk.Spinbox(count_row, from_=10, to=500, textvariable=self.target_var, width=8)
+        spin.pack(side=tk.RIGHT)
 
-        self.start_btn = ttk.Button(frm, text="Start", command=self._start)
-        self.start_btn.pack(anchor=tk.E, **pad)
+        for text, var in (
+            ("Ortsnamen per Internet bestimmen", self.geocode_var),
+            ("Gesichtserkennung überspringen (schneller)", self.skip_faces_var),
+            ("KI-Bewertung aktivieren (Anthropic API)", self.ai_var),
+            ("Nur Kosten schätzen (kein echter KI-Lauf)", self.dry_run_var),
+        ):
+            ttk.Checkbutton(settings, text=text, variable=var).pack(anchor=tk.W, pady=2)
 
-        log_frame = ttk.LabelFrame(frm, text="Fortschritt / Log", padding=8)
-        log_frame.pack(fill=tk.BOTH, expand=True, **pad)
-        log_row = ttk.Frame(log_frame)
+        key_box = ttk.Frame(settings, style="Card.TFrame")
+        key_box.pack(fill=tk.X, pady=(10, 0))
+        ttk.Label(key_box, text="API-Key (optional)", style="Field.TLabel").pack(anchor=tk.W)
+        ttk.Entry(key_box, textvariable=self.api_key_var, show="•").pack(fill=tk.X, pady=(4, 0))
+
+        actions = ttk.Frame(body, style="App.TFrame")
+        actions.pack(fill=tk.X, pady=(14, 8))
+        self.status_var = tk.StringVar(value="Bereit")
+        ttk.Label(actions, textvariable=self.status_var, style="Sub.TLabel").pack(side=tk.LEFT)
+        self.start_btn = ttk.Button(actions, text="Auswahl starten", style="Start.TButton", command=self._start)
+        self.start_btn.pack(side=tk.RIGHT)
+
+        log_frame = ttk.LabelFrame(body, text="  Verlauf  ", style="Card.TLabelframe", padding=8)
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+        log_row = ttk.Frame(log_frame, style="Card.TFrame")
         log_row.pack(fill=tk.BOTH, expand=True)
-        self.log = tk.Text(log_row, height=12, wrap=tk.WORD, state=tk.DISABLED)
+        self.log = tk.Text(
+            log_row,
+            height=10,
+            wrap=tk.WORD,
+            state=tk.DISABLED,
+            bg=COLORS["log_bg"],
+            fg=COLORS["log_fg"],
+            insertbackground=COLORS["log_fg"],
+            relief=tk.FLAT,
+            font=("Consolas", 9),
+            padx=10,
+            pady=8,
+        )
         self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll = ttk.Scrollbar(log_row, command=self.log.yview)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.log.configure(yscrollcommand=scroll.set)
 
-    def _row_folder(
-        self, parent: ttk.Frame, label: str, var: tk.StringVar, command
+    def _folder_row(
+        self,
+        parent: ttk.Frame,
+        title: str,
+        hint: str,
+        var: tk.StringVar,
+        command,
     ) -> None:
-        box = ttk.Frame(parent)
-        box.pack(fill=tk.X, padx=12, pady=4)
-        ttk.Label(box, text=label).pack(anchor=tk.W)
-        row = ttk.Frame(box)
-        row.pack(fill=tk.X, pady=2)
+        ttk.Label(parent, text=title, style="Body.TLabel").pack(anchor=tk.W)
+        ttk.Label(parent, text=hint, style="Field.TLabel").pack(anchor=tk.W, pady=(0, 4))
+        row = ttk.Frame(parent, style="Card.TFrame")
+        row.pack(fill=tk.X)
         ttk.Entry(row, textvariable=var).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(row, text="Durchsuchen…", command=command).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(row, text="Durchsuchen", style="Browse.TButton", command=command).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
 
     def _pick_input(self) -> None:
         path = filedialog.askdirectory(title="Fotos-Ordner wählen")
@@ -136,10 +277,7 @@ class PhotobookApp(tk.Tk):
         input_dir = Path(self.input_var.get().strip())
         output_dir = Path(self.output_var.get().strip())
         if not input_dir.is_dir():
-            messagebox.showerror(
-                "Eingabeordner fehlt",
-                "Bitte einen vorhandenen Fotos-Ordner wählen.",
-            )
+            messagebox.showerror("Eingabeordner fehlt", "Bitte einen vorhandenen Fotos-Ordner wählen.")
             return
         if not str(output_dir).strip():
             messagebox.showerror("Ausgabeordner fehlt", "Bitte einen Ausgabe-Ordner wählen.")
@@ -168,6 +306,7 @@ class PhotobookApp(tk.Tk):
         )
 
         self.start_btn.configure(state=tk.DISABLED)
+        self.status_var.set("Arbeitet…")
         self._append_log("Start…")
         self._worker = threading.Thread(target=self._run, args=(cfg,), daemon=True)
         self._worker.start()
@@ -208,6 +347,7 @@ class PhotobookApp(tk.Tk):
             result = run_pipeline(cfg)
             self._log_queue.put(f"Fertig: {result}")
             self._log_queue.put(f"Ergebnisordner: {cfg.output_dir}")
+            self.after(0, lambda: self.status_var.set("Fertig"))
             self.after(
                 0,
                 lambda: messagebox.showinfo(
@@ -218,6 +358,7 @@ class PhotobookApp(tk.Tk):
             )
         except Exception as exc:
             self._log_queue.put(f"Fehler: {exc}")
+            self.after(0, lambda: self.status_var.set("Fehler"))
             self.after(0, lambda: messagebox.showerror("Fehler", str(exc)))
         finally:
             sys.stdout, sys.stderr = old_out, old_err
