@@ -39,9 +39,13 @@ class PhotobookApp(tk.Tk):
         self.output_var = tk.StringVar()
         self.target_var = tk.IntVar(value=80)
         self.geocode_var = tk.BooleanVar(value=True)
+        self.faces_var = tk.BooleanVar(value=True)
+        self.bursts_var = tk.BooleanVar(value=True)
+        self.aside_var = tk.BooleanVar(value=True)
+        self.coverage_var = tk.BooleanVar(value=False)
+        self.coverage_intensity_var = tk.DoubleVar(value=0.5)
         self.ai_var = tk.BooleanVar(value=False)
         self.dry_run_var = tk.BooleanVar(value=False)
-        self.skip_faces_var = tk.BooleanVar(value=False)
         self.api_key_var = tk.StringVar(value=os.environ.get("ANTHROPIC_API_KEY", ""))
 
         self._log_queue: queue.Queue[str] = queue.Queue()
@@ -191,11 +195,33 @@ class PhotobookApp(tk.Tk):
 
         for text, var in (
             ("Ortsnamen per Internet bestimmen", self.geocode_var),
-            ("Gesichtserkennung überspringen (schneller)", self.skip_faces_var),
+            ("Gesichtserkennung / Augen zu", self.faces_var),
+            ("Serien/Bursts (beste 1–2 behalten)", self.bursts_var),
+            ("Dokumente & Screenshots separat (Optional-Pool)", self.aside_var),
+            ("Tages-Abdeckung (nicht alles vom ersten Tag)", self.coverage_var),
             ("KI-Bewertung aktivieren (Anthropic API)", self.ai_var),
             ("Nur Kosten schätzen (kein echter KI-Lauf)", self.dry_run_var),
         ):
             ttk.Checkbutton(settings, text=text, variable=var).pack(anchor=tk.W, pady=2)
+
+        cov_row = ttk.Frame(settings, style="Card.TFrame")
+        cov_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(cov_row, text="Abdeckung-Stärke", style="Field.TLabel").pack(side=tk.LEFT)
+        self.coverage_label = ttk.Label(cov_row, text="50%", style="Field.TLabel")
+        self.coverage_label.pack(side=tk.RIGHT)
+        scale = ttk.Scale(
+            settings,
+            from_=0.1,
+            to=1.0,
+            variable=self.coverage_intensity_var,
+            command=self._on_coverage_scale,
+        )
+        scale.pack(fill=tk.X, pady=(2, 0))
+        ttk.Label(
+            settings,
+            text="Nur wirksam, wenn „Tages-Abdeckung“ aktiv. Links = sanft, rechts = stark gleichmäßig.",
+            style="Field.TLabel",
+        ).pack(anchor=tk.W, pady=(2, 0))
 
         key_box = ttk.Frame(settings, style="Card.TFrame")
         key_box.pack(fill=tk.X, pady=(10, 0))
@@ -252,6 +278,10 @@ class PhotobookApp(tk.Tk):
             side=tk.LEFT, padx=(8, 0)
         )
 
+    def _on_coverage_scale(self, _value=None) -> None:
+        pct = int(round(float(self.coverage_intensity_var.get()) * 100))
+        self.coverage_label.configure(text=f"{pct}%")
+
     def _pick_input(self) -> None:
         path = filedialog.askdirectory(title="Fotos-Ordner wählen")
         if path:
@@ -302,6 +332,10 @@ class PhotobookApp(tk.Tk):
             )
             return
 
+        coverage_intensity = 0.0
+        if self.coverage_var.get():
+            coverage_intensity = float(self.coverage_intensity_var.get())
+
         cfg = PipelineConfig(
             input_dir=input_dir.resolve(),
             output_dir=output_dir.resolve(),
@@ -309,7 +343,10 @@ class PhotobookApp(tk.Tk):
             geocode=bool(self.geocode_var.get()),
             ai_review=bool(self.ai_var.get()),
             dry_run=bool(self.dry_run_var.get()),
-            skip_faces=bool(self.skip_faces_var.get()),
+            enable_faces=bool(self.faces_var.get()),
+            enable_bursts=bool(self.bursts_var.get()),
+            enable_document_aside=bool(self.aside_var.get()),
+            coverage_intensity=coverage_intensity,
         )
 
         self.start_btn.configure(state=tk.DISABLED)

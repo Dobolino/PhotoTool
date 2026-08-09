@@ -133,6 +133,133 @@ def compute_final_score(photo: Photo) -> float:
     return photo.final_score
 
 
+def _photo_day(photo: Photo):
+    return photo.datetime_taken.date() if photo.datetime_taken else None
+
+
+def allocate_day_quotas(
+    day_sizes: dict,
+    quota: int,
+    intensity: float,
+) -> dict:
+    """
+    Mischt anteilige und gleichmäßige Tageskontingente.
+    intensity 0 = rein proportional zur Fotoanzahl,
+    intensity 1 = möglichst gleichmäßig über Tage, mit Deckel pro Tag.
+    """
+    if quota <= 0 or not day_sizes:
+        return {d: 0 for d in day_sizes}
+    intensity = float(max(0.0, min(1.0, intensity)))
+    days = list(day_sizes.keys())
+    total = sum(day_sizes.values()) or 1
+    n = len(days)
+    prop = {d: quota * (day_sizes[d] / total) for d in days}
+    even = {d: quota / n for d in days}
+    raw = {d: (1.0 - intensity) * prop[d] + intensity * even[d] for d in days}
+
+    # Bei starker Intensität: kein Tag > ~60% des Kontingents
+    max_share = 1.0 - 0.4 * intensity
+    max_per_day = max(1, int(np.ceil(quota * max_share)))
+    for d in days:
+        raw[d] = min(raw[d], float(max_per_day), float(day_sizes[d]))
+
+    # Largest-remainder-Rundung
+    floors = {d: int(np.floor(raw[d])) for d in days}
+    # mindestens 1 pro Tag mit Fotos, wenn Intensität hoch und Quota es hergibt
+    if intensity >= 0.35 and quota >= n:
+        for d in days:
+            if day_sizes[d] > 0 and floors[d] == 0:
+                floors[d] = 1
+    assigned = sum(floors.values())
+    # Deckel erneut einhalten
+    for d in days:
+        floors[d] = min(floors[d], day_sizes[d], max_per_day)
+    assigned = sum(floors.values())
+    remainders = sorted(days, key=lambda d: raw[d] - int(np.floor(raw[d])), reverse=True)
+    idx = 0
+    while assigned < quota and idx < len(remainders) * 3:
+        d = remainders[idx % len(remainders)]
+        if floors[d] < min(day_sizes[d], max_per_day):
+            floors[d] += 1
+            assigned += 1
+        idx += 1
+    # falls über Quota (durch Mindest-1): wieder kürzen bei größten Tagen
+    while assigned > quota:
+        d = max(days, key=lambda x: floors[x])
+        if floors[d] <= 0:
+            break
+        floors[d] -= 1
+        assigned -= 1
+    return floors
+
+
+def _select_with_coverage(
+    photos: list[Photo],
+    indices: list[int],
+    quota: int,
+    similarity_threshold: float,
+    coverage_intensity: float,
+    prefer_landmarks: bool = False,
+    max_landmarks: int = 3,
+) -> list[int]:
+    """Auswahl mit optionaler Tages-Abdeckung."""
+    if coverage_intensity <= 0 or quota <= 0 or not indices:
+        return _select_diverse(
+            photos,
+            indices,
+            quota,
+            similarity_threshold,
+            prefer_landmarks=prefer_landmarks,
+            max_landmarks=max_landmarks,
+        )
+
+    by_day: dict = defaultdict(list)
+    for i in indices:
+        by_day[_photo_day(photos[i])].append(i)
+    # Tage ohne Datum: eigener Bucket
+    day_sizes = {d: len(v) for d, v in by_day.items()}
+    if len(day_sizes) <= 1:
+        return _select_diverse(
+            photos,
+            indices,
+            quota,
+            similarity_threshold,
+            prefer_landmarks=prefer_landmarks,
+            max_landmarks=max_landmarks,
+        )
+
+    quotas = allocate_day_quotas(day_sizes, quota, coverage_intensity)
+    selected: list[int] = []
+    landmark_budget = max_landmarks
+    for day, q in sorted(quotas.items(), key=lambda kv: (kv[0] is None, kv[0])):
+        if q <= 0:
+            continue
+        picked = _select_diverse(
+            photos,
+            by_day[day],
+            q,
+            similarity_threshold,
+            prefer_landmarks=prefer_landmarks,
+            max_landmarks=landmark_budget,
+        )
+        selected.extend(picked)
+        landmark_budget = max(0, landmark_budget - sum(1 for i in picked if photos[i].landmark))
+
+    # Restkontingent auffüllen (falls Tage nicht genug hergaben)
+    if len(selected) < quota:
+        leftover = [i for i in indices if i not in selected]
+        extra = _select_diverse(
+            photos,
+            leftover,
+            quota - len(selected),
+            similarity_threshold,
+            prefer_landmarks=prefer_landmarks,
+            max_landmarks=landmark_budget,
+        )
+        selected.extend(extra)
+    return selected[:quota]
+
+
 def _select_diverse(
     photos: list[Photo],
     indices: list[int],
@@ -229,6 +356,7 @@ def select_for_region(
     food_ratio: float = 0.15,
     max_landmarks: int = 3,
     similarity_threshold: float = 0.92,
+    coverage_intensity: float = 0.0,
 ) -> tuple[list[int], list[int]]:
     """Gibt (hauptteil_indices, essen_indices) zurück, chronologisch sortiert."""
     # Nur Kandidaten bevorzugen, Fallback auf alle nicht-Duplikate
@@ -256,19 +384,21 @@ def select_for_region(
         food_quota = min(food_quota, len(food), quota)
     main_quota = max(0, quota - food_quota)
 
-    selected_main = _select_diverse(
+    selected_main = _select_with_coverage(
         photos,
         main,
         main_quota,
         similarity_threshold=similarity_threshold,
+        coverage_intensity=coverage_intensity,
         prefer_landmarks=True,
         max_landmarks=max_landmarks,
     )
-    selected_food = _select_diverse(
+    selected_food = _select_with_coverage(
         photos,
         food,
         food_quota,
         similarity_threshold=similarity_threshold,
+        coverage_intensity=coverage_intensity,
         prefer_landmarks=False,
     )
 
@@ -282,6 +412,7 @@ def select_for_transit(
     indices: list[int],
     quota: int,
     similarity_threshold: float = 0.92,
+    coverage_intensity: float = 0.0,
 ) -> list[int]:
     def _ok(i: int) -> bool:
         return (
@@ -296,8 +427,13 @@ def select_for_transit(
     ensure_scene_types(photos, cand)
     for i in cand:
         compute_final_score(photos[i])
-    selected = _select_diverse(
-        photos, cand, quota, similarity_threshold=similarity_threshold, prefer_landmarks=False
+    selected = _select_with_coverage(
+        photos,
+        cand,
+        quota,
+        similarity_threshold=similarity_threshold,
+        coverage_intensity=coverage_intensity,
+        prefer_landmarks=False,
     )
     selected.sort(key=lambda i: photos[i].datetime_taken or datetime.min)
     return selected
@@ -309,6 +445,7 @@ def build_book_order(
     food_ratio: float = 0.15,
     max_landmarks: int = 3,
     similarity_threshold: float = 0.92,
+    coverage_intensity: float = 0.0,
 ) -> list[tuple[int, str, str]]:
     """
     Finale Buchreihenfolge.
@@ -328,6 +465,7 @@ def build_book_order(
             food_ratio=food_ratio,
             max_landmarks=max_landmarks,
             similarity_threshold=similarity_threshold,
+            coverage_intensity=coverage_intensity,
         )
         for i in main_sel:
             photos[i].is_selected = True
@@ -350,6 +488,7 @@ def build_book_order(
                 t.photo_indices,
                 t.quota,
                 similarity_threshold=similarity_threshold,
+                coverage_intensity=coverage_intensity,
             )
             for i in t_sel:
                 photos[i].is_selected = True

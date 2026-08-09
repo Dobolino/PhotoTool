@@ -59,6 +59,20 @@ Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter 
 
 **Dokumente & Screenshots** (Tickets, Karten, Chat-Screens …) kommen **nicht** automatisch ins Buch, sondern in den Ordner `optional_dokumente/`. In **Auswahl prüfen** kannst du sie bei Bedarf mit einem Klick ins Album übernehmen (`99_Optional_Dokumente`).
 
+### Optionen (GUI oder CLI)
+
+| Option | Standard | Bedeutung |
+|--------|----------|-----------|
+| Gesichtserkennung / Augen zu | an | `--faces` / `--no-faces` |
+| Serien/Bursts | an | `--bursts` / `--no-bursts` |
+| Dokumente separat | an | `--aside-documents` / `--no-aside-documents` |
+| Tages-Abdeckung | aus | Checkbox + Stärke-Regler, CLI: `--coverage-intensity 0.0–1.0` |
+| KI-Bewertung | aus | `--ai-review` |
+| Auswahl prüfen | nach dem Lauf | manuell |
+
+**Tages-Abdeckung:** Verhindert, dass fast alle Bilder vom ersten Tag kommen.  
+`0` = aus, `0.5` = sanft, `1.0` = stark gleichmäßig über die Tage.
+
 Optional: Haken bei **KI-Bewertung** setzen und API-Key eintragen (braucht Account auf [console.anthropic.com](https://console.anthropic.com/) — Claude-Chat-Abo reicht nicht).
 
 ---

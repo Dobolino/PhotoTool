@@ -109,9 +109,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Gleichzeitige AI-Anfragen (Standard: 5)",
     )
     p.add_argument(
+        "--faces",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Gesichtserkennung & Gesichtsqualität (Standard: an)",
+    )
+    p.add_argument(
         "--skip-faces",
         action="store_true",
-        help="Gesichtserkennung überspringen (schneller für Tests)",
+        help=argparse.SUPPRESS,  # Alias für --no-faces
+    )
+    p.add_argument(
+        "--bursts",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Serien/Burst-Erkennung (Standard: an)",
+    )
+    p.add_argument(
+        "--aside-documents",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Screenshots/Dokumente in Optional-Pool (Standard: an)",
+    )
+    p.add_argument(
+        "--coverage-intensity",
+        type=float,
+        default=0.0,
+        help="Tages-Abdeckung 0.0–1.0 (0=aus, 1=stark gleichmäßig; Standard: 0)",
     )
     p.add_argument(
         "--burst-seconds",
@@ -168,7 +192,10 @@ def main(argv: list[str] | None = None) -> int:
         gps_time_hours=args.gps_time_hours,
         cluster_eps_meters=args.cluster_eps_meters,
         ai_concurrency=args.ai_concurrency,
-        skip_faces=args.skip_faces,
+        enable_faces=bool(args.faces) and not bool(args.skip_faces),
+        enable_bursts=bool(args.bursts),
+        enable_document_aside=bool(args.aside_documents),
+        coverage_intensity=max(0.0, min(1.0, float(args.coverage_intensity))),
         burst_max_seconds=args.burst_seconds,
         burst_keep=args.burst_keep,
     )

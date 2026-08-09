@@ -39,10 +39,17 @@ class PipelineConfig:
     gps_time_hours: float = 6.0
     cluster_eps_meters: float = 400.0
     ai_concurrency: int = 5
-    skip_faces: bool = False
+    enable_faces: bool = True
+    enable_bursts: bool = True
+    enable_document_aside: bool = True
+    coverage_intensity: float = 0.0  # 0=aus, 1=starke Tages-Abdeckung
     burst_max_seconds: float = 30.0
     burst_keep: int = 2
     burst_min_size: int = 3
+
+    @property
+    def skip_faces(self) -> bool:
+        return not self.enable_faces
 
 
 def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
@@ -53,16 +60,19 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     photos = scan_photos(cfg.input_dir)
     print(f"  {len(photos)} Bilder gefunden")
     analyze_all(photos)
-    aside_count = mark_aside_documents(photos)
-    print(f"  {aside_count} Screenshots/Dokumente → Optional-Pool (nicht Auto-Kapitel)")
+    if cfg.enable_document_aside:
+        aside_count = mark_aside_documents(photos)
+        print(f"  {aside_count} Screenshots/Dokumente → Optional-Pool (nicht Auto-Kapitel)")
+    else:
+        print("  Dokumente/Screenshots-Trennung übersprungen")
     dup_count, burst_from_dup = mark_duplicates(
         photos,
-        burst_seconds=cfg.burst_max_seconds,
-        keep_per_burst=cfg.burst_keep,
-        min_burst_size=cfg.burst_min_size,
+        burst_seconds=cfg.burst_max_seconds if cfg.enable_bursts else 0.0,
+        keep_per_burst=cfg.burst_keep if cfg.enable_bursts else 1,
+        min_burst_size=cfg.burst_min_size if cfg.enable_bursts else 10**9,
     )
     print(f"  {dup_count} Duplikate markiert")
-    if not cfg.skip_faces:
+    if cfg.enable_faces:
         backend = count_faces(photos)
         print(f"  Gesichtserkennung: {backend}")
         fq_backend = analyze_face_quality(photos)
@@ -71,19 +81,21 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         print(f"  Gesichtsqualität: {fq_backend} ({closed} Augen zu, {bad} problematisch)")
     else:
         print("  Gesichtserkennung übersprungen")
-    # Zusätzliche, etwas lockerere Serien (nach Gesichtsqualität)
-    burst_extra = mark_bursts(
-        photos,
-        max_seconds=cfg.burst_max_seconds,
-        keep_per_burst=cfg.burst_keep,
-        min_burst_size=cfg.burst_min_size,
-    )
-    burst_rejected = burst_from_dup + burst_extra
-    burst_groups = len({p.burst_group_id for p in photos if p.burst_group_id})
-    print(
-        f"  {burst_groups} Serien erkannt, {burst_rejected} Burst-Bilder aussortiert "
-        f"(je max. {cfg.burst_keep} behalten)"
-    )
+    if cfg.enable_bursts:
+        burst_extra = mark_bursts(
+            photos,
+            max_seconds=cfg.burst_max_seconds,
+            keep_per_burst=cfg.burst_keep,
+            min_burst_size=cfg.burst_min_size,
+        )
+        burst_rejected = burst_from_dup + burst_extra
+        burst_groups = len({p.burst_group_id for p in photos if p.burst_group_id})
+        print(
+            f"  {burst_groups} Serien erkannt, {burst_rejected} Burst-Bilder aussortiert "
+            f"(je max. {cfg.burst_keep} behalten)"
+        )
+    else:
+        print("  Serien/Burst-Erkennung übersprungen")
 
     print("=== Phase 2: Orte & Regionen ===")
     cache = GeocodeCache(cache_path, enabled=cfg.geocode)
@@ -143,12 +155,15 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         }
 
     print("=== Phase 5: Auswahl & Buchstruktur ===")
+    if cfg.coverage_intensity > 0:
+        print(f"  Tages-Abdeckung aktiv (Stärke {cfg.coverage_intensity:.0%})")
     order = build_book_order(
         photos,
         plan,
         food_ratio=cfg.food_ratio,
         max_landmarks=cfg.max_landmarks,
         similarity_threshold=cfg.similarity_threshold,
+        coverage_intensity=cfg.coverage_intensity,
     )
     print(f"  {len(order)} Bilder ausgewählt")
 
