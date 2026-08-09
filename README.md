@@ -2,6 +2,8 @@
 
 Lokales Python-CLI-Tool zur Kuratierung eines Urlaubs-Fotobuchs aus einer großen iPhone/iCloud-Fotosammlung.
 
+**Einstieg:** siehe [ANLEITUNG.md](ANLEITUNG.md) für eine einfache Schritt-für-Schritt-Anleitung.
+
 Das Tool scannt Fotos, bewertet sie technisch, clustert GPS-Orte zu Regionen (Kapiteln), erkennt Transit-Abschnitte zwischen Städten, trennt Essens-Fotos ans Kapitelende und wählt eine diverse, chronologische Bildauswahl.
 
 ## Anforderungen
