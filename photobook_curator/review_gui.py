@@ -99,8 +99,10 @@ class ReviewWindow(tk.Toplevel):
         self._scroll_job: str | None = None
         self._wheel_bound = False
         self._grid_cols = 6
-        self._added_grid: ttk.Frame | None = None
-        self._added_count = 0
+        self._section_grids: dict[str, ttk.Frame] = {}
+        self._section_counts: dict[str, int] = {}
+        self._session_added: set[int] = set()
+        self._status_flash_job: str | None = None
         self._slideshow = False
         self._slide_indices: list[int] = []
         self._slide_pos = 0
@@ -965,11 +967,13 @@ class ReviewWindow(tk.Toplevel):
         folder = self.photos[cur].chapter_folder or ""
         if cur in self.kept:
             self.kept.remove(cur)
+            self.photos[cur].is_selected = False
         self.kept.add(alt)
         self.baseline.add(alt)
+        self._session_added.add(alt)
+        self._assign_chapter(alt, folder)
         if folder:
-            self.photos[alt].chapter_folder = folder
-            self.photos[alt].chapter_type = self.photos[cur].chapter_type or self.photos[alt].chapter_type
+            self._flash_status(t("added_to_chapter", folder=folder))
         self._update_count()
         self._autosave_draft()
         # Aktuelle Position auf Alternative legen (bleibt in „alle“/„dabei“)
@@ -1115,24 +1119,73 @@ class ReviewWindow(tk.Toplevel):
         except Exception:
             pass
 
-    def _ensure_added_section(self) -> ttk.Frame:
+    def _flash_status(self, text: str) -> None:
+        """Kurz Feedback in der Zählerzeile, dann wieder normale Anzahl."""
         try:
-            if self._added_grid is not None and self._added_grid.winfo_exists():
-                return self._added_grid
+            self.count_var.set(text)
+        except tk.TclError:
+            return
+        if self._status_flash_job is not None:
+            try:
+                self.after_cancel(self._status_flash_job)
+            except Exception:
+                pass
+        self._status_flash_job = self.after(2200, self._update_count)
+
+    def _assign_chapter(self, idx: int, folder_name: str) -> None:
+        """Kapitelordner setzen – beim Speichern landet das Bild dort."""
+        if not folder_name:
+            return
+        self.photos[idx].chapter_folder = folder_name
+        if folder_name.startswith("99_") or getattr(self.photos[idx], "is_aside", False):
+            self.photos[idx].chapter_type = "Optional"
+            self.photos[idx].region = self.photos[idx].region or "Optional"
+        else:
+            self.photos[idx].chapter_type = (
+                "Transit"
+                if "Transit" in folder_name
+                else "Essen"
+                if folder_name.replace("\\", "/").endswith("essen")
+                else "Hauptteil"
+            )
+        self.photos[idx].is_selected = True
+
+    def _ensure_chapter_grid(self, folder: str) -> ttk.Frame:
+        try:
+            grid = self._section_grids.get(folder)
+            if grid is not None and grid.winfo_exists():
+                return grid
         except tk.TclError:
             pass
+        title = folder.replace("/", " · ").replace("\\", " · ") or "Kapitel"
         wrap = ttk.Frame(self.inner, style="Rev.TFrame", padding=(8, 10))
-        children = self.inner.winfo_children()
-        if children:
-            wrap.pack(fill=tk.X, anchor=tk.NW, before=children[0])
-        else:
-            wrap.pack(fill=tk.X, anchor=tk.NW)
-        ttk.Label(wrap, text="Neu hinzugefügt (diese Sitzung)", style="RevHead.TLabel").pack(
-            anchor=tk.W
+        wrap.pack(fill=tk.X, anchor=tk.NW)
+        ttk.Label(wrap, text=title, style="RevHead.TLabel").pack(anchor=tk.W)
+        ttk.Label(wrap, text=t("in_chapter_hint"), style="RevMuted.TLabel").pack(
+            anchor=tk.W, pady=(0, 6)
         )
-        self._added_grid = ttk.Frame(wrap, style="Rev.TFrame")
-        self._added_grid.pack(fill=tk.X, pady=(4, 0))
-        return self._added_grid
+        grid = ttk.Frame(wrap, style="Rev.TFrame")
+        grid.pack(fill=tk.X)
+        self._section_grids[folder] = grid
+        self._section_counts.setdefault(folder, 0)
+        return grid
+
+    def _place_in_chapter(self, idx: int, folder_name: str) -> None:
+        """Alternative aus der Liste nehmen und im Kapitel-Raster zeigen."""
+        self._remove_add_tiles(idx)
+        folder = folder_name or self.photos[idx].chapter_folder or ""
+        grid = self._ensure_chapter_grid(folder) if folder else None
+        if grid is None:
+            grid = self._ensure_chapter_grid("Unbestimmt")
+            folder = "Unbestimmt"
+            self._assign_chapter(idx, folder)
+        n = self._section_counts.get(folder, 0)
+        cols = self._grid_cols
+        self._session_added.add(idx)
+        self._tile(grid, idx, n % cols, n // cols, mode="keep", folder=folder)
+        self._section_counts[folder] = n + 1
+        self._flash_status(t("added_to_chapter", folder=folder))
+        self._schedule_scrollregion()
 
     def _remove_add_tiles(self, idx: int) -> None:
         for key in list(self._tile_state.keys()):
@@ -1152,8 +1205,8 @@ class ReviewWindow(tk.Toplevel):
             child.destroy()
         self._tile_state.clear()
         self._thumb_labels.clear()
-        self._added_grid = None
-        self._added_count = 0
+        self._section_grids.clear()
+        self._section_counts.clear()
         self._update_count()
 
         display = sorted(self.baseline | self.kept)
@@ -1217,12 +1270,14 @@ class ReviewWindow(tk.Toplevel):
         ttk.Label(wrap, text=title, style="RevHead.TLabel").pack(anchor=tk.W)
         ttk.Label(
             wrap,
-            text="Grün = dabei · Grau/durchgestrichen = entfernt (nochmal klicken = wieder rein)",
+            text=t("in_chapter_hint"),
             style="RevMuted.TLabel",
         ).pack(anchor=tk.W, pady=(0, 6))
 
         grid = ttk.Frame(wrap, style="Rev.TFrame")
         grid.pack(fill=tk.X)
+        self._section_grids[folder] = grid
+        self._section_counts[folder] = len(indices)
         cols = self._grid_cols
         for n, idx in enumerate(indices):
             self._tile(grid, idx, n % cols, n // cols, mode="keep", folder=folder)
@@ -1355,9 +1410,13 @@ class ReviewWindow(tk.Toplevel):
             self._request_thumb(idx)
         lbl.pack()
 
+        folder_bit = ""
+        if mode == "keep" and folder:
+            short = folder.replace("\\", "/").split("/")[-1]
+            folder_bit = f" · {short}"
         info = tk.Label(
             inner,
-            text=f"{caption}\n{meta} · {score:.0f}",
+            text=f"{caption}\n{meta}{folder_bit} · {score:.0f}",
             bg=COLORS["surface"],
             fg=COLORS["muted"] if (mode == "keep" and not kept) else COLORS["ink"],
             font=("Segoe UI", 8),
@@ -1372,34 +1431,17 @@ class ReviewWindow(tk.Toplevel):
                     return
                 self.kept.add(i)
                 self.baseline.add(i)
-                if folder_name:
-                    self.photos[i].chapter_folder = folder_name
-                    if folder_name.startswith("99_") or getattr(self.photos[i], "is_aside", False):
-                        self.photos[i].chapter_type = "Optional"
-                        self.photos[i].region = self.photos[i].region or "Optional"
-                    else:
-                        self.photos[i].chapter_type = (
-                            "Transit"
-                            if "Transit" in folder_name
-                            else "Essen"
-                            if folder_name.endswith("essen")
-                            else "Hauptteil"
-                        )
-                # Kein volles Neu-Laden: Kachel entfernen + oben als „neu“ zeigen
-                self._remove_add_tiles(i)
-                grid = self._ensure_added_section()
-                col = self._added_count % self._grid_cols
-                row = self._added_count // self._grid_cols
-                self._added_count += 1
-                self._tile(grid, i, col, row, mode="keep", folder=folder_name)
-                self._update_count()
+                self._assign_chapter(i, folder_name)
+                # Aus Alternativen entfernen und im Kapitel-Raster zeigen
+                self._place_in_chapter(i, folder_name)
                 self._autosave_draft()
-                self._schedule_scrollregion()
             else:
                 if i in self.kept:
                     self.kept.remove(i)
+                    self.photos[i].is_selected = False
                 else:
                     self.kept.add(i)
+                    self.photos[i].is_selected = True
                 self._update_count()
                 self._apply_tile_visual(("keep", i))
                 self._autosave_draft()
@@ -1438,6 +1480,17 @@ class ReviewWindow(tk.Toplevel):
             )
             badge.place(relx=0.02, rely=0.02, anchor=tk.NW)
             self._bind_tile_click(badge, toggle)
+        elif mode == "keep" and idx in self._session_added:
+            neu = tk.Label(
+                inner,
+                text=t("new_badge"),
+                bg=COLORS["accent"],
+                fg="white",
+                font=("Segoe UI Semibold", 7),
+                cursor="hand2",
+            )
+            neu.place(relx=0.02, rely=0.02, anchor=tk.NW)
+            self._bind_tile_click(neu, toggle)
 
     def _save(self) -> None:
         if not self.kept:

@@ -83,6 +83,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "no_slide_photos": "Keine Bilder für diesen Filter.",
         "auto_on": "Auto-weiter: an",
         "auto_off": "Auto-weiter: aus",
+        "added_to_chapter": "Hinzugefügt zu {folder}",
+        "new_badge": "NEU",
+        "in_chapter_hint": "Grün = dabei · Klick = raus/rein · Alternativen landen im Kapitel",
     },
     "en": {
         "app_title": "Photobook curator",
@@ -160,6 +163,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "no_slide_photos": "No photos for this filter.",
         "auto_on": "Auto-advance: on",
         "auto_off": "Auto-advance: off",
+        "added_to_chapter": "Added to {folder}",
+        "new_badge": "NEW",
+        "in_chapter_hint": "Green = kept · click = remove/keep · alternatives go into the chapter",
     },
 }
 

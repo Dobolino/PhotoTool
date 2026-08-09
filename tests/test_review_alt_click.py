@@ -13,3 +13,11 @@ def test_overlay_binds_toggle_in_apply_tile_visual() -> None:
     assert 'text="+ HINZUFÜGEN"' in src
     tree = ast.parse(src)
     assert tree is not None
+
+
+def test_alternatives_go_into_chapter_not_top_dump() -> None:
+    src = Path("photobook_curator/review_gui.py").read_text(encoding="utf-8")
+    assert "_place_in_chapter" in src
+    assert "_assign_chapter" in src
+    assert "Neu hinzugefügt (diese Sitzung)" not in src
+    assert "_ensure_added_section" not in src
