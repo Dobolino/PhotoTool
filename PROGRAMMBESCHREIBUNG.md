@@ -14,8 +14,9 @@ Dieses Dokument beschreibt Zweck, Architektur und Verhalten des Repos, damit ein
 Lokales Tool, das aus einem großen iPhone-/iCloud-Urlaubsfoto-Ordner automatisch eine **Fotobuch-Auswahl** erzeugt:
 
 - technisch schwache / doppelte / Serienbilder aussortieren
+- optional Finger vor der Linse erkennen und aussortieren
 - Orte (GPS → Städte/Regionen) und Transit-Abschnitte erkennen
-- eine Zielanzahl Bilder mit Vielfalt, Tages-Abdeckung und Personen-Balance auswählen
+- eine wählbare **Zielanzahl** Bilder (`target_n` / GUI-Spinner / CLI `-n`) mit Vielfalt, Tages-Abdeckung und Personen-Balance auswählen
 - Kapitelstruktur erzeugen (Region → Hauptteil / Essen, dazwischen Transit)
 - Screenshots/Dokumente **nicht** automatisch ins Buch, sondern in einen Optional-Pool
 - danach manuell per Thumbnail-Review nachjustieren
@@ -40,8 +41,8 @@ Paket-Entry-Points (pyproject): `photobook-curator`, `photobook-curator-gui`.
 
 ## 3. Typischer Benutzerablauf (GUI)
 
-1. Fotos-Ordner + Ausgabe-Ordner wählen, Zielanzahl setzen.
-2. Optionen anhaken (Gesichter, Bursts, Dokumente, Tages-Abdeckung, Personen-Balance, Karten-Vorschau, KI).
+1. Fotos-Ordner + Ausgabe-Ordner wählen, **Zielanzahl** setzen (z. B. 80 – ungefähre finale Bildanzahl im Buch).
+2. Optionen anhaken (Gesichter, Bursts, Dokumente, Finger vor Linse, Tages-Abdeckung, Personen-Balance, Karten-Vorschau, KI).
 3. **Auswahl starten** → Pipeline im Hintergrundthread.
 4. Wenn **Kapitel-/Karten-Vorschau** aktiv:
    - Pipeline wählt aus, schreibt Analyse-CSV (+ HTML-Karte), **kopiert noch nicht** nach `selected/`.
@@ -94,8 +95,9 @@ Reihenfolge im Code:
 3. optional `mark_aside_documents` (`enable_document_aside`)
 4. `mark_duplicates` – bei Bursts: enge near-identical Gruppen behalten `burst_keep`
 5. optional Faces: `count_faces` → `analyze_face_quality`
-6. optional Personen-Balance: `analyze_people_clusters` wenn `people_balance_intensity > 0`
-7. optional `mark_bursts` – lockerere Serien
+6. optional Finger: `analyze_finger_obstruction` wenn `enable_finger_filter` → `finger_on_lens`
+7. optional Personen-Balance: `analyze_people_clusters` wenn `people_balance_intensity > 0`
+8. optional `mark_bursts` – lockerere Serien
 
 ### Phase 2 – Orte
 - `build_location_plan` mit `GeocodeCache`
@@ -109,7 +111,7 @@ Reihenfolge im Code:
 ### Kandidaten
 - `mark_candidates` / `distribute_quotas`
 - pro Region/Transit: beste `quota * candidate_factor` nach `technical_score`
-- Aside/Duplikate/Burst-Rejects ausgeschlossen
+- Aside/Duplikate/Burst-Rejects/`finger_on_lens` ausgeschlossen
 
 ### Phase 4 – AI (optional)
 - `ai_review=True`: `run_ai_review` (Anthropic)
@@ -165,10 +167,12 @@ burst_min_size = 3               # nicht in CLI exponiert
 | Gesichtserkennung / Augen zu | an | Checkbox | `--faces` / `--no-faces` |
 | Serien/Bursts | an | Checkbox | `--bursts` / `--no-bursts` |
 | Dokumente separat | an | Checkbox | `--aside-documents` / `--no-…` |
+| Finger vor der Linse | aus | Checkbox | `--finger-filter` / `--no-finger-filter` |
 | Tages-Abdeckung | aus | Checkbox + Regler | `--coverage-intensity 0..1` |
 | Personen-Balance | aus | Checkbox + Regler | `--people-balance-intensity 0..1` |
 | Kapitel-/Karten-Vorschau | aus | Checkbox (+ Button) | `--map-preview` (nur HTML, kein Deferred-Export) |
 | KI-Bewertung | aus | Checkbox + API-Key | `--ai-review` (+ `--dry-run`) |
+| Zielanzahl Bilder | 80 | Spinbox „Zielanzahl Bilder“ | `-n` / `--target-count` |
 
 ---
 
@@ -176,11 +180,11 @@ burst_min_size = 3               # nicht in CLI exponiert
 
 **Ort/Zeit:** `datetime_taken`, `gps_lat`/`gps_lon`, `region`, `assigned_by_time`, `fine_cluster_id`
 
-**Aussortieren:** `is_duplicate`, `is_burst_reject`, `burst_group_id`, `is_aside`, `aside_type`, `flags` (z. B. `unreadable`)
+**Aussortieren:** `is_duplicate`, `is_burst_reject`, `burst_group_id`, `is_aside`, `aside_type`, `finger_on_lens`, `flags` (z. B. `unreadable`, `finger_on_lens`)
 
 **Scores:** `technical_score`, `aesthetic_score`, `final_score`, `keep_recommendation`, `quality_issue`, `landmark`
 
-**Gesichter:** `face_count`, `eyes_closed`, `face_cut_off`, `face_too_small`, `bad_face`, `person_cluster_ids`
+**Gesichter / Finger:** `face_count`, `eyes_closed`, `face_cut_off`, `face_too_small`, `bad_face`, `finger_on_lens`, `person_cluster_ids`
 
 **Auswahl/Export:** `scene_type`, `is_candidate`, `is_selected`, `chapter_type`, `chapter_folder`, `book_position`
 
@@ -217,6 +221,14 @@ burst_min_size = 3               # nicht in CLI exponiert
 - Face-Crops → pHash → Union-Find-Cluster → `person_cluster_ids`.
 - Penalty: `intensity * (14 * over - 6 * new_people)`.
 
+### Finger vor der Linse (`finger_obstruction.py`, optional)
+- Aktiv nur wenn `enable_finger_filter=True` (GUI-Checkbox / `--finger-filter`).
+- Heuristik: große, **weiche** Hautfläche am **Bildrand** (typischer Finger vor der Linse) via `detect_soft_border_skin`.
+- Zusätzlich MediaPipe Hand Landmarker: sehr große Hand nahe Kamera / am Rand (`detect_large_hand_mediapipe`).
+- Bei Treffer: `finger_on_lens=True`, Flag `finger_on_lens`, `quality_issue`, Score −50.
+- Wird in `mark_candidates` und `_ok` der Auswahl **vollständig ausgeschlossen** (wie Burst-Reject/Aside).
+- Review-GUI zeigt Badge „Finger“.
+
 ### Buchordner
 - `01_<Region>/hauptteil`, `01_<Region>/essen`
 - Transit: `01b_Transit_<A>-<B>`
@@ -242,6 +254,7 @@ burst_min_size = 3               # nicht in CLI exponiert
 ### Review (`review_gui` / `review_export`)
 - Thumbnails nach Kapiteln.
 - Keep/Reject; Alternativen aus Kandidaten; Aside-Pool einfügen.
+- Badges u. a. für „Augen zu“ / „Gesicht?“ / „Finger“.
 - Speichern: `apply_manual_selection` → CSV/`selected`/Markdown/Pool neu.
 
 ### Map Preview (`map_preview`)
@@ -261,7 +274,7 @@ burst_min_size = 3               # nicht in CLI exponiert
 | opencv-python-headless | Qualität, Histogramme, Dokument-Heuristik, Haar |
 | numpy / scikit-learn | Arrays, DBSCAN |
 | imagehash | pHash Duplikate/Bursts/Personen |
-| mediapipe | Faces + Face Landmarker + People-Crops |
+| mediapipe | Faces + Face Landmarker + Hand Landmarker (Finger) + People-Crops |
 | geopy | Nominatim |
 | anthropic | optionale Vision-Bewertung |
 | tqdm | Progress |
@@ -271,6 +284,7 @@ burst_min_size = 3               # nicht in CLI exponiert
 MediaPipe-Modelle werden nach `~/.cache/photobook_curator/` geladen:
 - Face Detector: `blaze_face_short_range.tflite`
 - Face Landmarker: `face_landmarker.task` (nicht `.tflite`)
+- Hand Landmarker: `hand_landmarker.task` (für Finger-Filter; Heuristik läuft auch ohne)
 
 ---
 
@@ -283,6 +297,7 @@ Unter `tests/`:
 - `test_bursts.py` – Burst vs. Duplikat
 - `test_documents.py` – Aside-Pool
 - `test_face_quality.py` – Augen/Qualität → Score
+- `test_finger_obstruction.py` – Haut-/Finger-Heuristik, Flags, Ausschluss aus Kandidaten
 - `test_coverage.py` – Tageskontingente
 - `test_people_balance.py` – Penalty + Auswahl
 - `test_review_export.py` – manuelle Auswahl / CSV-Roundtrip
@@ -303,6 +318,7 @@ Ausführen: `pytest` (im venv).
 7. **Windows:** PowerShell `Activate.ps1` / ExecutionPolicy; Pfade mit Leerzeichen in Anführungszeichen; Anthropic-Key ≠ Claude-Chat-Abo.
 8. **Unassigned:** Fotos ohne Region landen nicht automatisch im Buchkontingent.
 9. **`burst_min_size`:** in Config, aber nicht als CLI-Flag.
+10. **Finger-Filter:** Heuristik (Haut + Weichheit + Rand) kann False Positives haben (z. B. große weiche Hautflächen); deshalb **default aus**. Ohne Hand-Modell bleibt nur die Heuristik. Manuell im Review trotzdem wieder einfügbar, falls gewünscht.
 
 ---
 
@@ -311,7 +327,7 @@ Ausführen: `pytest` (im venv).
 Bei Code-Review / Refactor bitte u. a. darauf achten:
 
 1. Bleiben optionale Features wirklich **default-off bzw. abschaltbar**, ohne den Happy Path zu zerlegen?
-2. Werden Aside/Duplikate/Burst-Rejects konsequent aus Kandidaten **und** Auto-Auswahl ausgeschlossen?
+2. Werden Aside/Duplikate/Burst-Rejects/`finger_on_lens` konsequent aus Kandidaten **und** Auto-Auswahl ausgeschlossen?
 3. Bleibt die Kapitelreihenfolge Region → Essen → Transit chronologisch und stabil?
 4. GUI-Deferred-Export: Abbruch darf `selected/` nicht halb schreiben; CSV darf bleiben.
 5. CSV-Felder ↔ `Photo.to_csv_row` ↔ `CSV_FIELDS` ↔ `load_photos_from_csv` synchron?
@@ -326,11 +342,11 @@ Bei Code-Review / Refactor bitte u. a. darauf achten:
 ```text
 Ordner mit Fotos
   → scan + EXIF
-  → quality / aside / dupes / faces / bursts [/ people clusters]
+  → quality / aside / dupes / faces [/ finger] / bursts [/ people clusters]
   → GPS-Cluster → Regionen + Transit
-  → Kandidaten (technisch beste × Faktor)
+  → Kandidaten (technisch beste × Faktor; ohne finger_on_lens)
   → [optional AI-Szenen/Ästhetik]
-  → finale Auswahl (Vielfalt + Coverage + People + Food)
+  → finale Auswahl (~target_n; Vielfalt + Coverage + People + Food)
   → [optional Karten-Vorschau]
   → Export: CSV + selected/ + optional_dokumente/ + Markdown
   → [optional Thumbnail-Review → Re-Export]
@@ -338,4 +354,4 @@ Ordner mit Fotos
 
 ---
 
-*Stand: Branch mit Features 1–7 (Review, Face-Qualität, Bursts, Dokument-Pool, Coverage, People-Balance, Map-Preview). Primäre Doku für Nutzer: `ANLEITUNG.md`.*
+*Stand: Branch mit Review, Face-Qualität, Bursts, Dokument-Pool, Coverage, People-Balance, Map-Preview, Finger-Filter. Primäre Doku für Nutzer: `ANLEITUNG.md`.*
