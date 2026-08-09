@@ -20,6 +20,13 @@ geocode_cache.json
 .env
 .DS_Store
 
+# Packaging / Build-Artefakte
+build/
+dist/
+.venv-build/
+packaging/models/
+*.spec.bak
+
 output_face_test/
 output_sample/
 output_dry/
