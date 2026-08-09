@@ -1,10 +1,15 @@
-"""P2: Pipeline-Fortschritts-Callback."""
+"""P2: Pipeline-Fortschritts-Callback und Abbruch."""
 
 from pathlib import Path
 
+import pytest
 from PIL import Image, ImageDraw
 
-from photobook_curator.pipeline import PipelineConfig, run_pipeline
+from photobook_curator.pipeline import (
+    PipelineCancelled,
+    PipelineConfig,
+    run_pipeline,
+)
 
 
 def test_run_pipeline_reports_progress(tmp_path: Path):
@@ -41,3 +46,26 @@ def test_run_pipeline_reports_progress(tmp_path: Path):
     assert events[-1] == ("Fertig", 1.0)
     assert any(f >= 0.5 for _, f in events)
     assert any("Einlesen" in label or "Analyse" in label for label, _ in events)
+
+
+def test_run_pipeline_can_be_cancelled(tmp_path: Path):
+    """cancel_check True → PipelineCancelled an der ersten Phasengrenze, kein Export."""
+    inp = tmp_path / "in"
+    out = tmp_path / "out"
+    inp.mkdir()
+
+    cfg = PipelineConfig(
+        input_dir=inp,
+        output_dir=out,
+        geocode=False,
+        enable_faces=False,
+        enable_bursts=False,
+        enable_document_aside=False,
+        enable_finger_filter=False,
+        enable_map_preview=False,
+    )
+    with pytest.raises(PipelineCancelled):
+        run_pipeline(cfg, cancel_check=lambda: True)
+
+    # Abbruch vor dem Export: kein selected/ geschrieben
+    assert not (out / "selected").exists()

@@ -9,7 +9,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from .pipeline import PipelineConfig, run_pipeline
+from .pipeline import PipelineCancelled, PipelineConfig, run_pipeline
 
 # Ruhige Foto-Editor-Palette (kein Lila, kein Neon)
 COLORS = {
@@ -54,6 +54,7 @@ class PhotobookApp(tk.Tk):
 
         self._log_queue: queue.Queue[str] = queue.Queue()
         self._progress_queue: queue.Queue[tuple[str, float]] = queue.Queue()
+        self._cancel_event = threading.Event()
         self._worker: threading.Thread | None = None
         self._last_photos = None
         self._last_plan = None
@@ -270,6 +271,14 @@ class PhotobookApp(tk.Tk):
         self.review_btn.pack(side=tk.RIGHT, padx=(0, 8))
         self.start_btn = ttk.Button(actions, text="Auswahl starten", style="Start.TButton", command=self._start)
         self.start_btn.pack(side=tk.RIGHT)
+        self.cancel_btn = ttk.Button(
+            actions,
+            text="Abbrechen",
+            style="Browse.TButton",
+            command=self._cancel,
+            state=tk.DISABLED,
+        )
+        self.cancel_btn.pack(side=tk.RIGHT, padx=(0, 8))
 
         prog_row = ttk.Frame(body, style="App.TFrame")
         prog_row.pack(fill=tk.X, pady=(0, 4))
@@ -412,13 +421,23 @@ class PhotobookApp(tk.Tk):
             skip_export=map_preview,  # Export erst nach Bestätigung in der Vorschau
         )
 
+        self._cancel_event.clear()
         self.start_btn.configure(state=tk.DISABLED)
+        self.cancel_btn.configure(state=tk.NORMAL)
         self.status_var.set("Arbeitet…")
         self.phase_var.set("Start…")
         self.progress["value"] = 0
         self._append_log("Start…")
         self._worker = threading.Thread(target=self._run, args=(cfg,), daemon=True)
         self._worker.start()
+
+    def _cancel(self) -> None:
+        if self._worker and self._worker.is_alive():
+            self._cancel_event.set()
+            self.cancel_btn.configure(state=tk.DISABLED)
+            self.status_var.set("Wird abgebrochen…")
+            self.phase_var.set("Abbrechen… (stoppt nach dem aktuellen Schritt)")
+            self._append_log("Abbruch angefordert…")
 
     def _run(self, cfg: PipelineConfig) -> None:
         import sys
@@ -456,7 +475,11 @@ class PhotobookApp(tk.Tk):
         sys.stdout = QueueWriter(self._log_queue, old_out)  # type: ignore[assignment]
         sys.stderr = QueueWriter(self._log_queue, old_err)  # type: ignore[assignment]
         try:
-            result = run_pipeline(cfg, progress=on_progress)
+            result = run_pipeline(
+                cfg,
+                progress=on_progress,
+                cancel_check=self._cancel_event.is_set,
+            )
             summary = {
                 k: v
                 for k, v in result.items()
@@ -471,6 +494,10 @@ class PhotobookApp(tk.Tk):
             self._progress_queue.put(("Fertig", 1.0))
             self.after(0, lambda: self.status_var.set("Fertig"))
             self.after(0, lambda r=result: self._on_finished(r, cfg))
+        except PipelineCancelled:
+            self._log_queue.put("Abgebrochen – es wurden keine Ordner geschrieben.")
+            self._progress_queue.put(("Abgebrochen", 0.0))
+            self.after(0, lambda: self.status_var.set("Abgebrochen"))
         except Exception as exc:
             self._log_queue.put(f"Fehler: {exc}")
             self._progress_queue.put(("Fehler", 0.0))
@@ -479,6 +506,7 @@ class PhotobookApp(tk.Tk):
         finally:
             sys.stdout, sys.stderr = old_out, old_err
             self.after(0, lambda: self.start_btn.configure(state=tk.NORMAL))
+            self.after(0, lambda: self.cancel_btn.configure(state=tk.DISABLED))
 
     def _on_finished(self, result: dict, cfg: PipelineConfig) -> None:
         if result.get("dry_run"):

@@ -28,6 +28,12 @@ from .utils import clear_bgr_cache
 
 # (Phasenname, Fortschritt 0–1 nach Abschluss der Phase)
 ProgressCallback = Callable[[str, float], None]
+# Rückgabe True => Abbruch gewünscht
+CancelCheck = Callable[[], bool]
+
+
+class PipelineCancelled(Exception):
+    """Wird ausgelöst, wenn der Lauf über cancel_check abgebrochen wurde."""
 
 
 @dataclass
@@ -95,13 +101,24 @@ def export_book_outputs(
 def run_pipeline(
     cfg: PipelineConfig,
     progress: ProgressCallback | None = None,
+    cancel_check: CancelCheck | None = None,
 ) -> dict[str, Any]:
     """
     Führt die Kuratierung aus.
     Optional: progress(phase_label, fraction) mit fraction in [0, 1].
+    Optional: cancel_check() -> bool; liefert es True, wird an der nächsten
+    Phasengrenze mit PipelineCancelled abgebrochen (kein Export).
     """
 
     def report(label: str, frac: float) -> None:
+        # Abbruch an jeder Phasengrenze prüfen (vor dem nächsten Schritt).
+        if cancel_check is not None:
+            try:
+                cancelled = bool(cancel_check())
+            except Exception:
+                cancelled = False
+            if cancelled:
+                raise PipelineCancelled(label)
         if progress is None:
             return
         try:
