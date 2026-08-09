@@ -94,7 +94,8 @@ Fotobuch starten.bat
      Kapitel-Sprung, beste Alternative daneben (Taste **A**), optional
      Auto-weiter nach Entfernen; Esc zurück zum Raster.
    - **Darstellung** (oben rechts): Deutsch/English, Design
-     (Nacht / Wald / Schiefer / Tinte), Diashow-Optionen.
+     (Dunkelmodus / Wald / Schiefer / Tinte), Diashow-Optionen.
+     Standard ist Dunkelmodus; Fenster öffnen in passender Größe.
    - Unten **Alternativen** und der **Dokumente-Pool** zum Hinzufügen.
    - **Speichern & Ordner neu schreiben**.
 

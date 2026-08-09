@@ -56,10 +56,11 @@ class ReviewWindow(tk.Toplevel):
         global COLORS
         COLORS = theme_colors(self.settings.theme)
         self.title(t("review_title"))
-        self.minsize(900, 640)
         self.resizable(True, True)
         self.configure(bg=COLORS["bg"])
         self._open_large()
+        # Nach Style/Build erneut – manche Windows-Setups setzen zoomed erst dann um
+        self.after(80, self._open_large)
 
         self.photos = photos
         self.plan = plan
@@ -142,23 +143,27 @@ class ReviewWindow(tk.Toplevel):
 
     def _open_large(self) -> None:
         """Groß öffnen (möglichst maximiert), frei skalierbar."""
+        from .window_layout import place_window
+
         try:
             self.update_idletasks()
-            # Windows: maximiert; sonst ~92% der Bildschirmfläche
+        except tk.TclError:
+            pass
+        try:
+            # Windows: maximiert
             self.state("zoomed")
             return
         except tk.TclError:
             pass
-        try:
-            sw = max(1024, int(self.winfo_screenwidth()))
-            sh = max(700, int(self.winfo_screenheight()))
-            w = int(sw * 0.92)
-            h = int(sh * 0.88)
-            x = max(0, (sw - w) // 2)
-            y = max(0, (sh - h) // 2)
-            self.geometry(f"{w}x{h}+{x}+{y}")
-        except tk.TclError:
-            self.geometry("1200x800")
+        place_window(
+            self,
+            frac_w=0.94,
+            frac_h=0.90,
+            min_width=1000,
+            min_height=700,
+            width=1280,
+            height=860,
+        )
 
     def _setup_style(self) -> None:
         style = ttk.Style(self)

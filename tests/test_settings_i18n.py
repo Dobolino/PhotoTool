@@ -93,6 +93,38 @@ def test_ui_widgets_importable() -> None:
     assert callable(StepChip)
 
 
+def test_dark_mode_default_and_forest_migration(tmp_path, monkeypatch) -> None:
+    from photobook_curator.settings import DEFAULT_THEME, load_settings, save_settings
+
+    monkeypatch.setattr(
+        "photobook_curator.settings.settings_dir", lambda: tmp_path / ".photobook_curator"
+    )
+    monkeypatch.setattr(
+        "photobook_curator.settings.settings_path",
+        lambda: tmp_path / ".photobook_curator" / "settings.json",
+    )
+    assert DEFAULT_THEME == "night"
+    # Alte Default-Datei ohne theme_explicit → Dunkelmodus
+    path = tmp_path / ".photobook_curator" / "settings.json"
+    path.parent.mkdir(parents=True)
+    path.write_text('{"language": "de", "theme": "forest"}\n', encoding="utf-8")
+    loaded = load_settings()
+    assert loaded.theme == "night"
+    # Explizit gewähltes Hell-Theme bleibt
+    save_settings(
+        AppSettings(language="de", theme="forest", slideshow_auto_advance=False)
+    )
+    assert load_settings().theme == "forest"
+
+
+def test_window_layout_helpers() -> None:
+    from photobook_curator.window_layout import fit_dialog, place_window, screen_size
+
+    assert callable(place_window)
+    assert callable(fit_dialog)
+    assert callable(screen_size)
+
+
 def test_alternatives_helper_exists() -> None:
     from photobook_curator.review_export import alternatives_for_index
 

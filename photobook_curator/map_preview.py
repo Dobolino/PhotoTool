@@ -312,6 +312,7 @@ from tkinter import messagebox
 from .i18n import t
 from .settings import theme_colors
 from .ui_widgets import PaddedButton
+from .window_layout import place_window
 
 
 def _short_date(iso: str) -> str:
@@ -371,9 +372,16 @@ class MapPreviewWindow(tk.Toplevel):
                 "chip_bg": "#262C40",
             }
         self.title(t("map_title"))
-        self.minsize(880, 560)
-        self.geometry("1000x640")
         self.configure(bg=self.colors["bg"])
+        place_window(
+            self,
+            frac_w=0.78,
+            frac_h=0.82,
+            min_width=960,
+            min_height=620,
+            width=1100,
+            height=720,
+        )
         self.photos = photos
         self.plan = plan
         self.output_dir = Path(output_dir)
@@ -387,6 +395,15 @@ class MapPreviewWindow(tk.Toplevel):
         self._selected = 0
         self._row_frames: list[tk.Frame] = []
         self._build()
+        place_window(
+            self,
+            frac_w=0.78,
+            frac_h=0.82,
+            min_width=960,
+            min_height=620,
+            width=1100,
+            height=720,
+        )
         self.transient(master)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._close)

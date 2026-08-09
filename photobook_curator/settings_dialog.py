@@ -15,6 +15,7 @@ from .settings import (
     theme_colors,
 )
 from .ui_widgets import AnAusToggle, PaddedButton, card, section_header
+from .window_layout import fit_dialog
 
 
 def open_settings_dialog(
@@ -26,8 +27,6 @@ def open_settings_dialog(
 
     win = tk.Toplevel(master)
     win.title(t("settings_title"))
-    win.minsize(460, 420)
-    win.geometry("500x460")
     win.configure(bg=colors["bg"])
     win.transient(master)
     try:
@@ -191,4 +190,5 @@ def open_settings_dialog(
         pady=11,
     ).pack(side=tk.RIGHT, padx=(0, 10))
 
+    fit_dialog(win, min_width=500, min_height=480, pad=40)
     return win

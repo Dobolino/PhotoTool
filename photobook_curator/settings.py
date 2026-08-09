@@ -14,8 +14,8 @@ SETTINGS_FILE = "settings.json"
 # Design-Varianten – „night“ ist die aktuelle Haupt-UI (Screenshots + Fixes)
 THEMES: dict[str, dict[str, str]] = {
     "night": {
-        "name_de": "Nacht (Standard)",
-        "name_en": "Night (default)",
+        "name_de": "Dunkelmodus",
+        "name_en": "Dark mode",
         "bg": "#12141C",
         "surface": "#1C2030",
         "ink": "#E8EAF2",
@@ -191,23 +191,48 @@ def load_settings() -> AppSettings:
         return AppSettings().normalized()
     if not isinstance(data, dict):
         return AppSettings().normalized()
-    return AppSettings(
+    raw_theme = str(data.get("theme") or DEFAULT_THEME).lower()
+    # Alias + Migration: altes Standard-Theme „forest“ → Dunkelmodus
+    if raw_theme in ("dark", "nacht", "dunkel"):
+        raw_theme = "night"
+    migrated = False
+    if raw_theme == "forest" and not data.get("theme_explicit"):
+        raw_theme = DEFAULT_THEME
+        migrated = True
+    settings = AppSettings(
         language=str(data.get("language") or DEFAULT_LANGUAGE),
-        theme=str(data.get("theme") or DEFAULT_THEME),
+        theme=raw_theme,
         slideshow_auto_advance=bool(data.get("slideshow_auto_advance", False)),
         slideshow_show_alternative=bool(data.get("slideshow_show_alternative", True)),
     ).normalized()
+    if migrated:
+        try:
+            _write_settings_dict(
+                {
+                    **asdict(settings),
+                    "theme_explicit": False,
+                    "migrated_to_dark": True,
+                }
+            )
+        except Exception:
+            pass
+    return settings
+
+
+def _write_settings_dict(data: dict) -> Path:
+    path = settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def save_settings(settings: AppSettings) -> Path:
     settings = settings.normalized()
-    path = settings_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(asdict(settings), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return path
+    # Nutzerwahl merken – kein erneutes Auto-Migrieren von forest
+    return _write_settings_dict({**asdict(settings), "theme_explicit": True})
 
 
 def theme_colors(theme_id: Optional[str] = None) -> dict[str, str]:

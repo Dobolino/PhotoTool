@@ -141,7 +141,7 @@ HELP_TEXT = (
     "  Unten Alternativen / Dokumente zum Hinzufügen.\n\n"
     "Darstellung\n"
     "  Button oben rechts: Deutsch/English, Design-Varianten\n"
-    "  (Nacht / Wald / Schiefer / Tinte), Diashow-Optionen.\n\n"
+    "  (Dunkelmodus / Wald / Schiefer / Tinte), Diashow-Optionen.\n\n"
     "Pause / Absturz / Update\n"
     "  In der Prüfung wird selection_draft.json automatisch gesichert.\n"
     "  photos_analysis.csv enthält nach der KI den Zwischenstand –\n"
@@ -256,11 +256,21 @@ class ConsoleQueueWriter:
 class PhotobookApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
+        from .window_layout import place_window
+
         # Sofort sichtbar: verhindert „totales Leeren Fenster“ bei späteren Fehlern
         self.title("Fotobuch-Auswahl")
-        self.minsize(760, 700)
-        self.geometry("860x760")
         self.configure(bg=_FALLBACK_COLORS["bg"])
+        # Groß genug für Karten + Aktionsleiste – kein manuelles Aufziehen nötig
+        place_window(
+            self,
+            frac_w=0.58,
+            frac_h=0.90,
+            min_width=900,
+            min_height=780,
+            width=980,
+            height=860,
+        )
         self._boot_lbl = tk.Label(
             self,
             text="Fotobuch wird geladen…",
@@ -280,6 +290,16 @@ class PhotobookApp(tk.Tk):
         try:
             self._init_app()
             self._init_ok = True
+            # Nach UI-Aufbau nochmals zentriert platzieren (Taskleiste/DPI)
+            place_window(
+                self,
+                frac_w=0.58,
+                frac_h=0.90,
+                min_width=900,
+                min_height=780,
+                width=980,
+                height=860,
+            )
         except Exception:
             self._show_init_failure()
 
@@ -1222,11 +1242,21 @@ class PhotobookApp(tk.Tk):
         self._refresh_cost_estimate()
 
     def _show_text_window(self, title: str, body: str) -> None:
+        from .window_layout import place_window
+
         win = tk.Toplevel(self)
         win.title(title)
-        win.geometry("520x480")
         win.transient(self)
         win.configure(bg=COLORS["bg"])
+        place_window(
+            win,
+            width=560,
+            height=560,
+            min_width=480,
+            min_height=420,
+            frac_w=0.45,
+            frac_h=0.7,
+        )
         frm = ttk.Frame(win, style="App.TFrame", padding=12)
         frm.pack(fill=tk.BOTH, expand=True)
         txt = tk.Text(
@@ -1246,7 +1276,7 @@ class PhotobookApp(tk.Tk):
         txt.configure(yscrollcommand=scroll.set)
         txt.insert("1.0", body)
         txt.configure(state=tk.DISABLED)
-        ttk.Button(win, text="Schließen", command=win.destroy).pack(pady=(0, 10))
+        ttk.Button(win, text=t("close"), command=win.destroy).pack(pady=(0, 10))
 
     def _show_help(self) -> None:
         self._show_text_window("Hilfe – Fotobuch", HELP_TEXT + "\n\n" + OPTIONS_HELP)
