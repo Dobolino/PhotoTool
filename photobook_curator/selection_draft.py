@@ -92,6 +92,13 @@ def apply_selection_draft(
         ctype = (entry.get("chapter_type") or "").strip()
         if folder:
             photos[idx].chapter_folder = folder
+            # Verschieben aus Optional muss is_aside löschen, sonst setzt Speichern wieder 99_…
+            from .documents import ASIDE_FOLDER
+
+            if folder == ASIDE_FOLDER or folder.startswith("99_"):
+                photos[idx].is_aside = True
+            else:
+                photos[idx].is_aside = False
         if ctype:
             photos[idx].chapter_type = ctype
 

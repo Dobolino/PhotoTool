@@ -14,6 +14,7 @@ def test_canvas_grid_handles_clicks_and_overlays() -> None:
     assert "_hit_tiles" in src
     assert 'text="+"' in src or "text=\"+\"" in src
     assert "create_window" not in src
+    assert "_grid_folder" in src
     tree = ast.parse(src)
     assert tree is not None
 

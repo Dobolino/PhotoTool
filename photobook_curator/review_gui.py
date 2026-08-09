@@ -72,7 +72,10 @@ class ReviewWindow(tk.Toplevel):
         self.output_dir = Path(output_dir)
         self.on_saved = on_saved
         self._filter_mode = "all"  # all | kept | removed
-        self._chapter_filter = ""  # "" = alle
+        self._chapter_filter = ""  # Diashow: "" = alle
+        self._grid_folder = ""  # Raster: genau ein Ordner
+        self._folder_labels: list[tuple[str, str]] = []  # (folder, title)
+        self._known_folders: list[str] = []  # Session: auch leere Ordner nach Verschieben
         self._auto_advance = bool(self.settings.slideshow_auto_advance)
         self._show_alt_panel = bool(self.settings.slideshow_show_alternative)
         self._alt_idx: int | None = None
@@ -299,6 +302,43 @@ class ReviewWindow(tk.Toplevel):
         )
         self.mode_btn.pack(side=tk.LEFT, padx=(16, 0))
 
+        # Ordner-Navigation (ein Kapitel/Ordner nach dem anderen)
+        nav = tk.Frame(self, bg=COLORS["bg"], padx=20)
+        nav.pack(fill=tk.X, pady=(0, 8))
+        self._folder_meta = tk.StringVar(value="")
+        PaddedButton(
+            nav,
+            t("chapter_jump_prev"),
+            COLORS,
+            command=self._grid_folder_prev,
+            padx=12,
+            pady=8,
+        ).pack(side=tk.LEFT)
+        self._grid_folder_var = tk.StringVar(value="")
+        self._grid_folder_combo = ttk.Combobox(
+            nav,
+            textvariable=self._grid_folder_var,
+            state="readonly",
+            width=42,
+        )
+        self._grid_folder_combo.pack(side=tk.LEFT, padx=10, ipady=4)
+        self._grid_folder_combo.bind("<<ComboboxSelected>>", self._on_grid_folder_chosen)
+        PaddedButton(
+            nav,
+            t("chapter_jump_next"),
+            COLORS,
+            command=self._grid_folder_next,
+            padx=12,
+            pady=8,
+        ).pack(side=tk.LEFT)
+        tk.Label(
+            nav,
+            textvariable=self._folder_meta,
+            bg=COLORS["bg"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 9),
+        ).pack(side=tk.LEFT, padx=(14, 0))
+
         # Kein Banner mehr – Hinweis steht kurz in der Zählerzeile / Hilfe
         if self._draft_note:
             self.after(100, lambda: self._flash_status(self._draft_note))
@@ -331,6 +371,7 @@ class ReviewWindow(tk.Toplevel):
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
         self.canvas.bind("<Button-1>", self._on_grid_click)
+        self.canvas.bind("<Button-3>", self._on_grid_right_click)
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<Button-4>", lambda _e: self._scroll_units(-3))
         self.canvas.bind("<Button-5>", lambda _e: self._scroll_units(3))
@@ -339,6 +380,7 @@ class ReviewWindow(tk.Toplevel):
         self._slide_host = tk.Frame(self._body, bg=COLORS["bg"])
         self._build_slideshow_ui()
         self._ensure_placeholder()
+        self._refresh_folder_nav(select_first=True)
 
     def _ensure_placeholder(self) -> None:
         if self._placeholder_img is not None:
@@ -701,14 +743,152 @@ class ReviewWindow(tk.Toplevel):
         return sorted(self.baseline | self.kept)
 
     def _chapter_list(self) -> list[str]:
-        folders: list[str] = []
-        seen: set[str] = set()
-        for i in self._display_indices():
-            folder = self.photos[i].chapter_folder or self.photos[i].region or ""
-            if folder and folder not in seen:
-                seen.add(folder)
-                folders.append(folder)
-        return folders
+        return [folder for folder, _title in self._folder_entries()]
+
+    def _folder_title(self, folder: str) -> str:
+        return folder.replace("/", " · ").replace("\\", " · ").replace("_", " ")
+
+    def _folder_entries(self) -> list[tuple[str, str]]:
+        """[(folder, title), ...] in Buch-Reihenfolge; leere Session-Ordner bleiben navigierbar."""
+        display = self._display_indices()
+        sections = chapter_sections(self.photos, display)
+        by_folder = {folder: title for title, folder, _idx in sections}
+        from .documents import ASIDE_FOLDER, aside_indices
+
+        aside = [
+            i
+            for i in aside_indices(self.photos)
+            if i not in self.kept and not self.photos[i].is_duplicate
+        ]
+        if aside:
+            by_folder.setdefault(ASIDE_FOLDER, self._folder_title(ASIDE_FOLDER))
+
+        for folder in by_folder:
+            if folder not in self._known_folders:
+                self._known_folders.append(folder)
+        if self._grid_folder and self._grid_folder not in self._known_folders:
+            self._known_folders.append(self._grid_folder)
+
+        return [
+            (folder, by_folder.get(folder) or self._folder_title(folder))
+            for folder in self._known_folders
+        ]
+
+    def _refresh_folder_nav(self, select_first: bool = False) -> None:
+        self._folder_labels = self._folder_entries()
+        titles = [title for _f, title in self._folder_labels]
+        try:
+            self._grid_folder_combo.configure(values=titles)
+        except tk.TclError:
+            return
+        if not self._folder_labels:
+            self._grid_folder = ""
+            self._grid_folder_var.set("")
+            self._folder_meta.set("")
+            return
+        folders = [f for f, _t in self._folder_labels]
+        if select_first or self._grid_folder not in folders:
+            self._grid_folder = folders[0]
+        title = dict(self._folder_labels).get(self._grid_folder, self._folder_title(self._grid_folder))
+        self._grid_folder_var.set(title)
+        self._update_folder_meta()
+
+    def _update_folder_meta(self) -> None:
+        folders = [f for f, _t in self._folder_labels]
+        if not folders or not self._grid_folder:
+            self._folder_meta.set("")
+            return
+        try:
+            i = folders.index(self._grid_folder) + 1
+        except ValueError:
+            i = 1
+        n_in = sum(
+            1
+            for idx in self._display_indices()
+            if (self.photos[idx].chapter_folder or "") == self._grid_folder
+        )
+        # Aside-Pool zählen
+        from .documents import ASIDE_FOLDER, aside_indices
+
+        if self._grid_folder == ASIDE_FOLDER:
+            n_in = max(
+                n_in,
+                len(
+                    [
+                        j
+                        for j in aside_indices(self.photos)
+                        if j not in self.kept and not self.photos[j].is_duplicate
+                    ]
+                ),
+            )
+        self._folder_meta.set(
+            f"{t('folder_of', i=i, n=len(folders))}  ·  {t('folder_count', n=n_in)}"
+        )
+
+    def _on_grid_folder_chosen(self, _event=None) -> None:
+        title = self._grid_folder_var.get()
+        for folder, label in self._folder_labels:
+            if label == title:
+                self._grid_folder = folder
+                break
+        self._update_folder_meta()
+        self._render()
+        try:
+            self.canvas.yview_moveto(0)
+        except tk.TclError:
+            pass
+
+    def _grid_folder_prev(self) -> None:
+        folders = [f for f, _t in self._folder_labels]
+        if not folders:
+            return
+        try:
+            i = folders.index(self._grid_folder)
+        except ValueError:
+            i = 0
+        self._grid_folder = folders[(i - 1) % len(folders)]
+        self._refresh_folder_nav()
+        self._render()
+        try:
+            self.canvas.yview_moveto(0)
+        except tk.TclError:
+            pass
+
+    def _grid_folder_next(self) -> None:
+        folders = [f for f, _t in self._folder_labels]
+        if not folders:
+            return
+        try:
+            i = folders.index(self._grid_folder)
+        except ValueError:
+            i = 0
+        self._grid_folder = folders[(i + 1) % len(folders)]
+        self._refresh_folder_nav()
+        self._render()
+        try:
+            self.canvas.yview_moveto(0)
+        except tk.TclError:
+            pass
+
+    def _move_photo_to_folder(self, idx: int, target_folder: str) -> None:
+        """Bild in einen anderen Kapitelordner legen; Entwurf speichert chapter_folder."""
+        if idx < 0 or idx >= len(self.photos) or not target_folder:
+            return
+        photo = self.photos[idx]
+        current = photo.chapter_folder or ""
+        if current == target_folder and not (
+            photo.is_aside and not target_folder.startswith("99_")
+        ):
+            return
+        self._assign_chapter(idx, target_folder)
+        self.kept.add(idx)
+        self.baseline.add(idx)
+        photo.is_selected = True
+        self._autosave_draft()
+        self._flash_status(t("moved_to", folder=self._folder_title(target_folder)))
+        self._refresh_folder_nav()
+        # Im aktuellen Ordner bleiben – Bild ist dort weg; Ziel per ←/→ oder Combobox
+        self._render()
 
     def _filtered_slide_indices(self) -> list[int]:
         indices = self._display_indices()
@@ -1241,23 +1421,28 @@ class ReviewWindow(tk.Toplevel):
         self._status_flash_job = self.after(2200, self._update_count)
 
     def _assign_chapter(self, idx: int, folder_name: str) -> None:
-        """Kapitelordner setzen – beim Speichern landet das Bild dort."""
+        """Kapitelordner setzen – Entwurf + Speichern schreiben chapter_folder mit."""
         if not folder_name:
             return
+        from .documents import ASIDE_FOLDER
+
         self.photos[idx].chapter_folder = folder_name
-        if folder_name.startswith("99_") or getattr(self.photos[idx], "is_aside", False):
+        if folder_name == ASIDE_FOLDER or folder_name.startswith("99_"):
+            self.photos[idx].is_aside = True
             self.photos[idx].chapter_type = "Optional"
             self.photos[idx].region = self.photos[idx].region or "Optional"
         else:
+            # Wichtig: sonst schreibt Speichern wieder 99_Optional_Dokumente
+            self.photos[idx].is_aside = False
             self.photos[idx].chapter_type = (
                 "Transit"
                 if "Transit" in folder_name
                 else "Essen"
-                if folder_name.replace("\\", "/").endswith("essen")
+                if folder_name.replace("\\", "/").endswith("/essen")
+                or folder_name.replace("\\", "/").endswith("essen")
                 else "Hauptteil"
             )
         self.photos[idx].is_selected = True
-
 
     def _place_in_chapter(self, idx: int, folder_name: str) -> None:
         """Variante ins Kapitel legen und Raster neu zeichnen."""
@@ -1265,35 +1450,75 @@ class ReviewWindow(tk.Toplevel):
         self._assign_chapter(idx, folder)
         self._session_added.add(idx)
         self._flash_status(t("added_to_chapter", folder=folder))
+        self._autosave_draft()
+        self._refresh_folder_nav()
         self._render()
 
-    def _on_grid_click(self, event) -> None:
-        if self._slideshow:
-            return
+    def _hit_at(self, event) -> dict | None:
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
         for hit in reversed(self._hit_tiles):
             x1, y1, x2, y2 = hit["box"]
             if x1 <= x <= x2 and y1 <= y <= y2:
-                kind = hit["kind"]
-                if kind == "photo":
-                    self._toggle_photo(hit["idx"], hit["mode"], hit.get("folder") or "")
-                elif kind == "alt_toggle":
-                    key = hit["key"]
-                    if key in self._expanded_alts:
-                        self._expanded_alts.discard(key)
-                    else:
-                        self._expanded_alts.add(key)
-                    try:
-                        top = self.canvas.yview()[0]
-                    except tk.TclError:
-                        top = 0.0
-                    self._render()
-                    try:
-                        self.canvas.yview_moveto(top)
-                    except tk.TclError:
-                        pass
-                return
+                return hit
+        return None
+
+    def _on_grid_click(self, event) -> None:
+        if self._slideshow:
+            return
+        hit = self._hit_at(event)
+        if not hit:
+            return
+        kind = hit["kind"]
+        if kind == "photo":
+            self._toggle_photo(hit["idx"], hit["mode"], hit.get("folder") or "")
+        elif kind == "alt_toggle":
+            key = hit["key"]
+            if key in self._expanded_alts:
+                self._expanded_alts.discard(key)
+            else:
+                self._expanded_alts.add(key)
+            try:
+                top = self.canvas.yview()[0]
+            except tk.TclError:
+                top = 0.0
+            self._render()
+            try:
+                self.canvas.yview_moveto(top)
+            except tk.TclError:
+                pass
+
+    def _on_grid_right_click(self, event) -> None:
+        """Rechtsklick: Bild in anderen Ordner verschieben."""
+        if self._slideshow:
+            return
+        hit = self._hit_at(event)
+        if not hit or hit.get("kind") != "photo":
+            return
+        idx = int(hit["idx"])
+        mode = hit.get("mode") or "keep"
+        # Nur behaltene / hinzufügbare Bilder verschieben
+        if mode == "add" and idx not in self.kept:
+            # Erst ins Buch legen, dann verschieben-Menü – oder direkt mit Zielordner
+            pass
+        folders = [f for f, _t in self._folder_labels if f != (hit.get("folder") or self._grid_folder)]
+        # Alle bekannten Ordner inkl. aktueller Liste
+        if not folders:
+            folders = [f for f, _t in self._folder_entries() if f != self._grid_folder]
+        if not folders:
+            return
+        menu = tk.Menu(self, tearoff=0, bg=COLORS["surface"], fg=COLORS["ink"])
+        menu.add_command(label=t("move_to"), state=tk.DISABLED)
+        for folder in folders:
+            label = self._folder_title(folder)
+            menu.add_command(
+                label=label,
+                command=lambda f=folder, i=idx: self._move_photo_to_folder(i, f),
+            )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
     def _toggle_photo(self, idx: int, mode: str, folder: str) -> None:
         if mode == "add":
@@ -1301,9 +1526,7 @@ class ReviewWindow(tk.Toplevel):
                 return
             self.kept.add(idx)
             self.baseline.add(idx)
-            self._assign_chapter(idx, folder)
             self._place_in_chapter(idx, folder)
-            self._autosave_draft()
             return
         if idx in self.kept:
             self.kept.remove(idx)
@@ -1368,61 +1591,130 @@ class ReviewWindow(tk.Toplevel):
             pass
 
     def _render(self) -> None:
-        """Zeichnet das Raster direkt auf dem Canvas – scrollt ohne Geisterbilder."""
+        """Zeichnet nur den aktuellen Ordner – scrollt ohne Geisterbilder."""
         self._ensure_placeholder()
         self.canvas.delete("grid")
         self._canvas_img_ids.clear()
         self._canvas_border_ids.clear()
         self._hit_tiles.clear()
         self._update_count()
+        self._update_folder_meta()
 
         width = max(self.canvas.winfo_width(), CELL_W * self._grid_cols + GRID_PAD * 2)
         cols = max(3, min(10, width // CELL_W))
         self._grid_cols = cols
         y = GRID_PAD
 
+        from .documents import ASIDE_FOLDER, aside_indices
+
         display = sorted(self.baseline | self.kept)
         sections = chapter_sections(self.photos, display)
+        current = self._grid_folder
+        if not current and self._folder_labels:
+            current = self._folder_labels[0][0]
+            self._grid_folder = current
 
-        if not sections:
+        active = [(title, folder, indices) for title, folder, indices in sections if folder == current]
+        drew_photos = False
+
+        if active:
+            for title, folder, indices in active:
+                y = self._draw_section(
+                    title,
+                    folder,
+                    indices,
+                    y,
+                    cols,
+                    show_alts=not folder.startswith("99_"),
+                )
+                drew_photos = True
+        elif current and current != ASIDE_FOLDER:
+            # Leerer Ordner (z. B. alles verschoben) – Varianten trotzdem anbieten
+            title = self._folder_title(current)
             self.canvas.create_text(
                 GRID_PAD,
                 y + 8,
                 anchor=tk.NW,
-                text="Keine Bilder in der Auswahl. Füge unten Alternativen hinzu oder brich ab.",
+                text=title,
+                fill=COLORS["ink"],
+                font=("Segoe UI Semibold", 12),
+                tags=("grid",),
+            )
+            self.canvas.create_text(
+                GRID_PAD,
+                y + 32,
+                anchor=tk.NW,
+                text=t("empty_folder"),
+                fill=COLORS["muted"],
+                font=("Segoe UI", 10),
+                tags=("grid",),
+            )
+            y += HEADER_H + 16
+            if not current.startswith("99_"):
+                alts = candidate_alternatives(
+                    self.photos,
+                    current,
+                    limit=_ALT_LIMIT,
+                    exclude=self.kept,
+                )
+                if alts:
+                    y = self._draw_alt_section(
+                        f"Varianten für „{title}“",
+                        current,
+                        alts,
+                        y,
+                        cols,
+                        collapsed=current not in self._expanded_alts,
+                    )
+                    drew_photos = True
+
+        if current == ASIDE_FOLDER:
+            aside = [
+                i
+                for i in aside_indices(self.photos)
+                if i not in self.kept and not self.photos[i].is_duplicate
+            ]
+            if aside:
+                aside.sort(
+                    key=lambda i: (
+                        self.photos[i].aside_type or "",
+                        self.photos[i].filename,
+                    )
+                )
+                # Im Optional-Ordner Varianten direkt aufklappen
+                self._expanded_alts.add(ASIDE_FOLDER)
+                y = self._draw_alt_section(
+                    "Optional: Dokumente & Screenshots",
+                    ASIDE_FOLDER,
+                    aside[:40],
+                    y,
+                    cols,
+                    collapsed=False,
+                )
+                drew_photos = True
+            elif not active:
+                self.canvas.create_text(
+                    GRID_PAD,
+                    y + 8,
+                    anchor=tk.NW,
+                    text=t("empty_folder"),
+                    fill=COLORS["muted"],
+                    font=("Segoe UI", 10),
+                    tags=("grid",),
+                )
+                y += 40
+
+        if not current and not sections:
+            self.canvas.create_text(
+                GRID_PAD,
+                y + 8,
+                anchor=tk.NW,
+                text="Keine Bilder in der Auswahl. Füge Alternativen hinzu oder brich ab.",
                 fill=COLORS["muted"],
                 font=("Segoe UI", 10),
                 tags=("grid",),
             )
             y += 40
-
-        for title, folder, indices in sections:
-            y = self._draw_section(title, folder, indices, y, cols, show_alts=not folder.startswith("99_"))
-
-        from .documents import ASIDE_FOLDER, aside_indices
-
-        aside = [
-            i
-            for i in aside_indices(self.photos)
-            if i not in self.kept and not self.photos[i].is_duplicate
-        ]
-        if aside:
-            aside.sort(
-                key=lambda i: (
-                    self.photos[i].aside_type or "",
-                    self.photos[i].filename,
-                )
-            )
-            y = self._draw_alt_section(
-                "Optional: Dokumente & Screenshots",
-                ASIDE_FOLDER,
-                aside[:40],
-                y,
-                cols,
-                collapsed=ASIDE_FOLDER not in self._expanded_alts,
-            )
-
-        if not sections:
             alts = [
                 i
                 for i, p in enumerate(self.photos)
@@ -1444,6 +1736,10 @@ class ReviewWindow(tk.Toplevel):
                     cols,
                     collapsed="__suggestions__" not in self._expanded_alts,
                 )
+                drew_photos = True
+
+        if not drew_photos and current and current != ASIDE_FOLDER and not active:
+            pass  # empty_folder-Text steht schon
 
         y += GRID_PAD
         self.canvas.configure(scrollregion=(0, 0, width, max(y, 100)))

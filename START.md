@@ -90,14 +90,19 @@ Fotobuch starten.bat
    - *KI-Bewertung* – optional, braucht einen Anthropic-API-Key.
 5. **Auswahl starten** – der Fortschrittsbalken zeigt die Phasen.
 6. Bei „Fertig" die Frage **Auswahl prüfen?** → **Ja**:
-   - **Raster:** Klick auf ein Bild = **raus / wieder rein**.
+   - **Raster:** immer **ein Ordner** (Kapitel) – mit ← / → oder der Liste
+     wechseln (auch zurück). Klick = **raus / wieder rein**. **Rechtsklick** =
+     in einen anderen Ordner verschieben. Beim Speichern werden
+     `photos_analysis.csv`, `selected\` und der Entwurf mit den neuen Ordnern
+     aktualisiert.
    - **Diashow:** großes Bild, Nachbar-Vorschau, Filter (Alle/Dabei/Entfernt),
      Kapitel-Sprung, beste Alternative daneben (Taste **A**), optional
      Auto-weiter nach Entfernen; Esc zurück zum Raster.
    - **Darstellung** (oben rechts): Deutsch/English, Design
      (Dunkelmodus / Wald / Schiefer / Tinte), Diashow-Optionen.
      Standard ist Dunkelmodus; Fenster öffnen in passender Größe.
-   - Unten **Alternativen** und der **Dokumente-Pool** zum Hinzufügen.
+   - Pro Ordner **Varianten**; der **Dokumente-Pool** steckt im Ordner
+     `99_Optional_Dokumente`.
    - **Speichern & Ordner neu schreiben**.
 
 ### Auswahl unterbrechen / fortsetzen (ohne neue KI)

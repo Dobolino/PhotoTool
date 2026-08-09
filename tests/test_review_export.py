@@ -89,3 +89,49 @@ def test_chapter_sections_and_plan():
     assert len(sections) == 2
     plan = plan_from_photos(photos)
     assert [r.name for r in plan.regions] == ["Paris"]
+
+
+def test_moved_folder_survives_apply_manual_selection(tmp_path):
+    """Verschieben im Review muss in CSV/selected landen (inkl. is_aside-Clear)."""
+    from PIL import Image
+
+    from photobook_curator.documents import ASIDE_FOLDER
+
+    src = tmp_path / "src"
+    src.mkdir()
+    paths = []
+    for name in ("a.jpg", "b.jpg"):
+        p = src / name
+        Image.new("RGB", (80, 60), (100, 120, 140)).save(p)
+        paths.append(p)
+
+    photos = [
+        _photo("a.jpg", pos=1, folder=ASIDE_FOLDER, region="Optional"),
+        _photo("b.jpg", pos=2, folder="01_Paris/hauptteil"),
+    ]
+    photos[0].is_aside = True
+    photos[0].chapter_type = "Optional"
+    for photo, path in zip(photos, paths):
+        photo.path = path
+
+    # Wie Review: aus Optional nach Lyon verschieben
+    photos[0].chapter_folder = "02_Lyon/hauptteil"
+    photos[0].chapter_type = "Hauptteil"
+    photos[0].is_aside = False
+    photos[0].region = "Lyon"
+
+    plan = BookPlan(
+        regions=[
+            Region(name="Paris", photo_indices=[1], chapter_index=0),
+            Region(name="Lyon", photo_indices=[0], chapter_index=1),
+        ]
+    )
+    out = tmp_path / "out"
+    order = apply_manual_selection(photos, plan, [0, 1], out)
+    folders = {i: f for i, f, _t in order}
+    assert folders[0] == "02_Lyon/hauptteil"
+    assert photos[0].chapter_folder == "02_Lyon/hauptteil"
+    assert not photos[0].is_aside
+    csv_text = (out / "photos_analysis.csv").read_text(encoding="utf-8")
+    assert "02_Lyon/hauptteil" in csv_text
+    assert (out / "selected" / "02_Lyon" / "hauptteil").is_dir()
