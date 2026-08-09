@@ -273,6 +273,11 @@ def run_pipeline(
 
     report("Auswahl & Buchstruktur…", 0.90, "selection")
     print("=== Phase 5: Auswahl & Buchstruktur ===")
+    print(
+        "  Hinweis: Jetzt werden Ähnlichkeiten verglichen. "
+        "Bei vielen Fotos / OneDrive kann das mehrere Minuten dauern – "
+        "das Programm hängt nicht, auch wenn die GUI kurz stockt."
+    )
     if cfg.coverage_intensity > 0:
         print(f"  Tages-Abdeckung aktiv (Stärke {cfg.coverage_intensity:.0%})")
     if cfg.people_balance_intensity > 0:

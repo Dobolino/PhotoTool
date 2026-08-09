@@ -1042,13 +1042,16 @@ class PhotobookApp(tk.Tk):
         self._cancel_event.clear()
         self.start_btn.configure(state=tk.DISABLED)
         self.cancel_btn.configure(state=tk.NORMAL)
+        self.review_btn.configure(state=tk.DISABLED)
+        self.map_btn.configure(state=tk.DISABLED)
         self.status_var.set("Arbeitet…")
         self.phase_var.set("Start…")
         self.progress["value"] = 0
         self._pending_status = None
         self._reset_phase_board(cfg)
         self._set_next_step(
-            "Analyse läuft… Orange = aktueller Schritt, Grün = fertig. Bitte warten."
+            "Analyse läuft… Bei „Auswahl“ kann es einige Minuten still wirken "
+            "(Vielfalt/OneDrive) – Fenster nicht schließen."
         )
         self._append_log("Start…")
         self._worker = threading.Thread(target=self._run, args=(cfg,), daemon=True)
@@ -1126,6 +1129,8 @@ class PhotobookApp(tk.Tk):
             sys.stdout, sys.stderr = old_out, old_err
             self.after(0, lambda: self.start_btn.configure(state=tk.NORMAL))
             self.after(0, lambda: self.cancel_btn.configure(state=tk.DISABLED))
+            self.after(0, lambda: self.review_btn.configure(state=tk.NORMAL))
+            self.after(0, lambda: self.map_btn.configure(state=tk.NORMAL))
 
     def _on_finished(self, result: dict, cfg: Any) -> None:
         self._remember_ai_cost(result)
@@ -1262,6 +1267,17 @@ class PhotobookApp(tk.Tk):
     def _open_review(self) -> None:
         from .review_export import load_photos_from_csv, plan_from_photos
         from .review_gui import open_review
+
+        if self._is_analysis_running():
+            messagebox.showinfo(
+                "Noch nicht fertig",
+                "Die Analyse läuft noch (gerade oft die Auswahl/Vielfalt).\n"
+                "Bitte warten, bis „Fertig“ erscheint – dann erst prüfen.\n\n"
+                "Tipp: Bei OneDrive kann dieser Schritt mehrere Minuten "
+                "ohne großen Fortschritt wirken, arbeitet aber weiter.",
+                parent=self,
+            )
+            return
 
         photos = self._last_photos
         plan = self._last_plan

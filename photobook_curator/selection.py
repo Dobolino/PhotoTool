@@ -8,6 +8,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
+from tqdm import tqdm
 
 from .ai_review import ensure_scene_types
 from .models import BookPlan, ChapterType, Photo
@@ -295,9 +296,11 @@ def _select_diverse(
     if quota <= 0 or not indices:
         return []
 
-    hist_cache: dict[int, Optional[np.ndarray]] = {
-        i: color_histogram(photos[i]) for i in indices
-    }
+    # Histogramm laden kann bei OneDrive/vielen Kandidaten Minuten dauern –
+    # deshalb mit sichtbarem Fortschritt (sonst wirkt die GUI „eingefroren").
+    hist_cache: dict[int, Optional[np.ndarray]] = {}
+    for i in tqdm(indices, desc="Vielfalt (Histogramme)", unit="img", leave=False):
+        hist_cache[i] = color_histogram(photos[i])
     counts = person_counts if person_counts is not None else defaultdict(int)
     balance_on = float(people_balance_intensity or 0.0) > 0
 
@@ -534,8 +537,16 @@ def build_book_order(
     order: list[tuple[int, str, str]] = []
     transit_by_after = {t.chapter_index: t for t in plan.transits}
 
-    for r_idx, region in enumerate(plan.regions):
+    print(
+        f"  Buchstruktur: {len(plan.regions)} Regionen, "
+        f"{len(plan.transits)} Transits – Vielfalt wird berechnet "
+        f"(kann bei OneDrive einige Minuten dauern)…"
+    )
+    for r_idx, region in enumerate(
+        tqdm(plan.regions, desc="Auswahl je Region", unit="region")
+    ):
         folder = f"{r_idx + 1:02d}_{slugify(region.name)}"
+        print(f"  → Region {r_idx + 1}/{len(plan.regions)}: {region.name} (Quota {region.quota})")
         main_sel, food_sel = select_for_region(
             photos,
             region.photo_indices,
