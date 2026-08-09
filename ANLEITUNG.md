@@ -37,10 +37,10 @@ Danach öffnet sich ein Fenster.
 1. **Fotos-Ordner** → `Durchsuchen` → z. B. `OneDrive\Bilder\Urlaubfotos\Japan`
 2. **Ausgabe-Ordner** → `Durchsuchen` → neuen leeren Ordner wählen
 3. **Zielanzahl** einstellen (z. B. 80) — so viele Bilder sollen ungefähr im Buch landen
-4. Auf **Auswahl starten** klicken
+4. Auf **Auswahl starten** klicken — der Balken zeigt die aktuelle Phase
 5. Warten, bis „Fertig“ erscheint
 6. Bei Nachfrage **Ja** → **Auswahl prüfen** (Thumbnails)
-   - Klick auf ein Bild = rausnehmen / wieder reinnehmen
+   - Klick auf ein Bild = rausnehmen / wieder reinnehmen (sofort, ohne Neuaufbau)
    - Unten Alternativen mit **+ HINZUFÜGEN**
    - **Speichern & Ordner neu schreiben**
 

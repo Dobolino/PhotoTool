@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import queue
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -58,10 +60,19 @@ class ReviewWindow(tk.Toplevel):
         self.baseline: set[int] = set(self.kept)
         self._photo_images: list[ImageTk.PhotoImage] = []  # Referenzen halten
         self._thumb_cache: dict[int, ImageTk.PhotoImage] = {}
+        self._tile_state: dict[tuple[str, int], dict] = {}
+        self._thumb_labels: dict[int, list[tk.Label]] = {}
+        self._pending_thumbs: set[int] = set()
+        self._load_queue: queue.Queue[int | None] = queue.Queue()
+        self._ready_queue: queue.Queue[tuple[int, Image.Image | None]] = queue.Queue()
+        self._loader = threading.Thread(target=self._thumb_worker, daemon=True)
+        self._loader.start()
 
         self._setup_style()
         self._build()
         self._render()
+        self.after(40, self._drain_thumbs)
+        self.protocol("WM_DELETE_WINDOW", self._close)
 
     def _setup_style(self) -> None:
         style = ttk.Style(self)
@@ -71,18 +82,6 @@ class ReviewWindow(tk.Toplevel):
             pass
         style.configure("Rev.TFrame", background=COLORS["bg"])
         style.configure("RevCard.TFrame", background=COLORS["surface"])
-        style.configure(
-            "RevTitle.TLabel",
-            background=COLORS["accent"],
-            foreground="#F7F3EC",
-            font=("Georgia", 15, "bold"),
-        )
-        style.configure(
-            "RevSub.TLabel",
-            background=COLORS["accent"],
-            foreground="#D5E4DE",
-            font=("Segoe UI", 10),
-        )
         style.configure(
             "RevHead.TLabel",
             background=COLORS["bg"],
@@ -134,9 +133,8 @@ class ReviewWindow(tk.Toplevel):
         ttk.Button(bar, text="Speichern & Ordner neu schreiben", style="RevSave.TButton", command=self._save).pack(
             side=tk.RIGHT
         )
-        ttk.Button(bar, text="Abbrechen", command=self.destroy).pack(side=tk.RIGHT, padx=(0, 8))
+        ttk.Button(bar, text="Abbrechen", command=self._close).pack(side=tk.RIGHT, padx=(0, 8))
 
-        # Scrollbarer Bereich
         container = ttk.Frame(self, style="Rev.TFrame")
         container.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
 
@@ -162,32 +160,60 @@ class ReviewWindow(tk.Toplevel):
         if self.winfo_exists():
             self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-    def _thumb(self, idx: int) -> Optional[ImageTk.PhotoImage]:
-        if idx in self._thumb_cache:
-            return self._thumb_cache[idx]
-        photo = self.photos[idx]
+    def _thumb_worker(self) -> None:
+        while True:
+            idx = self._load_queue.get()
+            if idx is None:
+                break
+            photo = self.photos[idx]
+            try:
+                img = load_image(photo.path)
+                img.thumbnail((THUMB, THUMB), Image.Resampling.LANCZOS)
+                canvas_img = Image.new("RGB", (THUMB, THUMB), (245, 241, 233))
+                x = (THUMB - img.width) // 2
+                y = (THUMB - img.height) // 2
+                canvas_img.paste(img, (x, y))
+                self._ready_queue.put((idx, canvas_img))
+            except Exception:
+                self._ready_queue.put((idx, None))
+
+    def _request_thumb(self, idx: int) -> None:
+        if idx in self._thumb_cache or idx in self._pending_thumbs:
+            return
+        self._pending_thumbs.add(idx)
+        self._load_queue.put(idx)
+
+    def _drain_thumbs(self) -> None:
         try:
-            img = load_image(photo.path)
-            img.thumbnail((THUMB, THUMB), Image.Resampling.LANCZOS)
-            # Auf feste Kachelgröße zentrieren
-            canvas_img = Image.new("RGB", (THUMB, THUMB), (245, 241, 233))
-            x = (THUMB - img.width) // 2
-            y = (THUMB - img.height) // 2
-            canvas_img.paste(img, (x, y))
-            tk_img = ImageTk.PhotoImage(canvas_img)
-            self._thumb_cache[idx] = tk_img
-            self._photo_images.append(tk_img)
-            return tk_img
-        except Exception:
-            return None
+            while True:
+                idx, canvas_img = self._ready_queue.get_nowait()
+                self._pending_thumbs.discard(idx)
+                if canvas_img is None:
+                    continue
+                tk_img = ImageTk.PhotoImage(canvas_img)
+                self._thumb_cache[idx] = tk_img
+                self._photo_images.append(tk_img)
+                for lbl in self._thumb_labels.get(idx, []):
+                    try:
+                        if lbl.winfo_exists():
+                            lbl.configure(image=tk_img, text="", width=0, height=0)
+                    except tk.TclError:
+                        pass
+        except queue.Empty:
+            pass
+        if self.winfo_exists():
+            self.after(40, self._drain_thumbs)
+
+    def _update_count(self) -> None:
+        self.count_var.set(f"{len(self.kept)} Bilder ausgewählt")
 
     def _render(self) -> None:
         for child in self.inner.winfo_children():
             child.destroy()
+        self._tile_state.clear()
+        self._thumb_labels.clear()
+        self._update_count()
 
-        self.count_var.set(f"{len(self.kept)} Bilder ausgewählt")
-
-        # Kapitel aus Baseline + neu hinzugefügten Bildern
         display = sorted(self.baseline | self.kept)
         sections = chapter_sections(self.photos, display)
         if not sections:
@@ -198,11 +224,9 @@ class ReviewWindow(tk.Toplevel):
             ).pack(anchor=tk.W, padx=8, pady=16)
 
         for title, folder, indices in sections:
-            # Keine normalen Alternativen unter dem Optional-Kapitel
             show_alts = not folder.startswith("99_")
             self._section(title, folder, indices, alternatives=show_alts)
 
-        # Optional-Pool: Screenshots/Dokumente zum Einfügen
         from .documents import ASIDE_FOLDER, aside_indices
 
         aside = [
@@ -285,6 +309,53 @@ class ReviewWindow(tk.Toplevel):
         for n, idx in enumerate(indices):
             self._tile(grid, idx, n % cols, n // cols, mode="add", folder=folder)
 
+    def _apply_tile_visual(self, key: tuple[str, int]) -> None:
+        state = self._tile_state.get(key)
+        if not state:
+            return
+        mode, idx = key
+        kept = idx in self.kept
+        border = COLORS["keep_border"] if kept else COLORS["reject_border"]
+        outer: tk.Frame = state["outer"]
+        info: tk.Label = state["info"]
+        inner: tk.Frame = state["inner"]
+        try:
+            outer.configure(bg=border)
+            info.configure(
+                fg=COLORS["muted"] if (mode == "keep" and not kept) else COLORS["ink"]
+            )
+        except tk.TclError:
+            return
+
+        old = state.get("overlay")
+        if old is not None:
+            try:
+                old.destroy()
+            except tk.TclError:
+                pass
+            state["overlay"] = None
+
+        if mode == "keep" and not kept:
+            overlay = tk.Label(
+                inner,
+                text="ENTFERNT",
+                bg=COLORS["reject"],
+                fg="white",
+                font=("Segoe UI Semibold", 8),
+            )
+            overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
+            state["overlay"] = overlay
+        elif mode == "add" and idx not in self.kept:
+            overlay = tk.Label(
+                inner,
+                text="+ HINZUFÜGEN",
+                bg=COLORS["accent"],
+                fg="white",
+                font=("Segoe UI Semibold", 8),
+            )
+            overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
+            state["overlay"] = overlay
+
     def _tile(
         self,
         parent: ttk.Frame,
@@ -302,7 +373,6 @@ class ReviewWindow(tk.Toplevel):
         inner = tk.Frame(outer, bg=COLORS["surface"])
         inner.pack()
 
-        tk_img = self._thumb(idx)
         photo = self.photos[idx]
         caption = photo.filename
         if len(caption) > 22:
@@ -310,17 +380,22 @@ class ReviewWindow(tk.Toplevel):
         meta = photo.scene_type or photo.chapter_type or ""
         score = photo.final_score or photo.technical_score
 
+        tk_img = self._thumb_cache.get(idx)
         if tk_img is not None:
             lbl = tk.Label(inner, image=tk_img, bg=COLORS["surface"], cursor="hand2")
         else:
             lbl = tk.Label(
                 inner,
-                text="?",
+                text="…",
                 width=16,
                 height=8,
                 bg=COLORS["line"],
                 cursor="hand2",
+                fg=COLORS["muted"],
+                font=("Segoe UI", 10),
             )
+            self._thumb_labels.setdefault(idx, []).append(lbl)
+            self._request_thumb(idx)
         lbl.pack()
 
         info = tk.Label(
@@ -333,31 +408,25 @@ class ReviewWindow(tk.Toplevel):
         )
         info.pack(pady=(4, 2))
 
-        if mode == "keep" and not kept:
-            overlay = tk.Label(
-                inner,
-                text="ENTFERNT",
-                bg=COLORS["reject"],
-                fg="white",
-                font=("Segoe UI Semibold", 8),
-            )
-            overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
-        elif mode == "add":
-            overlay = tk.Label(
-                inner,
-                text="+ HINZUFÜGEN",
-                bg=COLORS["accent"],
-                fg="white",
-                font=("Segoe UI Semibold", 8),
-            )
-            overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
+        key = (mode, idx)
+        self._tile_state[key] = {
+            "outer": outer,
+            "inner": inner,
+            "info": info,
+            "lbl": lbl,
+            "overlay": None,
+        }
+        self._apply_tile_visual(key)
 
-        # Warnhinweis bei schlechten Gesichtern / Finger
         warn = None
         if getattr(photo, "finger_on_lens", False) or "finger_on_lens" in photo.flags:
             warn = "Finger"
         elif getattr(photo, "bad_face", False) or "eyes_closed" in photo.flags:
-            warn = "Augen zu" if getattr(photo, "eyes_closed", False) or "eyes_closed" in photo.flags else "Gesicht?"
+            warn = (
+                "Augen zu"
+                if getattr(photo, "eyes_closed", False) or "eyes_closed" in photo.flags
+                else "Gesicht?"
+            )
         if warn:
             badge = tk.Label(
                 inner,
@@ -385,12 +454,15 @@ class ReviewWindow(tk.Toplevel):
                             if folder_name.endswith("essen")
                             else "Hauptteil"
                         )
+                # Struktur ändert sich (Kapitel/Alternativen) → neu zeichnen
+                self._render()
             else:
                 if i in self.kept:
                     self.kept.remove(i)
                 else:
                     self.kept.add(i)
-            self._render()
+                self._update_count()
+                self._apply_tile_visual(("keep", i))
 
         for widget in (lbl, info, inner, outer):
             widget.bind("<Button-1>", toggle)
@@ -418,6 +490,14 @@ class ReviewWindow(tk.Toplevel):
         )
         if self.on_saved:
             self.on_saved()
+        self._close()
+
+    def _close(self) -> None:
+        try:
+            self.canvas.unbind_all("<MouseWheel>")
+        except Exception:
+            pass
+        self._load_queue.put(None)
         self.destroy()
 
 

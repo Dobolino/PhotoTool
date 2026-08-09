@@ -324,6 +324,7 @@ Ausführen: `pytest` (im venv).
 11. **EXIF-Orientierung:** `load_image` wendet `ImageOps.exif_transpose` an – Analyse/Thumbnails nutzen die sichtbare Ausrichtung.
 12. **Modell-Downloads:** zentral über `utils.download_model` mit Timeout (30 s) und Mindestgröße; abgeschnittene Dateien werden verworfen.
 13. **Performance (P1):** `load_bgr_cached` (LRU, max. Kante 1024) teilt Decodes über Quality/Faces/Finger/People/Dokumente; Scan nutzt `image_display_size` ohne Voll-Decode; Duplikate mit int-Hamming + Zeitfenster-Zwei-Zeiger; Farbhistogramme pro Foto gecacht (256px).
+14. **UX (P2):** `run_pipeline(..., progress=callback)` meldet Phasen + Fortschritt 0–1; GUI zeigt Progressbar. Review: Keep/Remove aktualisiert nur die Kachel (kein Full-Rerender); Thumbnails laden lazy im Hintergrundthread. Standalone-Build: `packaging/` (PyInstaller).
 
 ---
 

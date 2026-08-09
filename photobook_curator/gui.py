@@ -53,6 +53,7 @@ class PhotobookApp(tk.Tk):
         self.api_key_var = tk.StringVar(value=os.environ.get("ANTHROPIC_API_KEY", ""))
 
         self._log_queue: queue.Queue[str] = queue.Queue()
+        self._progress_queue: queue.Queue[tuple[str, float]] = queue.Queue()
         self._worker: threading.Thread | None = None
         self._last_photos = None
         self._last_plan = None
@@ -60,7 +61,7 @@ class PhotobookApp(tk.Tk):
         self._last_output: Path | None = None
         self._setup_style()
         self._build()
-        self.after(150, self._drain_log)
+        self.after(150, self._drain_queues)
 
     def _setup_style(self) -> None:
         style = ttk.Style(self)
@@ -270,6 +271,13 @@ class PhotobookApp(tk.Tk):
         self.start_btn = ttk.Button(actions, text="Auswahl starten", style="Start.TButton", command=self._start)
         self.start_btn.pack(side=tk.RIGHT)
 
+        prog_row = ttk.Frame(body, style="App.TFrame")
+        prog_row.pack(fill=tk.X, pady=(0, 4))
+        self.phase_var = tk.StringVar(value="")
+        ttk.Label(prog_row, textvariable=self.phase_var, style="Field.TLabel").pack(anchor=tk.W)
+        self.progress = ttk.Progressbar(prog_row, mode="determinate", maximum=100)
+        self.progress.pack(fill=tk.X, pady=(4, 0))
+
         log_frame = ttk.LabelFrame(body, text="  Verlauf  ", style="Card.TLabelframe", padding=8)
         log_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
         log_row = ttk.Frame(log_frame, style="Card.TFrame")
@@ -333,13 +341,25 @@ class PhotobookApp(tk.Tk):
         self.log.see(tk.END)
         self.log.configure(state=tk.DISABLED)
 
-    def _drain_log(self) -> None:
+    def _set_progress(self, label: str, frac: float) -> None:
+        self.phase_var.set(label)
+        self.progress["value"] = max(0, min(100, int(round(frac * 100))))
+        if label and label != "Fertig":
+            self.status_var.set(label)
+
+    def _drain_queues(self) -> None:
         try:
             while True:
                 self._append_log(self._log_queue.get_nowait())
         except queue.Empty:
             pass
-        self.after(150, self._drain_log)
+        try:
+            while True:
+                label, frac = self._progress_queue.get_nowait()
+                self._set_progress(label, frac)
+        except queue.Empty:
+            pass
+        self.after(100, self._drain_queues)
 
     def _start(self) -> None:
         if self._worker and self._worker.is_alive():
@@ -394,6 +414,8 @@ class PhotobookApp(tk.Tk):
 
         self.start_btn.configure(state=tk.DISABLED)
         self.status_var.set("Arbeitet…")
+        self.phase_var.set("Start…")
+        self.progress["value"] = 0
         self._append_log("Start…")
         self._worker = threading.Thread(target=self._run, args=(cfg,), daemon=True)
         self._worker.start()
@@ -427,11 +449,14 @@ class PhotobookApp(tk.Tk):
                     except Exception:
                         pass
 
+        def on_progress(label: str, frac: float) -> None:
+            self._progress_queue.put((label, frac))
+
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout = QueueWriter(self._log_queue, old_out)  # type: ignore[assignment]
         sys.stderr = QueueWriter(self._log_queue, old_err)  # type: ignore[assignment]
         try:
-            result = run_pipeline(cfg)
+            result = run_pipeline(cfg, progress=on_progress)
             summary = {
                 k: v
                 for k, v in result.items()
@@ -443,10 +468,12 @@ class PhotobookApp(tk.Tk):
             self._last_plan = result.get("plan")
             self._last_order = result.get("order")
             self._last_output = result.get("output_dir") or cfg.output_dir
+            self._progress_queue.put(("Fertig", 1.0))
             self.after(0, lambda: self.status_var.set("Fertig"))
             self.after(0, lambda r=result: self._on_finished(r, cfg))
         except Exception as exc:
             self._log_queue.put(f"Fehler: {exc}")
+            self._progress_queue.put(("Fehler", 0.0))
             self.after(0, lambda: self.status_var.set("Fehler"))
             self.after(0, lambda: messagebox.showerror("Fehler", str(exc)))
         finally:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from .ai_review import ensure_scene_types, run_ai_review
 from .bursts import mark_bursts
@@ -24,6 +24,9 @@ from .scan import scan_photos
 from .selection import build_book_order, mark_candidates
 from .transit import detect_transits
 from .utils import clear_bgr_cache
+
+# (Phasenname, Fortschritt 0–1 nach Abschluss der Phase)
+ProgressCallback = Callable[[str, float], None]
 
 
 @dataclass
@@ -87,20 +90,40 @@ def export_book_outputs(
     return {"aside_copied": aside_copied, "map_path": map_path}
 
 
-def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
+def run_pipeline(
+    cfg: PipelineConfig,
+    progress: ProgressCallback | None = None,
+) -> dict[str, Any]:
+    """
+    Führt die Kuratierung aus.
+    Optional: progress(phase_label, fraction) mit fraction in [0, 1].
+    """
+
+    def report(label: str, frac: float) -> None:
+        if progress is None:
+            return
+        try:
+            progress(label, float(max(0.0, min(1.0, frac))))
+        except Exception:
+            pass
+
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cfg.output_dir / "geocode_cache.json"
     clear_bgr_cache()
 
+    report("Einlesen…", 0.02)
     print("=== Phase 1: Einlesen & technische Vorfilterung ===")
     photos = scan_photos(cfg.input_dir)
     print(f"  {len(photos)} Bilder gefunden")
+    report("Technische Analyse…", 0.08)
     analyze_all(photos)
+    report("Dokumente…", 0.22)
     if cfg.enable_document_aside:
         aside_count = mark_aside_documents(photos)
         print(f"  {aside_count} Screenshots/Dokumente → Optional-Pool (nicht Auto-Kapitel)")
     else:
         print("  Dokumente/Screenshots-Trennung übersprungen")
+    report("Duplikate…", 0.30)
     dup_count, burst_from_dup = mark_duplicates(
         photos,
         burst_seconds=cfg.burst_max_seconds if cfg.enable_bursts else 0.0,
@@ -108,6 +131,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         min_burst_size=cfg.burst_min_size if cfg.enable_bursts else 10**9,
     )
     print(f"  {dup_count} Duplikate markiert")
+    report("Gesichter…", 0.45)
     if cfg.enable_faces:
         backend = count_faces(photos)
         print(f"  Gesichtserkennung: {backend}")
@@ -118,10 +142,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     else:
         print("  Gesichtserkennung übersprungen")
     if cfg.enable_finger_filter:
+        report("Finger-Check…", 0.55)
         finger_backend = analyze_finger_obstruction(photos)
         n_finger = sum(1 for p in photos if p.finger_on_lens)
         print(f"  Finger vor Linse: {finger_backend} ({n_finger} aussortiert)")
     if cfg.people_balance_intensity > 0:
+        report("Personen-Balance…", 0.58)
         pb_backend = analyze_people_clusters(photos)
         n_clustered = sum(1 for p in photos if p.person_cluster_ids)
         n_people = len({pid for p in photos for pid in p.person_cluster_ids})
@@ -130,6 +156,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
             f"({n_people} Personen-Cluster in {n_clustered} Fotos, "
             f"Stärke {cfg.people_balance_intensity:.0%})"
         )
+    report("Serien…", 0.62)
     if cfg.enable_bursts:
         burst_extra = mark_bursts(
             photos,
@@ -147,6 +174,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         print("  Serien/Burst-Erkennung übersprungen")
     clear_bgr_cache()  # Analyse-Bilder freigeben vor Geocode/Auswahl
 
+    report("Orte & Regionen…", 0.68)
     print("=== Phase 2: Orte & Regionen ===")
     cache = GeocodeCache(cache_path, enabled=cfg.geocode)
     plan = build_location_plan(
@@ -158,6 +186,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     print(f"  {len(plan.regions)} Regionen: {[r.name for r in plan.regions]}")
     print(f"  {len(plan.unassigned_indices)} unbestimmt")
 
+    report("Transit…", 0.78)
     print("=== Phase 3: Transit ===")
     detect_transits(
         photos,
@@ -169,6 +198,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     for t in plan.transits:
         print(f"    - {t.name} ({len(t.photo_indices)} Fotos, Quota {t.quota})")
 
+    report("Kandidaten…", 0.82)
     print("=== Kandidatenauswahl ===")
     candidates = mark_candidates(
         photos,
@@ -180,6 +210,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     print(f"  {len(candidates)} Kandidaten (Faktor {cfg.candidate_factor})")
 
     ai_stats: dict[str, Any] = {}
+    report("Szenen / KI…", 0.86)
     if cfg.ai_review:
         print("=== Phase 4: AI-Review ===")
         ai_stats = run_ai_review(
@@ -195,6 +226,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     if cfg.dry_run and cfg.ai_review:
         # Im Dry-Run nach Kostenschätzung stoppen, trotzdem CSV der bisherigen Analyse schreiben
         write_csv(photos, cfg.output_dir / "photos_analysis.csv")
+        report("Fertig (Dry-Run)", 1.0)
         return {
             "photos": len(photos),
             "regions": [r.name for r in plan.regions],
@@ -204,6 +236,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
             "dry_run": True,
         }
 
+    report("Auswahl & Buchstruktur…", 0.90)
     print("=== Phase 5: Auswahl & Buchstruktur ===")
     if cfg.coverage_intensity > 0:
         print(f"  Tages-Abdeckung aktiv (Stärke {cfg.coverage_intensity:.0%})")
@@ -222,10 +255,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
 
     map_path = None
     if cfg.enable_map_preview:
+        report("Karte…", 0.94)
         map_path = write_chapter_map(photos, plan, cfg.output_dir, order)
         print(f"  Kapitel-Karte: {map_path}")
 
     exported = False
+    report("Ausgabe…", 0.96)
     if cfg.skip_export:
         print("=== Ausgabe zurückgestellt (Kapitel-Vorschau) ===")
         write_csv(photos, cfg.output_dir / "photos_analysis.csv")
@@ -241,6 +276,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         )
         exported = True
 
+    report("Fertig", 1.0)
     return {
         "photos": len(photos),
         "regions": [r.name for r in plan.regions],
