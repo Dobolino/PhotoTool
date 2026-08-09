@@ -19,3 +19,8 @@ output/
 geocode_cache.json
 .env
 .DS_Store
+
+output_face_test/
+output_sample/
+output_dry/
+output_*/
