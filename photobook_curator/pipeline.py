@@ -139,4 +139,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         "candidates": len(candidates),
         "ai": ai_stats,
         "dry_run": False,
+        "photo_objects": photos,
+        "plan": plan,
+        "order": order,
+        "output_dir": cfg.output_dir,
     }

@@ -46,6 +46,9 @@ class PhotobookApp(tk.Tk):
 
         self._log_queue: queue.Queue[str] = queue.Queue()
         self._worker: threading.Thread | None = None
+        self._last_photos = None
+        self._last_plan = None
+        self._last_output: Path | None = None
         self._setup_style()
         self._build()
         self.after(150, self._drain_log)
@@ -203,6 +206,10 @@ class PhotobookApp(tk.Tk):
         actions.pack(fill=tk.X, pady=(14, 8))
         self.status_var = tk.StringVar(value="Bereit")
         ttk.Label(actions, textvariable=self.status_var, style="Sub.TLabel").pack(side=tk.LEFT)
+        self.review_btn = ttk.Button(
+            actions, text="Auswahl prüfen", style="Browse.TButton", command=self._open_review
+        )
+        self.review_btn.pack(side=tk.RIGHT, padx=(0, 8))
         self.start_btn = ttk.Button(actions, text="Auswahl starten", style="Start.TButton", command=self._start)
         self.start_btn.pack(side=tk.RIGHT)
 
@@ -345,17 +352,18 @@ class PhotobookApp(tk.Tk):
         sys.stderr = QueueWriter(self._log_queue, old_err)  # type: ignore[assignment]
         try:
             result = run_pipeline(cfg)
-            self._log_queue.put(f"Fertig: {result}")
+            summary = {
+                k: v
+                for k, v in result.items()
+                if k not in ("photo_objects", "plan", "order")
+            }
+            self._log_queue.put(f"Fertig: {summary}")
             self._log_queue.put(f"Ergebnisordner: {cfg.output_dir}")
+            self._last_photos = result.get("photo_objects")
+            self._last_plan = result.get("plan")
+            self._last_output = result.get("output_dir") or cfg.output_dir
             self.after(0, lambda: self.status_var.set("Fertig"))
-            self.after(
-                0,
-                lambda: messagebox.showinfo(
-                    "Fertig",
-                    f"Auswahl erstellt.\n\nOrdner:\n{cfg.output_dir}\n\n"
-                    "Schau in selected\\ und inhaltsverzeichnis.md",
-                ),
-            )
+            self.after(0, lambda r=result: self._on_finished(r, cfg))
         except Exception as exc:
             self._log_queue.put(f"Fehler: {exc}")
             self.after(0, lambda: self.status_var.set("Fehler"))
@@ -363,6 +371,59 @@ class PhotobookApp(tk.Tk):
         finally:
             sys.stdout, sys.stderr = old_out, old_err
             self.after(0, lambda: self.start_btn.configure(state=tk.NORMAL))
+
+    def _on_finished(self, result: dict, cfg: PipelineConfig) -> None:
+        if result.get("dry_run"):
+            messagebox.showinfo(
+                "Dry-Run",
+                "Kostenschätzung fertig. Siehe Verlauf für Details.",
+            )
+            return
+        open_review = messagebox.askyesno(
+            "Fertig",
+            f"Auswahl erstellt in:\n{cfg.output_dir}\n\n"
+            "Jetzt die Bilder als Vorschau prüfen und einzelne rausnehmen/hinzufügen?",
+        )
+        if open_review:
+            self._open_review()
+
+    def _open_review(self) -> None:
+        from .review_export import load_photos_from_csv, plan_from_photos
+        from .review_gui import open_review
+
+        photos = self._last_photos
+        plan = self._last_plan
+        output_dir = self._last_output
+
+        if photos is None or plan is None:
+            out = Path(self.output_var.get().strip() or "")
+            csv_path = out / "photos_analysis.csv"
+            if not csv_path.is_file():
+                messagebox.showinfo(
+                    "Keine Auswahl",
+                    "Bitte zuerst „Auswahl starten“, oder einen Ausgabeordner mit "
+                    "photos_analysis.csv wählen.",
+                )
+                return
+            try:
+                photos = load_photos_from_csv(csv_path)
+                plan = plan_from_photos(photos)
+                output_dir = out
+                self._last_photos = photos
+                self._last_plan = plan
+                self._last_output = output_dir
+            except Exception as exc:
+                messagebox.showerror("Laden fehlgeschlagen", str(exc))
+                return
+
+        if not any(p.is_selected for p in photos):
+            messagebox.showinfo(
+                "Keine Auswahl",
+                "In diesem Ordner sind keine ausgewählten Bilder markiert.",
+            )
+            return
+
+        open_review(self, photos, plan, Path(output_dir), on_saved=lambda: self.status_var.set("Auswahl gespeichert"))
 
 
 def main() -> int:

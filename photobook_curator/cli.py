@@ -163,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         print(f"Fehler: {exc}")
         return 1
-    print("Fertig:", result)
+    summary = {k: v for k, v in result.items() if k not in ("photo_objects", "plan", "order")}
+    print("Fertig:", summary)
     return 0
 
 

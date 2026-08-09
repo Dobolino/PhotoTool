@@ -34,11 +34,17 @@ Danach öffnet sich ein Fenster.
 
 ### 4. Im Fenster
 
-1. **Fotos-Ordner** → `Durchsuchen…` → z. B. `OneDrive\Bilder\Urlaubfotos\Japan`
-2. **Ausgabe-Ordner** → `Durchsuchen…` → neuen leeren Ordner wählen
+1. **Fotos-Ordner** → `Durchsuchen` → z. B. `OneDrive\Bilder\Urlaubfotos\Japan`
+2. **Ausgabe-Ordner** → `Durchsuchen` → neuen leeren Ordner wählen
 3. **Zielanzahl** einstellen (z. B. 80)
-4. Auf **Start** klicken
+4. Auf **Auswahl starten** klicken
 5. Warten, bis „Fertig“ erscheint
+6. Bei Nachfrage **Ja** → **Auswahl prüfen** (Thumbnails)
+   - Klick auf ein Bild = rausnehmen / wieder reinnehmen
+   - Unten Alternativen mit **+ HINZUFÜGEN**
+   - **Speichern & Ordner neu schreiben**
+
+Später erneut prüfbar über den Button **Auswahl prüfen** (braucht `photos_analysis.csv` im Ausgabeordner).
 
 ### 5. Ergebnis
 
