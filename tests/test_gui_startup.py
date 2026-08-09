@@ -19,6 +19,36 @@ def test_gui_does_not_import_pipeline_at_module_level() -> None:
                 assert "pipeline" not in alias.name
 
 
+def test_classify_console_chunk_detects_tqdm() -> None:
+    from photobook_curator.gui import ConsoleQueueWriter, classify_console_chunk
+
+    assert classify_console_chunk("hello", "line") == "line"
+    assert classify_console_chunk("x", "status") == "status"
+    assert (
+        classify_console_chunk(
+            "Technische Analyse:  36%|██ | 958/2618 [02:30<04:20, 6.37img/s]",
+            "line",
+        )
+        == "status"
+    )
+    assert (
+        classify_console_chunk(
+            "Dokumente/Screenshots: 30%|▎| 780/2618 [01:00<08:55, 3.43img/s]",
+            "line",
+        )
+        == "status"
+    )
+
+    import queue
+
+    q: queue.Queue = queue.Queue()
+    w = ConsoleQueueWriter(q, None)
+    assert w.isatty() is True
+    w.write("Technische Analyse: 10%| | 1/10 [00:01<00:09, 1.0img/s]\n")
+    mode, _text = q.get_nowait()
+    assert mode == "status"
+
+
 def test_close_prompt_when_analysis_running() -> None:
     from photobook_curator.gui import PhotobookApp
 

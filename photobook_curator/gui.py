@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import queue
+import re
 import sys
 import threading
+import time
 import traceback
 import tkinter as tk
 from pathlib import Path
@@ -29,6 +31,91 @@ COLORS = {
     "log_bg": "#1C2421",
     "log_fg": "#D7E0DB",
 }
+
+# tqdm-Zeilen (auch wenn ohne \r als normale Zeile kommen)
+_PROGRESS_LINE_RE = re.compile(
+    r"(\d+%|\d+/\d+.*(img/s|it/s)|%\||\|█|Technische Analyse:|Dokumente/Screenshots:|"
+    r"Gesichter|Gesichtsqualität|pHash|Duplikate|Serien/Bursts|Finger-Check|"
+    r"Personen-Cluster|Reverse Geocoding|AI-Review|Scan & EXIF)"
+)
+
+HELP_TEXT = (
+    "Kurzanleitung\n"
+    "─────────────\n\n"
+    "1. Fotos-Ordner wählen (z. B. iCloud-/Urlaubsfotos).\n"
+    "2. Ausgabe-Ordner wählen (am besten leer / neu).\n"
+    "3. Zielanzahl einstellen (z. B. 80).\n"
+    "4. Optionen nach Bedarf lassen oder anpassen.\n"
+    "5. „Auswahl starten“ – Fortschritt siehst du am Balken und unter Verlauf.\n"
+    "   Bei vielen Fotos kann das mehrere Minuten dauern; das Fenster kann\n"
+    "   kurz „Keine Rückmeldung“ zeigen, arbeitet aber weiter.\n"
+    "6. Wenn fertig: „Auswahl prüfen“ – einzelne Bilder rausnehmen oder\n"
+    "   Alternativen / Dokumente hinzufügen, dann speichern.\n\n"
+    "Tipp: Zum Aktualisieren des Programms „Programm aktualisieren.bat“\n"
+    "im PhotoTool-Ordner nutzen. Mehr Details stehen in START.md."
+)
+
+
+def classify_console_chunk(text: str, mode: str) -> str:
+    """Unterscheidet feste Log-Zeilen von ersetzbarem Fortschritt (tqdm)."""
+    if mode == "status":
+        return "status"
+    t = text.strip()
+    if not t:
+        return "line"
+    if _PROGRESS_LINE_RE.search(t):
+        return "status"
+    return "line"
+
+
+class ConsoleQueueWriter:
+    """Leitet stdout/stderr in die GUI-Queue; täuscht TTY vor, damit tqdm \\r nutzt."""
+
+    def __init__(self, q: queue.Queue, original) -> None:
+        self.q = q
+        self.original = original
+        self._buf = ""
+        self.encoding = getattr(original, "encoding", "utf-8") or "utf-8"
+
+    def isatty(self) -> bool:
+        return True
+
+    def writable(self) -> bool:
+        return True
+
+    def fileno(self) -> int:
+        raise OSError("no fileno for GUI console writer")
+
+    def write(self, s: str) -> int:
+        if self.original:
+            try:
+                self.original.write(s)
+            except Exception:
+                pass
+        self._buf += s
+        # Segmente an \n (feste Zeile) und \r (tqdm-Zwischenstand) trennen.
+        while True:
+            nl = self._buf.find("\n")
+            cr = self._buf.find("\r")
+            if nl == -1 and cr == -1:
+                break
+            if cr == -1 or (nl != -1 and nl < cr):
+                idx, mode = nl, "line"
+            else:
+                idx, mode = cr, "status"
+            seg = self._buf[:idx].strip("\r")
+            self._buf = self._buf[idx + 1 :]
+            if seg.strip():
+                mode = classify_console_chunk(seg, mode)
+                self.q.put((mode, seg))
+        return len(s)
+
+    def flush(self) -> None:
+        if self.original:
+            try:
+                self.original.flush()
+            except Exception:
+                pass
 
 
 class PhotobookApp(tk.Tk):
@@ -58,11 +145,13 @@ class PhotobookApp(tk.Tk):
         self.dry_run_var = tk.BooleanVar(value=False)
         self.api_key_var = tk.StringVar(value=os.environ.get("ANTHROPIC_API_KEY", ""))
 
-        self._log_queue: queue.Queue[str] = queue.Queue()
+        self._log_queue: queue.Queue = queue.Queue()
         self._progress_queue: queue.Queue[tuple[str, float]] = queue.Queue()
         self._cancel_event = threading.Event()
         self._status_shown = False       # tqdm-Zwischenstand als eine ersetzbare Zeile
         self._status_mark = "log_status"
+        self._pending_status: str | None = None
+        self._last_status_paint = 0.0
         self._worker: threading.Thread | None = None
         self._last_photos = None
         self._last_plan = None
@@ -73,7 +162,7 @@ class PhotobookApp(tk.Tk):
         self._setup_style()
         self._build()
         self.protocol("WM_DELETE_WINDOW", self._on_close_request)
-        self.after(150, self._drain_queues)
+        self.after(100, self._drain_queues)
         # Schwere Module (OpenCV/MediaPipe) erst NACH dem Fenster laden,
         # sonst wirkt der Start wie ein leeres schwarzes Konsolenfenster.
         self.after(200, self._warmup_backend)
@@ -206,6 +295,17 @@ class PhotobookApp(tk.Tk):
             foreground=COLORS["ink"],
             padding=4,
         )
+        style.configure(
+            "Next.TLabel",
+            background=COLORS["bg"],
+            foreground=COLORS["accent"],
+            font=("Segoe UI Semibold", 10),
+        )
+        style.configure(
+            "Help.TButton",
+            font=("Segoe UI", 9),
+            padding=(10, 4),
+        )
 
     def _build(self) -> None:
         root = ttk.Frame(self, style="App.TFrame")
@@ -213,7 +313,12 @@ class PhotobookApp(tk.Tk):
 
         hero = ttk.Frame(root, style="Hero.TFrame", padding=(22, 18))
         hero.pack(fill=tk.X)
-        ttk.Label(hero, text="Fotobuch", style="HeroTitle.TLabel").pack(anchor=tk.W)
+        hero_top = ttk.Frame(hero, style="Hero.TFrame")
+        hero_top.pack(fill=tk.X)
+        ttk.Label(hero_top, text="Fotobuch", style="HeroTitle.TLabel").pack(side=tk.LEFT)
+        ttk.Button(hero_top, text="Hilfe", style="Help.TButton", command=self._show_help).pack(
+            side=tk.RIGHT
+        )
         ttk.Label(
             hero,
             text="Urlaubsfotos automatisch sortieren, filtern und als Kapitel vorbereiten.",
@@ -332,6 +437,13 @@ class PhotobookApp(tk.Tk):
         ttk.Label(prog_row, textvariable=self.phase_var, style="Field.TLabel").pack(anchor=tk.W)
         self.progress = ttk.Progressbar(prog_row, mode="determinate", maximum=100)
         self.progress.pack(fill=tk.X, pady=(4, 0))
+
+        self.next_step_var = tk.StringVar(
+            value="Nächster Schritt: Fotos- und Ausgabe-Ordner wählen, dann „Auswahl starten“."
+        )
+        ttk.Label(body, textvariable=self.next_step_var, style="Next.TLabel").pack(
+            anchor=tk.W, pady=(8, 0)
+        )
 
         log_frame = ttk.LabelFrame(body, text="  Verlauf  ", style="Card.TLabelframe", padding=8)
         log_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
@@ -479,6 +591,12 @@ class PhotobookApp(tk.Tk):
         if path:
             self.output_var.set(path)
 
+    def _show_help(self) -> None:
+        messagebox.showinfo("Hilfe – Fotobuch", HELP_TEXT, parent=self)
+
+    def _set_next_step(self, text: str) -> None:
+        self.next_step_var.set(text)
+
     def _append_log(self, text: str) -> None:
         """Feste Log-Zeile (bleibt stehen)."""
         self.log.configure(state=tk.NORMAL)
@@ -486,18 +604,25 @@ class PhotobookApp(tk.Tk):
             self.log.delete(self._status_mark, tk.END)
             self._status_shown = False
         self.log.insert(tk.END, text + "\n")
+        # Lange Läufe: altes Log kürzen, damit das Text-Widget nicht explodiert
+        try:
+            line_count = int(self.log.index("end-1c").split(".")[0])
+            if line_count > 400:
+                self.log.delete("1.0", f"{line_count - 300}.0")
+        except tk.TclError:
+            pass
         self.log.see(tk.END)
         self.log.configure(state=tk.DISABLED)
 
     def _append_status(self, text: str) -> None:
-        """Sich fortlaufend ersetzende Zeile (tqdm-Fortschritt) – zeigt, dass es läuft."""
+        """Eine ersetzbare Fortschrittszeile – kein Flood mit tausenden Zeilen."""
         self.log.configure(state=tk.NORMAL)
         if self._status_shown:
             self.log.delete(self._status_mark, tk.END)
         else:
             self.log.mark_set(self._status_mark, tk.END)
             self.log.mark_gravity(self._status_mark, tk.LEFT)
-        self.log.insert(tk.END, text)
+        self.log.insert(tk.END, text.rstrip() + "\n")
         self._status_shown = True
         self.log.see(tk.END)
         self.log.configure(state=tk.DISABLED)
@@ -505,29 +630,49 @@ class PhotobookApp(tk.Tk):
     def _set_progress(self, label: str, frac: float) -> None:
         self.phase_var.set(label)
         self.progress["value"] = max(0, min(100, int(round(frac * 100))))
-        if label and label != "Fertig":
+        if label and label not in ("Fertig", "Abgebrochen", "Fehler"):
             self.status_var.set(label)
+            self._set_next_step(
+                f"Analyse läuft ({label}). Bitte warten – bei vielen Fotos dauert das."
+            )
 
     def _drain_queues(self) -> None:
+        """Holt Log/Progress; Fortschritt wird gebündelt (max. ~10×/s, nur letzter Stand)."""
+        lines: list[str] = []
         try:
             while True:
                 item = self._log_queue.get_nowait()
                 if isinstance(item, tuple):
                     mode, text = item
                 else:
-                    mode, text = "line", item
+                    mode, text = "line", str(item)
+                mode = classify_console_chunk(str(text), mode)
                 if mode == "status":
-                    self._append_status(text)
+                    self._pending_status = str(text)
                 else:
-                    self._append_log(text)
+                    lines.append(str(text))
         except queue.Empty:
             pass
+
+        # Backlog begrenzen, damit nach einem Freeze nicht 2000 Zeilen nachgerendert werden
+        for text in lines[-80:]:
+            self._append_log(text)
+
+        now = time.monotonic()
+        if self._pending_status is not None and (now - self._last_status_paint) >= 0.1:
+            self._append_status(self._pending_status)
+            self._pending_status = None
+            self._last_status_paint = now
+
         try:
+            label, frac = None, None
             while True:
                 label, frac = self._progress_queue.get_nowait()
-                self._set_progress(label, frac)
         except queue.Empty:
             pass
+        if label is not None and frac is not None:
+            self._set_progress(label, frac)
+
         self.after(100, self._drain_queues)
 
     def _start(self) -> None:
@@ -593,6 +738,11 @@ class PhotobookApp(tk.Tk):
         self.status_var.set("Arbeitet…")
         self.phase_var.set("Start…")
         self.progress["value"] = 0
+        self._pending_status = None
+        self._set_next_step(
+            "Analyse läuft… Fortschritt am Balken und in einer Zeile unter Verlauf. "
+            "Bitte warten."
+        )
         self._append_log("Start…")
         self._worker = threading.Thread(target=self._run, args=(cfg,), daemon=True)
         self._worker.start()
@@ -603,52 +753,16 @@ class PhotobookApp(tk.Tk):
             self.cancel_btn.configure(state=tk.DISABLED)
             self.status_var.set("Wird abgebrochen…")
             self.phase_var.set("Abbrechen… (stoppt nach dem aktuellen Schritt)")
+            self._set_next_step("Abbruch angefordert – warte auf Ende des aktuellen Schritts…")
             self._append_log("Abbruch angefordert…")
 
     def _run(self, cfg: Any) -> None:
-        class QueueWriter:
-            def __init__(self, q: queue.Queue[str], original) -> None:
-                self.q = q
-                self.original = original
-                self._buf = ""
-
-            def write(self, s: str) -> int:
-                if self.original:
-                    try:
-                        self.original.write(s)
-                    except Exception:
-                        pass
-                self._buf += s
-                # Segmente an \n (feste Zeile) und \r (tqdm-Zwischenstand) trennen,
-                # damit der Fortschritt live sichtbar ist statt erst am Phasenende.
-                while True:
-                    nl = self._buf.find("\n")
-                    cr = self._buf.find("\r")
-                    if nl == -1 and cr == -1:
-                        break
-                    if cr == -1 or (nl != -1 and nl < cr):
-                        idx, mode = nl, "line"
-                    else:
-                        idx, mode = cr, "status"
-                    seg = self._buf[:idx].strip("\r")
-                    self._buf = self._buf[idx + 1:]
-                    if seg.strip():
-                        self.q.put((mode, seg))
-                return len(s)
-
-            def flush(self) -> None:
-                if self.original:
-                    try:
-                        self.original.flush()
-                    except Exception:
-                        pass
-
         def on_progress(label: str, frac: float) -> None:
             self._progress_queue.put((label, frac))
 
         old_out, old_err = sys.stdout, sys.stderr
-        sys.stdout = QueueWriter(self._log_queue, old_out)  # type: ignore[assignment]
-        sys.stderr = QueueWriter(self._log_queue, old_err)  # type: ignore[assignment]
+        sys.stdout = ConsoleQueueWriter(self._log_queue, old_out)  # type: ignore[assignment]
+        sys.stderr = ConsoleQueueWriter(self._log_queue, old_err)  # type: ignore[assignment]
         try:
             PipelineCancelled, _, run_pipeline = self._ensure_pipeline()
             result = run_pipeline(
@@ -669,6 +783,13 @@ class PhotobookApp(tk.Tk):
             self._last_output = result.get("output_dir") or cfg.output_dir
             self._progress_queue.put(("Fertig", 1.0))
             self.after(0, lambda: self.status_var.set("Fertig"))
+            self.after(
+                0,
+                lambda: self._set_next_step(
+                    "Fertig. Nächster Schritt: „Auswahl prüfen“ – Bilder rausnehmen "
+                    "oder Alternativen hinzufügen."
+                ),
+            )
             self.after(0, lambda r=result: self._on_finished(r, cfg))
         except Exception as exc:
             from .pipeline import PipelineCancelled as _Cancelled
@@ -677,10 +798,22 @@ class PhotobookApp(tk.Tk):
                 self._log_queue.put("Abgebrochen – es wurden keine Ordner geschrieben.")
                 self._progress_queue.put(("Abgebrochen", 0.0))
                 self.after(0, lambda: self.status_var.set("Abgebrochen"))
+                self.after(
+                    0,
+                    lambda: self._set_next_step(
+                        "Abgebrochen. Du kannst die Optionen anpassen und erneut starten."
+                    ),
+                )
             else:
                 self._log_queue.put(f"Fehler: {exc}")
                 self._progress_queue.put(("Fehler", 0.0))
                 self.after(0, lambda: self.status_var.set("Fehler"))
+                self.after(
+                    0,
+                    lambda: self._set_next_step(
+                        "Fehler aufgetreten – siehe Verlauf. Danach erneut versuchen."
+                    ),
+                )
                 self.after(0, lambda: messagebox.showerror("Fehler", str(exc)))
         finally:
             sys.stdout, sys.stderr = old_out, old_err
@@ -689,6 +822,9 @@ class PhotobookApp(tk.Tk):
 
     def _on_finished(self, result: dict, cfg: Any) -> None:
         if result.get("dry_run"):
+            self._set_next_step(
+                "Kostenschätzung fertig. Für echten Lauf „Nur Kosten schätzen“ aus und erneut starten."
+            )
             messagebox.showinfo(
                 "Dry-Run",
                 "Kostenschätzung fertig. Siehe Verlauf für Details.",
@@ -698,6 +834,9 @@ class PhotobookApp(tk.Tk):
         if cfg.enable_map_preview and not result.get("exported"):
             from .map_preview import open_map_preview
 
+            self._set_next_step(
+                "Nächster Schritt: Kapitel-/Karten-Vorschau bestätigen, danach „Auswahl prüfen“."
+            )
             open_map_preview(
                 self,
                 result.get("photo_objects") or [],
@@ -710,6 +849,9 @@ class PhotobookApp(tk.Tk):
             )
             return
 
+        self._set_next_step(
+            "Fertig. Nächster Schritt: „Auswahl prüfen“ klicken (oder im Dialog bestätigen)."
+        )
         self._ask_open_review(cfg)
 
     def _confirm_export_after_preview(self, result: dict, cfg: PipelineConfig) -> None:
@@ -746,13 +888,22 @@ class PhotobookApp(tk.Tk):
         )
 
     def _ask_open_review(self, cfg: PipelineConfig) -> None:
+        self._set_next_step(
+            "Nächster Schritt: „Auswahl prüfen“ – Thumbnails durchgehen, dann speichern."
+        )
         open_review = messagebox.askyesno(
-            "Fertig",
+            "Fertig – nächster Schritt",
             f"Auswahl erstellt in:\n{cfg.output_dir}\n\n"
-            "Jetzt die Bilder als Vorschau prüfen und einzelne rausnehmen/hinzufügen?",
+            "Nächster Schritt: Auswahl prüfen.\n"
+            "Bilder als Vorschau ansehen und einzelne rausnehmen oder hinzufügen?",
         )
         if open_review:
             self._open_review()
+        else:
+            self._set_next_step(
+                "Auswahl liegt bereit. Später „Auswahl prüfen“ klicken "
+                "(braucht photos_analysis.csv im Ausgabeordner)."
+            )
 
     def _open_map_preview(self) -> None:
         from .map_preview import open_map_preview
