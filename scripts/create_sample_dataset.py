@@ -184,6 +184,26 @@ def create_dataset(out_dir: Path, base_date: datetime | None = None) -> None:
     Image.fromarray(arr).save(p2, quality=92)
     piexif.insert(make_exif(dup_dt + timedelta(minutes=1), paris["lat"], paris["lon"]), str(p2))
 
+    # Burst-Serie: 5 sehr ähnliche Landschaftsbilder innerhalb von ~20 Sekunden
+    burst_base = base_date.replace(hour=15, minute=30, second=0)
+    burst_seed_path = save(
+        "paris_burst_0", "landschaft", burst_base, paris["lat"], paris["lon"], jitter=0.00005
+    )
+    burst_img = np.array(Image.open(burst_seed_path))
+    for bi in range(1, 5):
+        seq += 1
+        variant = np.clip(burst_img.astype(np.int16) + np.random.default_rng(bi).integers(-8, 9, size=burst_img.shape), 0, 255).astype(np.uint8)
+        bp = out_dir / f"{seq:03d}_paris_burst_{bi}.jpg"
+        Image.fromarray(variant).save(bp, quality=90 + (bi % 3))
+        piexif.insert(
+            make_exif(
+                burst_base + timedelta(seconds=4 * bi),
+                paris["lat"] + 0.00001 * bi,
+                paris["lon"] + 0.00001 * bi,
+            ),
+            str(bp),
+        )
+
     # Transit Paris -> Lyon (klarer Zeitspalt zwischen Regionen)
     for i in range(4):
         dt = base_date.replace(hour=14, minute=0, second=0) + timedelta(

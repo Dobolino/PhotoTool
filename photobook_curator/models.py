@@ -49,6 +49,8 @@ class Photo:
     saturation: float = 0.0
     is_screenshot: bool = False
     is_duplicate: bool = False
+    is_burst_reject: bool = False
+    burst_group_id: Optional[int] = None
     duplicate_of: Optional[str] = None
     face_count: int = 0
     eyes_closed: bool = False
@@ -132,6 +134,8 @@ class Photo:
             "book_position": self.book_position if self.book_position is not None else "",
             "chapter_folder": self.chapter_folder or "",
             "is_duplicate": self.is_duplicate,
+            "is_burst_reject": self.is_burst_reject,
+            "burst_group_id": self.burst_group_id if self.burst_group_id is not None else "",
             "is_screenshot": self.is_screenshot,
             "assigned_by_time": self.assigned_by_time,
             "fine_cluster_id": (

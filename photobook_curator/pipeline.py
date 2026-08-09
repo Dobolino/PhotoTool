@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .ai_review import ensure_scene_types, run_ai_review
+from .bursts import mark_bursts
 from .duplicates import mark_duplicates
 from .face_quality import analyze_face_quality
 from .faces import count_faces
@@ -38,6 +39,9 @@ class PipelineConfig:
     cluster_eps_meters: float = 400.0
     ai_concurrency: int = 5
     skip_faces: bool = False
+    burst_max_seconds: float = 30.0
+    burst_keep: int = 2
+    burst_min_size: int = 3
 
 
 def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
@@ -48,8 +52,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     photos = scan_photos(cfg.input_dir)
     print(f"  {len(photos)} Bilder gefunden")
     analyze_all(photos)
-    mark_duplicates(photos)
-    dup_count = sum(1 for p in photos if p.is_duplicate)
+    dup_count, burst_from_dup = mark_duplicates(
+        photos,
+        burst_seconds=cfg.burst_max_seconds,
+        keep_per_burst=cfg.burst_keep,
+        min_burst_size=cfg.burst_min_size,
+    )
     print(f"  {dup_count} Duplikate markiert")
     if not cfg.skip_faces:
         backend = count_faces(photos)
@@ -60,6 +68,19 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         print(f"  Gesichtsqualität: {fq_backend} ({closed} Augen zu, {bad} problematisch)")
     else:
         print("  Gesichtserkennung übersprungen")
+    # Zusätzliche, etwas lockerere Serien (nach Gesichtsqualität)
+    burst_extra = mark_bursts(
+        photos,
+        max_seconds=cfg.burst_max_seconds,
+        keep_per_burst=cfg.burst_keep,
+        min_burst_size=cfg.burst_min_size,
+    )
+    burst_rejected = burst_from_dup + burst_extra
+    burst_groups = len({p.burst_group_id for p in photos if p.burst_group_id})
+    print(
+        f"  {burst_groups} Serien erkannt, {burst_rejected} Burst-Bilder aussortiert "
+        f"(je max. {cfg.burst_keep} behalten)"
+    )
 
     print("=== Phase 2: Orte & Regionen ===")
     cache = GeocodeCache(cache_path, enabled=cfg.geocode)

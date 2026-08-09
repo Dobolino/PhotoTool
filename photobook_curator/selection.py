@@ -29,7 +29,9 @@ def mark_candidates(
         eligible = [
             i
             for i in indices
-            if not photos[i].is_duplicate and "unreadable" not in photos[i].flags
+            if not photos[i].is_duplicate
+            and not getattr(photos[i], "is_burst_reject", False)
+            and "unreadable" not in photos[i].flags
         ]
         eligible.sort(key=lambda i: photos[i].technical_score, reverse=True)
         k = max(quota, int(np.ceil(quota * candidate_factor)))
@@ -229,9 +231,12 @@ def select_for_region(
 ) -> tuple[list[int], list[int]]:
     """Gibt (hauptteil_indices, essen_indices) zurück, chronologisch sortiert."""
     # Nur Kandidaten bevorzugen, Fallback auf alle nicht-Duplikate
-    cand = [i for i in indices if photos[i].is_candidate and not photos[i].is_duplicate]
+    def _ok(i: int) -> bool:
+        return not photos[i].is_duplicate and not getattr(photos[i], "is_burst_reject", False)
+
+    cand = [i for i in indices if photos[i].is_candidate and _ok(i)]
     if not cand:
-        cand = [i for i in indices if not photos[i].is_duplicate]
+        cand = [i for i in indices if _ok(i)]
 
     ensure_scene_types(photos, cand)
     for i in cand:
@@ -273,9 +278,12 @@ def select_for_transit(
     quota: int,
     similarity_threshold: float = 0.92,
 ) -> list[int]:
-    cand = [i for i in indices if photos[i].is_candidate and not photos[i].is_duplicate]
+    def _ok(i: int) -> bool:
+        return not photos[i].is_duplicate and not getattr(photos[i], "is_burst_reject", False)
+
+    cand = [i for i in indices if photos[i].is_candidate and _ok(i)]
     if not cand:
-        cand = [i for i in indices if not photos[i].is_duplicate]
+        cand = [i for i in indices if _ok(i)]
     ensure_scene_types(photos, cand)
     for i in cand:
         compute_final_score(photos[i])

@@ -61,6 +61,8 @@ def compute_technical_score(photo: Photo) -> float:
         score -= 40.0
     if photo.is_duplicate:
         score -= 50.0
+    if getattr(photo, "is_burst_reject", False):
+        score -= 40.0
     if photo.is_too_dark:
         score -= 20.0
     if photo.is_overexposed:

@@ -45,6 +45,8 @@ CSV_FIELDS = [
     "book_position",
     "chapter_folder",
     "is_duplicate",
+    "is_burst_reject",
+    "burst_group_id",
     "is_screenshot",
     "assigned_by_time",
     "fine_cluster_id",

@@ -235,6 +235,8 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 book_position=_int("book_position") if bp_raw else None,
                 chapter_folder=(row.get("chapter_folder") or None) or None,
                 is_duplicate=_bool("is_duplicate"),
+                is_burst_reject=_bool("is_burst_reject"),
+                burst_group_id=_int("burst_group_id") if (row.get("burst_group_id") or "").strip() else None,
                 is_screenshot=_bool("is_screenshot"),
                 assigned_by_time=_bool("assigned_by_time"),
                 eyes_closed=_bool("eyes_closed"),
@@ -311,7 +313,12 @@ def candidate_alternatives(
 
     pool: list[int] = []
     for i, p in enumerate(photos):
-        if p.is_selected or p.is_duplicate or not p.is_candidate:
+        if (
+            p.is_selected
+            or p.is_duplicate
+            or getattr(p, "is_burst_reject", False)
+            or not p.is_candidate
+        ):
             continue
         if p.region not in regions:
             continue

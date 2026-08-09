@@ -55,6 +55,8 @@ Im Ausgabeordner:
 
 Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter (angeschnitten / zu klein), markiert sie in der Prüfung und bevorzugt sie nicht fürs Buch.
 
+**Serien/Bursts:** Aus ähnlichen Fotos innerhalb von ~30 Sekunden behält es nur die besten 1–2 Bilder.
+
 Optional: Haken bei **KI-Bewertung** setzen und API-Key eintragen (braucht Account auf [console.anthropic.com](https://console.anthropic.com/) — Claude-Chat-Abo reicht nicht).
 
 ---

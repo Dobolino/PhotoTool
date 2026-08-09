@@ -114,6 +114,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Gesichtserkennung überspringen (schneller für Tests)",
     )
     p.add_argument(
+        "--burst-seconds",
+        type=float,
+        default=30.0,
+        help="Max. Sekunden Abstand für Serien/Bursts (Standard: 30)",
+    )
+    p.add_argument(
+        "--burst-keep",
+        type=int,
+        default=2,
+        help="Beste Bilder pro Serie behalten (Standard: 2)",
+    )
+    p.add_argument(
         "--gui",
         action="store_true",
         help="Einfache Fenster-Oberfläche starten",
@@ -157,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
         cluster_eps_meters=args.cluster_eps_meters,
         ai_concurrency=args.ai_concurrency,
         skip_faces=args.skip_faces,
+        burst_max_seconds=args.burst_seconds,
+        burst_keep=args.burst_keep,
     )
     try:
         result = run_pipeline(cfg)

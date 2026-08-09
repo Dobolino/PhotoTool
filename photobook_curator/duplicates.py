@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import timedelta
-from typing import Optional
 
 import imagehash
 from tqdm import tqdm
 
+from .bursts import _burst_score
 from .models import Photo
 from .quality import compute_technical_score
 from .utils import load_image
@@ -38,8 +38,7 @@ def _near_in_space(a: Photo, b: Photo, max_km: float = 0.5) -> bool:
     """True wenn beide keine GPS haben oder Distanz klein ist."""
     if not a.has_gps or not b.has_gps:
         return True
-    # grobe Haversine-Näherung
-    from math import radians, cos, sin, asin, sqrt
+    from math import asin, cos, radians, sin, sqrt
 
     lon1, lat1, lon2, lat2 = map(
         radians, [a.gps_lon, a.gps_lat, b.gps_lon, b.gps_lat]  # type: ignore[arg-type]
@@ -53,10 +52,19 @@ def _near_in_space(a: Photo, b: Photo, max_km: float = 0.5) -> bool:
 
 def mark_duplicates(
     photos: list[Photo],
-    hash_threshold: int = 8,
+    hash_threshold: int = 5,
     max_minutes: float = 5.0,
-) -> None:
-    """Gruppiert ähnliche Bilder; behält das technisch beste, markiert Rest als Duplikat."""
+    *,
+    burst_seconds: float = 30.0,
+    keep_per_burst: int = 2,
+    min_burst_size: int = 3,
+) -> tuple[int, int]:
+    """
+    Gruppiert nahezu identische Bilder.
+    - Kurze Serie (<= burst_seconds, >= min_burst_size): beste keep_per_burst behalten
+    - Sonst: 1 bestes behalten, Rest Duplikat
+    Returns (duplicate_count, burst_reject_count).
+    """
     compute_phashes(photos)
     n = len(photos)
     parent = list(range(n))
@@ -75,9 +83,11 @@ def mark_duplicates(
     indexed = [(i, p) for i, p in enumerate(photos) if p.phash]
     for idx_a, (i, a) in enumerate(tqdm(indexed, desc="Duplikate prüfen", unit="img")):
         for j, b in indexed[idx_a + 1 :]:
-            if _hamming(a.phash, b.phash) <= hash_threshold and _near_in_time(
-                a, b, max_minutes
-            ) and _near_in_space(a, b):
+            if (
+                _hamming(a.phash, b.phash) <= hash_threshold
+                and _near_in_time(a, b, max_minutes)
+                and _near_in_space(a, b)
+            ):
                 union(i, j)
 
     groups: dict[int, list[int]] = defaultdict(list)
@@ -85,15 +95,39 @@ def mark_duplicates(
         if photos[i].phash:
             groups[find(i)].append(i)
 
+    dup_count = 0
+    burst_reject = 0
+    burst_id = 0
     for members in groups.values():
         if len(members) < 2:
             continue
-        # technisch bestes behalten
-        best = max(members, key=lambda i: photos[i].technical_score)
-        for i in members:
-            if i == best:
-                continue
-            photos[i].is_duplicate = True
-            photos[i].duplicate_of = photos[best].filename
-            photos[i].add_flag("duplicate")
-            compute_technical_score(photos[i])
+        times = [photos[i].datetime_taken for i in members if photos[i].datetime_taken]
+        span_s = (max(times) - min(times)).total_seconds() if times else 10**9
+        is_burst = span_s <= burst_seconds and len(members) >= min_burst_size
+
+        if is_burst:
+            burst_id += 1
+            ranked = sorted(members, key=lambda idx: _burst_score(photos[idx]), reverse=True)
+            keep = set(ranked[: max(1, keep_per_burst)])
+            for i in members:
+                photos[i].burst_group_id = burst_id
+                if i in keep:
+                    photos[i].add_flag("burst_keep")
+                else:
+                    photos[i].is_burst_reject = True
+                    photos[i].add_flag("burst_reject")
+                    photos[i].duplicate_of = photos[ranked[0]].filename
+                    compute_technical_score(photos[i])
+                    burst_reject += 1
+        else:
+            best = max(members, key=lambda i: photos[i].technical_score)
+            for i in members:
+                if i == best:
+                    continue
+                photos[i].is_duplicate = True
+                photos[i].duplicate_of = photos[best].filename
+                photos[i].add_flag("duplicate")
+                compute_technical_score(photos[i])
+                dup_count += 1
+
+    return dup_count, burst_reject
