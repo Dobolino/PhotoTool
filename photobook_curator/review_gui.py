@@ -101,7 +101,10 @@ class ReviewWindow(tk.Toplevel):
         self._pending_slides: set[int] = set()
         self._scroll_job: str | None = None
         self._reflow_job: str | None = None
+        self._scroll_idle_job: str | None = None
+        self._scrolling = False
         self._wheel_bound = False
+        self._last_canvas_w = 0
         self._grid_cols = 6
         self._section_grids: dict[str, tk.Misc] = {}
         self._section_counts: dict[str, int] = {}
@@ -276,8 +279,8 @@ class ReviewWindow(tk.Toplevel):
             pady=10,
         ).pack(side=tk.RIGHT, padx=(0, 10))
 
-        bar = tk.Frame(self, bg=COLORS["bg"], padx=20, pady=(0, 8))
-        bar.pack(fill=tk.X)
+        bar = tk.Frame(self, bg=COLORS["bg"], padx=20)
+        bar.pack(fill=tk.X, pady=(0, 8))
         self.count_var = tk.StringVar()
         tk.Label(
             bar,
@@ -302,72 +305,148 @@ class ReviewWindow(tk.Toplevel):
         self._tip_banner = soft_banner(tip_host, tip_text, COLORS)
         self._tip_banner.pack(fill=tk.X)
 
-        self._body = ttk.Frame(self, style="Rev.TFrame")
+        # Wichtig: nur tk.Frame im scrollbaren Bereich – ttk im Canvas
+        # erzeugt unter Windows die typischen Geister-/Überlappungsartefakte.
+        self._body = tk.Frame(self, bg=COLORS["bg"])
         self._body.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 14))
 
-        self._grid_host = ttk.Frame(self._body, style="Rev.TFrame")
+        self._grid_host = tk.Frame(self._body, bg=COLORS["bg"])
         self._grid_host.pack(fill=tk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(self._grid_host, bg=COLORS["bg"], highlightthickness=0)
-        scroll = ttk.Scrollbar(self._grid_host, orient=tk.VERTICAL, command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=scroll.set)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.canvas = tk.Canvas(
+            self._grid_host,
+            bg=COLORS["bg"],
+            highlightthickness=0,
+            bd=0,
+            yscrollincrement=24,
+        )
+        self._vscroll = tk.Scrollbar(
+            self._grid_host,
+            orient=tk.VERTICAL,
+            command=self._canvas_yview,
+            bg=COLORS.get("chip_bg", COLORS["surface"]),
+            troughcolor=COLORS["bg"],
+            activebackground=COLORS["accent"],
+            width=14,
+        )
+        self.canvas.configure(yscrollcommand=self._vscroll.set)
+        self._vscroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.inner = ttk.Frame(self.canvas, style="Rev.TFrame")
+        self.inner = tk.Frame(self.canvas, bg=COLORS["bg"], bd=0, highlightthickness=0)
         self._win = self.canvas.create_window((0, 0), window=self.inner, anchor=tk.NW)
-        self.inner.bind("<Configure>", self._schedule_scrollregion)
+        self.inner.bind("<Configure>", self._on_inner_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
         # Mausrad: einmal global für dieses Review – funktioniert auch über Kacheln
         self._install_wheel()
 
-        self._slide_host = ttk.Frame(self._body, style="Rev.TFrame")
+        self._slide_host = tk.Frame(self._body, bg=COLORS["bg"])
         self._build_slideshow_ui()
 
-    def _schedule_scrollregion(self, _event=None) -> None:
+    def _canvas_yview(self, *args) -> None:
+        """Scrollbar-Handler mit Paint-Fix (Windows Ghosting)."""
+        self._begin_scroll()
+        self.canvas.yview(*args)
+        self._repaint_after_scroll()
+        self._end_scroll_soon()
+
+    def _begin_scroll(self) -> None:
+        self._scrolling = True
+        # Keine scrollregion-/Thumb-Umbauten während aktiver Bewegung
         if self._scroll_job is not None:
             try:
                 self.after_cancel(self._scroll_job)
             except Exception:
                 pass
-        self._scroll_job = self.after(120, self._update_scrollregion)
+            self._scroll_job = None
+
+    def _end_scroll_soon(self) -> None:
+        if self._scroll_idle_job is not None:
+            try:
+                self.after_cancel(self._scroll_idle_job)
+            except Exception:
+                pass
+        self._scroll_idle_job = self.after(180, self._end_scroll)
+
+    def _end_scroll(self) -> None:
+        self._scroll_idle_job = None
+        self._scrolling = False
+        self._update_scrollregion()
+
+    def _repaint_after_scroll(self) -> None:
+        """Erzwingt Neuzeichnen der eingebetteten Fenster (Windows)."""
+        try:
+            # Kurz den Hintergrund neu setzen – triggert sauberes Clipping
+            self.canvas.configure(bg=COLORS["bg"])
+            self.inner.configure(bg=COLORS["bg"])
+            self.canvas.update_idletasks()
+        except tk.TclError:
+            pass
+
+    def _schedule_scrollregion(self, _event=None) -> None:
+        if self._scrolling:
+            return
+        if self._scroll_job is not None:
+            try:
+                self.after_cancel(self._scroll_job)
+            except Exception:
+                pass
+        self._scroll_job = self.after(200, self._update_scrollregion)
+
+    def _on_inner_configure(self, _event=None) -> None:
+        # Nur wenn nicht gescrollt wird – sonst Ghosting durch scrollregion-Änderungen
+        if not self._scrolling:
+            self._schedule_scrollregion()
 
     def _update_scrollregion(self) -> None:
         self._scroll_job = None
+        if self._scrolling:
+            return
         try:
-            bbox = self.canvas.bbox("all")
-            if bbox:
-                self.canvas.configure(scrollregion=bbox)
+            self.inner.update_idletasks()
+            req_h = max(self.inner.winfo_reqheight(), 1)
+            req_w = max(self.inner.winfo_reqwidth(), self.canvas.winfo_width())
+            self.canvas.configure(scrollregion=(0, 0, req_w, req_h))
         except tk.TclError:
             pass
 
     def _on_canvas_configure(self, event) -> None:
         try:
-            self.canvas.itemconfigure(self._win, width=event.width)
+            self.canvas.itemconfigure(self._win, width=max(event.width, 1))
         except tk.TclError:
             return
         cols = max(4, min(10, int(event.width) // (THUMB + 36)))
+        # Spalten nur merken – kein Live-Rebuild (das zerstört das Scrollen)
+        width_jump = abs(event.width - self._last_canvas_w) >= 96
+        self._last_canvas_w = event.width
         if cols != self._grid_cols:
             self._grid_cols = cols
-            if not self._slideshow:
+            if (
+                width_jump
+                and not self._slideshow
+                and not self._scrolling
+                and self._section_grids
+            ):
                 if self._reflow_job is not None:
                     try:
                         self.after_cancel(self._reflow_job)
                     except Exception:
                         pass
-                self._reflow_job = self.after(220, self._reflow_grid)
+                # Nur bei großem Resize, verzögert
+                self._reflow_job = self.after(400, self._reflow_grid)
 
     def _reflow_grid(self) -> None:
         self._reflow_job = None
-        if self._slideshow or not self.winfo_exists():
+        if self._slideshow or self._scrolling or not self.winfo_exists():
             return
-        # Scrollposition merken
         try:
             top = self.canvas.yview()[0]
         except tk.TclError:
             top = 0.0
         self._render()
         try:
+            self.update_idletasks()
+            self._update_scrollregion()
             self.canvas.yview_moveto(top)
         except tk.TclError:
             pass
@@ -398,7 +477,7 @@ class ReviewWindow(tk.Toplevel):
             widget = self.winfo_containing(x, y)
             w = widget
             while w is not None:
-                if w in (self.canvas, self.inner):
+                if w in (self.canvas, self.inner, self._vscroll, self._grid_host):
                     return True
                 w = getattr(w, "master", None)
             return False
@@ -407,7 +486,10 @@ class ReviewWindow(tk.Toplevel):
 
     def _scroll_units(self, units: int) -> None:
         if self.winfo_exists() and not self._slideshow:
+            self._begin_scroll()
             self.canvas.yview_scroll(units, "units")
+            self._repaint_after_scroll()
+            self._end_scroll_soon()
 
     def _on_linux_scroll_up(self, _event=None) -> None:
         if self._pointer_in_grid():
@@ -417,16 +499,18 @@ class ReviewWindow(tk.Toplevel):
         if self._pointer_in_grid():
             self._scroll_units(3)
 
-    def _on_mousewheel(self, event) -> None:
+    def _on_mousewheel(self, event) -> str | None:
         if not self._pointer_in_grid():
-            return
+            return None
         delta = int(getattr(event, "delta", 0) or 0)
         if delta == 0:
-            return
+            return None
         steps = -1 if delta > 0 else 1
         if abs(delta) >= 120:
             steps = int(-1 * (delta / 120))
-        self._scroll_units(steps * 2)
+        # Windows liefert oft viele kleine Events → bündeln
+        self._scroll_units(max(-6, min(6, steps * 3)))
+        return "break"
 
     def _build_slideshow_ui(self) -> None:
         host = self._slide_host
@@ -643,6 +727,11 @@ class ReviewWindow(tk.Toplevel):
                 self._slide_cache.pop(idx, None)
 
     def _drain_thumbs(self) -> None:
+        # Während Scrollen keine Label-Updates → verhindert Windows-Ghosting
+        if self._scrolling and not self._slideshow:
+            if self.winfo_exists():
+                self.after(60, self._drain_thumbs)
+            return
         updated = 0
         try:
             while updated < _THUMBS_PER_TICK:
@@ -672,11 +761,8 @@ class ReviewWindow(tk.Toplevel):
                 updated += 1
         except queue.Empty:
             pass
-        # scrollregion nur selten – feste Kachelhöhe macht ständiges Nachziehen unnötig
-        if updated and updated >= 4:
-            self._schedule_scrollregion()
         if self.winfo_exists():
-            delay = 30 if updated else 80
+            delay = 40 if updated else 90
             self.after(delay, self._drain_thumbs)
 
     def _drain_slides(self) -> None:
@@ -1356,11 +1442,16 @@ class ReviewWindow(tk.Toplevel):
         display = sorted(self.baseline | self.kept)
         sections = chapter_sections(self.photos, display)
         if not sections:
-            ttk.Label(
+            tk.Label(
                 self.inner,
                 text="Keine Bilder in der Auswahl. Füge unten Alternativen hinzu oder brich ab.",
-                style="RevMuted.TLabel",
-            ).pack(anchor=tk.W, padx=8, pady=16)
+                bg=COLORS["bg"],
+                fg=COLORS["muted"],
+                font=("Segoe UI", 10),
+                anchor=tk.W,
+                padx=8,
+                pady=16,
+            ).pack(anchor=tk.W)
 
         for title, folder, indices in sections:
             show_alts = not folder.startswith("99_")
@@ -1401,6 +1492,9 @@ class ReviewWindow(tk.Toplevel):
             )
             if alts:
                 self._alt_block("Vorschläge", alts[:_ALT_LIMIT], collapsed=True)
+
+        # Scrollregion einmal nach Aufbau setzen (nicht während Scrollen)
+        self.after(50, self._update_scrollregion)
 
     def _section(
         self,
@@ -1762,11 +1856,14 @@ class ReviewWindow(tk.Toplevel):
     def _close(self) -> None:
         self._autosave_draft()
         self._unbind_wheel()
-        if self._scroll_job is not None:
-            try:
-                self.after_cancel(self._scroll_job)
-            except Exception:
-                pass
+        for job_attr in ("_scroll_job", "_scroll_idle_job", "_reflow_job"):
+            job = getattr(self, job_attr, None)
+            if job is not None:
+                try:
+                    self.after_cancel(job)
+                except Exception:
+                    pass
+                setattr(self, job_attr, None)
         for _ in self._loaders:
             self._load_queue.put((0, next(self._load_seq), None))
         self.destroy()

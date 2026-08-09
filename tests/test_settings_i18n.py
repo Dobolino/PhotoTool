@@ -143,6 +143,10 @@ def test_review_has_night_header_and_wheel_fix() -> None:
     assert "soft_banner" in src
     assert "pack_propagate(False)" in src
     assert 'font=("Georgia"' not in src
+    # Canvas-Inhalt muss tk.Frame sein (ttk → Windows-Ghosting beim Scrollen)
+    assert "self.inner = tk.Frame(self.canvas" in src
+    assert "_repaint_after_scroll" in src
+    assert "self._scrolling" in src
 
 
 def test_alternatives_helper_exists() -> None:
