@@ -30,13 +30,15 @@ from .utils import load_image_scaled
 
 COLORS = theme_colors()
 
-THUMB = 140
-STRIP = 68
-STRIP_WINDOW = 11  # ungerade: aktuelle Bildmitte + Nachbarn
+THUMB = 120
+STRIP = 64
+STRIP_WINDOW = 9  # ungerade: aktuelle Bildmitte + Nachbarn
 # Wenige PhotoImage-Updates pro Tick → weniger Ruckeln beim Scrollen
-_THUMBS_PER_TICK = 6
-_SLIDE_MAX = 820  # max. Kantenlänge in der Diashow (kleiner = schneller)
-_LOADER_THREADS = 3
+_THUMBS_PER_TICK = 3
+_SLIDE_MAX = 720  # max. Kantenlänge in der Diashow (kleiner = schneller)
+_LOADER_THREADS = 2
+_ALT_LIMIT = 6  # Varianten pro Kapitel (weniger Widgets = flüssiger)
+_SLIDE_CACHE_MAX = 24
 
 
 class ReviewWindow(tk.Toplevel):
@@ -101,9 +103,11 @@ class ReviewWindow(tk.Toplevel):
         self._grid_cols = 6
         self._section_grids: dict[str, ttk.Frame] = {}
         self._section_counts: dict[str, int] = {}
-        self._session_added: set[int] = set()
+        self._session_added: set[int] = set()  # als Variante hinzugefügt
+        self._add_outers: dict[int, list[tk.Frame]] = {}
         self._status_flash_job: str | None = None
         self._slideshow = False
+        self._thumb_request_budget = 0
         self._slide_indices: list[int] = []
         self._slide_pos = 0
         self._slide_img_ref: ImageTk.PhotoImage | None = None
@@ -266,7 +270,7 @@ class ReviewWindow(tk.Toplevel):
                 self.after_cancel(self._scroll_job)
             except Exception:
                 pass
-        self._scroll_job = self.after(80, self._update_scrollregion)
+        self._scroll_job = self.after(120, self._update_scrollregion)
 
     def _update_scrollregion(self) -> None:
         self._scroll_job = None
@@ -514,16 +518,36 @@ class ReviewWindow(tk.Toplevel):
     def _request_thumb(self, idx: int, priority: int = 40) -> None:
         if idx in self._thumb_cache or idx in self._pending_thumbs:
             return
+        # Warteschlange begrenzen – verhindert OneDrive-Stau
+        if len(self._pending_thumbs) > 40 and priority > 5:
+            return
         self._pending_thumbs.add(idx)
         self._enqueue_job("thumb", idx, priority)
 
     def _request_slide(self, idx: int, priority: int = 10) -> None:
         if idx in self._slide_cache or idx in self._pending_slides:
             return
+        if len(self._pending_slides) > 12 and priority > 2:
+            return
         self._pending_slides.add(idx)
         self._enqueue_job("slide", idx, priority)
-        # Thumb für Filmstreifen parallel (falls noch nicht da)
         self._request_thumb(idx, priority=priority + 5)
+
+    def _trim_slide_cache(self) -> None:
+        """Alte Diashow-Bilder verwerfen, damit RAM/Tk nicht anschwellen."""
+        if len(self._slide_cache) <= _SLIDE_CACHE_MAX:
+            return
+        keep: set[int] = set()
+        if self._slide_indices and 0 <= self._slide_pos < len(self._slide_indices):
+            for off in range(-2, 5):
+                n = self._slide_pos + off
+                if 0 <= n < len(self._slide_indices):
+                    keep.add(self._slide_indices[n])
+        if self._alt_idx is not None:
+            keep.add(self._alt_idx)
+        for idx in list(self._slide_cache.keys()):
+            if idx not in keep and len(self._slide_cache) > _SLIDE_CACHE_MAX // 2:
+                self._slide_cache.pop(idx, None)
 
     def _drain_thumbs(self) -> None:
         updated = 0
@@ -578,10 +602,11 @@ class ReviewWindow(tk.Toplevel):
                         self._alt_image_lbl.configure(image=tk_img, text="")
                     except tk.TclError:
                         pass
+                self._trim_slide_cache()
         except queue.Empty:
             pass
         if self.winfo_exists():
-            self.after(40, self._drain_slides)
+            self.after(50, self._drain_slides)
 
     def _update_count(self) -> None:
         self.count_var.set(t("selected_count", n=len(self.kept)))
@@ -759,7 +784,8 @@ class ReviewWindow(tk.Toplevel):
                     pass
                 self._slide_img_ref = None
             self._request_slide(idx, priority=0)
-        for dist in range(1, 5):
+        # Nur nahe Nachbarn vorladen (weniger OneDrive-Last)
+        for dist in (1, 2):
             for n in (self._slide_pos + dist, self._slide_pos - dist):
                 if 0 <= n < len(self._slide_indices):
                     self._request_slide(self._slide_indices[n], priority=dist)
@@ -1171,7 +1197,7 @@ class ReviewWindow(tk.Toplevel):
         return grid
 
     def _place_in_chapter(self, idx: int, folder_name: str) -> None:
-        """Alternative aus der Liste nehmen und im Kapitel-Raster zeigen."""
+        """Variante aus allen Alt-Listen nehmen und im Kapitel-Raster zeigen."""
         self._remove_add_tiles(idx)
         folder = folder_name or self.photos[idx].chapter_folder or ""
         grid = self._ensure_chapter_grid(folder) if folder else None
@@ -1188,9 +1214,18 @@ class ReviewWindow(tk.Toplevel):
         self._schedule_scrollregion()
 
     def _remove_add_tiles(self, idx: int) -> None:
+        """Alle Varianten-Kacheln dieses Bildes entfernen (auch mehrfach angezeigt)."""
+        for outer in self._add_outers.pop(idx, []):
+            try:
+                if outer.winfo_exists():
+                    outer.destroy()
+            except tk.TclError:
+                pass
         for key in list(self._tile_state.keys()):
-            if key == ("add", idx):
-                state = self._tile_state.pop(key)
+            if len(key) >= 2 and key[0] == "add" and key[1] == idx:
+                state = self._tile_state.pop(key, None)
+                if state is None:
+                    continue
                 try:
                     state["outer"].destroy()
                 except tk.TclError:
@@ -1207,6 +1242,7 @@ class ReviewWindow(tk.Toplevel):
         self._thumb_labels.clear()
         self._section_grids.clear()
         self._section_counts.clear()
+        self._add_outers.clear()
         self._update_count()
 
         display = sorted(self.baseline | self.kept)
@@ -1256,7 +1292,7 @@ class ReviewWindow(tk.Toplevel):
                 reverse=True,
             )
             if alts:
-                self._alt_block("Vorschläge", alts[:16])
+                self._alt_block("Vorschläge", alts[:_ALT_LIMIT], collapsed=True)
 
     def _section(
         self,
@@ -1283,10 +1319,19 @@ class ReviewWindow(tk.Toplevel):
             self._tile(grid, idx, n % cols, n // cols, mode="keep", folder=folder)
 
         if alternatives:
-            alts = [i for i in candidate_alternatives(self.photos, folder) if i not in self.kept]
+            alts = candidate_alternatives(
+                self.photos,
+                folder,
+                limit=_ALT_LIMIT,
+                exclude=self.kept,
+            )
             if alts:
                 self._alt_block(
-                    f"Alternativen für „{title}“", alts, parent=wrap, folder=folder
+                    f"Varianten für „{title}“",
+                    alts,
+                    parent=wrap,
+                    folder=folder,
+                    collapsed=True,
                 )
 
     def _alt_block(
@@ -1295,22 +1340,58 @@ class ReviewWindow(tk.Toplevel):
         indices: list[int],
         parent: Optional[ttk.Frame] = None,
         folder: str = "",
+        collapsed: bool = True,
     ) -> None:
+        """Varianten standardmäßig eingeklappt – spart massiv Widgets/Ladezeit."""
         host = parent or self.inner
+        indices = [i for i in indices if i not in self.kept]
+        if not indices:
+            return
         box = ttk.Frame(host, style="Rev.TFrame", padding=(0, 8, 0, 0))
         box.pack(fill=tk.X)
         ttk.Label(box, text=title, style="RevMuted.TLabel").pack(anchor=tk.W)
         grid = ttk.Frame(box, style="Rev.TFrame")
-        grid.pack(fill=tk.X, pady=(4, 0))
-        cols = self._grid_cols
-        for n, idx in enumerate(indices):
-            self._tile(grid, idx, n % cols, n // cols, mode="add", folder=folder)
+        state = {"open": False}
 
-    def _apply_tile_visual(self, key: tuple[str, int]) -> None:
+        def _fill() -> None:
+            for child in grid.winfo_children():
+                child.destroy()
+            cols = self._grid_cols
+            for n, idx in enumerate(indices):
+                if idx in self.kept:
+                    continue
+                self._tile(grid, idx, n % cols, n // cols, mode="add", folder=folder)
+
+        def _toggle() -> None:
+            if state["open"]:
+                state["open"] = False
+                for child in grid.winfo_children():
+                    # zugehörige add-outer tracking bereinigen
+                    pass
+                for child in grid.winfo_children():
+                    child.destroy()
+                grid.pack_forget()
+                btn.configure(text=t("show_variants", n=len(indices)))
+            else:
+                state["open"] = True
+                _fill()
+                grid.pack(fill=tk.X, pady=(4, 0))
+                btn.configure(text=t("hide_variants"))
+            self._schedule_scrollregion()
+
+        btn = ttk.Button(
+            box, text=t("show_variants", n=len(indices)), command=_toggle
+        )
+        btn.pack(anchor=tk.W, pady=(4, 0))
+        if not collapsed:
+            _toggle()
+
+    def _apply_tile_visual(self, key: tuple) -> None:
         state = self._tile_state.get(key)
         if not state:
             return
-        mode, idx = key
+        mode = state.get("mode") or key[0]
+        idx = int(state.get("idx") if state.get("idx") is not None else key[1])
         kept = idx in self.kept
         border = COLORS["keep_border"] if kept else COLORS["reject_border"]
         outer: tk.Frame = state["outer"]
@@ -1357,6 +1438,12 @@ class ReviewWindow(tk.Toplevel):
             state["overlay"] = overlay
             # Wichtig: Overlay liegt oben – ohne Bind greift der Klick nicht
             self._bind_tile_click(overlay, state.get("toggle"))
+        elif mode == "add" and idx in self.kept:
+            # Sicherheit: sollte schon zerstört sein
+            try:
+                outer.destroy()
+            except tk.TclError:
+                pass
 
     @staticmethod
     def _bind_tile_click(widget, toggle) -> None:
@@ -1399,15 +1486,17 @@ class ReviewWindow(tk.Toplevel):
             lbl = tk.Label(
                 inner,
                 text="…",
-                width=16,
-                height=8,
+                width=14,
+                height=7,
                 bg=COLORS["line"],
                 cursor="hand2",
                 fg=COLORS["muted"],
                 font=("Segoe UI", 10),
             )
             self._thumb_labels.setdefault(idx, []).append(lbl)
-            self._request_thumb(idx)
+            # Keep-Kacheln sofort anfragen; Varianten erst beim Aufklappen (weniger Last)
+            if mode == "keep":
+                self._request_thumb(idx, priority=30)
         lbl.pack()
 
         folder_bit = ""
@@ -1446,7 +1535,12 @@ class ReviewWindow(tk.Toplevel):
                 self._apply_tile_visual(("keep", i))
                 self._autosave_draft()
 
-        key = (mode, idx)
+        if mode == "add":
+            # Eindeutiger Key – gleiches Bild kann in mehreren Kapiteln als Variante stehen
+            key: tuple = ("add", idx, id(outer))
+            self._add_outers.setdefault(idx, []).append(outer)
+        else:
+            key = ("keep", idx)
         self._tile_state[key] = {
             "outer": outer,
             "inner": inner,
@@ -1454,6 +1548,8 @@ class ReviewWindow(tk.Toplevel):
             "lbl": lbl,
             "overlay": None,
             "toggle": toggle,
+            "mode": mode,
+            "idx": idx,
         }
         # Klicks auf alle sichtbaren Teile (inkl. Overlay/+HINZUFÜGEN)
         for widget in (lbl, info, inner, outer):

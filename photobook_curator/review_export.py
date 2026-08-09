@@ -387,8 +387,9 @@ def alternatives_for_index(
             reverse=True,
         )
         return pool[:limit]
-    alts = candidate_alternatives(photos, folder, limit=max(limit * 3, 12))
-    # candidate_alternatives nutzt is_selected – zusätzlich kept filtern
+    alts = candidate_alternatives(
+        photos, folder, limit=max(limit * 3, 12), exclude=kept | {idx}
+    )
     out = [i for i in alts if i not in kept and i != idx]
     if len(out) < limit:
         # ergänzen mit Kandidaten derselben Region
@@ -416,8 +417,10 @@ def candidate_alternatives(
     photos: list[Photo],
     chapter_folder: str,
     limit: int = 8,
+    exclude: set[int] | None = None,
 ) -> list[int]:
     """Nicht ausgewählte Kandidaten derselben Kapitel-Region."""
+    blocked = set(exclude or ())
     members = [
         i
         for i, p in enumerate(photos)
@@ -443,6 +446,8 @@ def candidate_alternatives(
 
     pool: list[int] = []
     for i, p in enumerate(photos):
+        if i in blocked:
+            continue
         if (
             p.is_selected
             or p.is_duplicate

@@ -21,3 +21,12 @@ def test_alternatives_go_into_chapter_not_top_dump() -> None:
     assert "_assign_chapter" in src
     assert "Neu hinzugefügt (diese Sitzung)" not in src
     assert "_ensure_added_section" not in src
+    assert "_add_outers" in src
+    assert "show_variants" in src or 't("show_variants"' in src
+
+
+def test_variant_badge_label() -> None:
+    from photobook_curator.i18n import set_language, t
+
+    set_language("de")
+    assert t("new_badge") == "Variante"
