@@ -15,6 +15,7 @@ from .faces import count_faces
 from .geocoding import GeocodeCache
 from .models import BookPlan, Photo
 from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
+from .people_balance import analyze_people_clusters
 from .quality import analyze_all
 from .regions import build_location_plan
 from .scan import scan_photos
@@ -43,6 +44,7 @@ class PipelineConfig:
     enable_bursts: bool = True
     enable_document_aside: bool = True
     coverage_intensity: float = 0.0  # 0=aus, 1=starke Tages-Abdeckung
+    people_balance_intensity: float = 0.0  # 0=aus, 1=starke Personen-Balance
     burst_max_seconds: float = 30.0
     burst_keep: int = 2
     burst_min_size: int = 3
@@ -81,6 +83,15 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         print(f"  Gesichtsqualität: {fq_backend} ({closed} Augen zu, {bad} problematisch)")
     else:
         print("  Gesichtserkennung übersprungen")
+    if cfg.people_balance_intensity > 0:
+        pb_backend = analyze_people_clusters(photos)
+        n_clustered = sum(1 for p in photos if p.person_cluster_ids)
+        n_people = len({pid for p in photos for pid in p.person_cluster_ids})
+        print(
+            f"  Personen-Balance: {pb_backend} "
+            f"({n_people} Personen-Cluster in {n_clustered} Fotos, "
+            f"Stärke {cfg.people_balance_intensity:.0%})"
+        )
     if cfg.enable_bursts:
         burst_extra = mark_bursts(
             photos,
@@ -157,6 +168,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     print("=== Phase 5: Auswahl & Buchstruktur ===")
     if cfg.coverage_intensity > 0:
         print(f"  Tages-Abdeckung aktiv (Stärke {cfg.coverage_intensity:.0%})")
+    if cfg.people_balance_intensity > 0:
+        print(f"  Personen-Balance aktiv (Stärke {cfg.people_balance_intensity:.0%})")
     order = build_book_order(
         photos,
         plan,
@@ -164,6 +177,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         max_landmarks=cfg.max_landmarks,
         similarity_threshold=cfg.similarity_threshold,
         coverage_intensity=cfg.coverage_intensity,
+        people_balance_intensity=cfg.people_balance_intensity,
     )
     print(f"  {len(order)} Bilder ausgewählt")
 

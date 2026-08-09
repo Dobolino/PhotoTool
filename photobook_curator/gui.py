@@ -44,6 +44,8 @@ class PhotobookApp(tk.Tk):
         self.aside_var = tk.BooleanVar(value=True)
         self.coverage_var = tk.BooleanVar(value=False)
         self.coverage_intensity_var = tk.DoubleVar(value=0.5)
+        self.people_var = tk.BooleanVar(value=False)
+        self.people_intensity_var = tk.DoubleVar(value=0.5)
         self.ai_var = tk.BooleanVar(value=False)
         self.dry_run_var = tk.BooleanVar(value=False)
         self.api_key_var = tk.StringVar(value=os.environ.get("ANTHROPIC_API_KEY", ""))
@@ -199,6 +201,7 @@ class PhotobookApp(tk.Tk):
             ("Serien/Bursts (beste 1–2 behalten)", self.bursts_var),
             ("Dokumente & Screenshots separat (Optional-Pool)", self.aside_var),
             ("Tages-Abdeckung (nicht alles vom ersten Tag)", self.coverage_var),
+            ("Personen-Balance (nicht immer dieselbe Person)", self.people_var),
             ("KI-Bewertung aktivieren (Anthropic API)", self.ai_var),
             ("Nur Kosten schätzen (kein echter KI-Lauf)", self.dry_run_var),
         ):
@@ -220,6 +223,25 @@ class PhotobookApp(tk.Tk):
         ttk.Label(
             settings,
             text="Nur wirksam, wenn „Tages-Abdeckung“ aktiv. Links = sanft, rechts = stark gleichmäßig.",
+            style="Field.TLabel",
+        ).pack(anchor=tk.W, pady=(2, 0))
+
+        people_row = ttk.Frame(settings, style="Card.TFrame")
+        people_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(people_row, text="Personen-Stärke", style="Field.TLabel").pack(side=tk.LEFT)
+        self.people_label = ttk.Label(people_row, text="50%", style="Field.TLabel")
+        self.people_label.pack(side=tk.RIGHT)
+        people_scale = ttk.Scale(
+            settings,
+            from_=0.1,
+            to=1.0,
+            variable=self.people_intensity_var,
+            command=self._on_people_scale,
+        )
+        people_scale.pack(fill=tk.X, pady=(2, 0))
+        ttk.Label(
+            settings,
+            text="Nur wirksam, wenn „Personen-Balance“ aktiv. Links = sanft, rechts = stark ausgewogen.",
             style="Field.TLabel",
         ).pack(anchor=tk.W, pady=(2, 0))
 
@@ -282,6 +304,10 @@ class PhotobookApp(tk.Tk):
         pct = int(round(float(self.coverage_intensity_var.get()) * 100))
         self.coverage_label.configure(text=f"{pct}%")
 
+    def _on_people_scale(self, _value=None) -> None:
+        pct = int(round(float(self.people_intensity_var.get()) * 100))
+        self.people_label.configure(text=f"{pct}%")
+
     def _pick_input(self) -> None:
         path = filedialog.askdirectory(title="Fotos-Ordner wählen")
         if path:
@@ -335,6 +361,9 @@ class PhotobookApp(tk.Tk):
         coverage_intensity = 0.0
         if self.coverage_var.get():
             coverage_intensity = float(self.coverage_intensity_var.get())
+        people_balance_intensity = 0.0
+        if self.people_var.get():
+            people_balance_intensity = float(self.people_intensity_var.get())
 
         cfg = PipelineConfig(
             input_dir=input_dir.resolve(),
@@ -347,6 +376,7 @@ class PhotobookApp(tk.Tk):
             enable_bursts=bool(self.bursts_var.get()),
             enable_document_aside=bool(self.aside_var.get()),
             coverage_intensity=coverage_intensity,
+            people_balance_intensity=people_balance_intensity,
         )
 
         self.start_btn.configure(state=tk.DISABLED)

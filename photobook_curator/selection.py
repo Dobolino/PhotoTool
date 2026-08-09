@@ -11,6 +11,7 @@ import numpy as np
 
 from .ai_review import ensure_scene_types
 from .models import BookPlan, ChapterType, Photo
+from .people_balance import people_balance_penalty
 from .utils import load_image, to_cv_bgr
 
 
@@ -201,8 +202,11 @@ def _select_with_coverage(
     coverage_intensity: float,
     prefer_landmarks: bool = False,
     max_landmarks: int = 3,
+    people_balance_intensity: float = 0.0,
+    person_counts: Optional[dict[int, int]] = None,
 ) -> list[int]:
     """Auswahl mit optionaler Tages-Abdeckung."""
+    counts = person_counts if person_counts is not None else defaultdict(int)
     if coverage_intensity <= 0 or quota <= 0 or not indices:
         return _select_diverse(
             photos,
@@ -211,6 +215,8 @@ def _select_with_coverage(
             similarity_threshold,
             prefer_landmarks=prefer_landmarks,
             max_landmarks=max_landmarks,
+            people_balance_intensity=people_balance_intensity,
+            person_counts=counts,
         )
 
     by_day: dict = defaultdict(list)
@@ -226,6 +232,8 @@ def _select_with_coverage(
             similarity_threshold,
             prefer_landmarks=prefer_landmarks,
             max_landmarks=max_landmarks,
+            people_balance_intensity=people_balance_intensity,
+            person_counts=counts,
         )
 
     quotas = allocate_day_quotas(day_sizes, quota, coverage_intensity)
@@ -241,6 +249,8 @@ def _select_with_coverage(
             similarity_threshold,
             prefer_landmarks=prefer_landmarks,
             max_landmarks=landmark_budget,
+            people_balance_intensity=people_balance_intensity,
+            person_counts=counts,
         )
         selected.extend(picked)
         landmark_budget = max(0, landmark_budget - sum(1 for i in picked if photos[i].landmark))
@@ -255,9 +265,16 @@ def _select_with_coverage(
             similarity_threshold,
             prefer_landmarks=prefer_landmarks,
             max_landmarks=landmark_budget,
+            people_balance_intensity=people_balance_intensity,
+            person_counts=counts,
         )
         selected.extend(extra)
     return selected[:quota]
+
+
+def _bump_person_counts(photo: Photo, person_counts: dict[int, int]) -> None:
+    for pid in photo.person_cluster_ids or []:
+        person_counts[pid] = person_counts.get(pid, 0) + 1
 
 
 def _select_diverse(
@@ -267,6 +284,8 @@ def _select_diverse(
     similarity_threshold: float,
     prefer_landmarks: bool = False,
     max_landmarks: int = 3,
+    people_balance_intensity: float = 0.0,
+    person_counts: Optional[dict[int, int]] = None,
 ) -> list[int]:
     if quota <= 0 or not indices:
         return []
@@ -274,6 +293,8 @@ def _select_diverse(
     hist_cache: dict[int, Optional[np.ndarray]] = {
         i: color_histogram(photos[i]) for i in indices
     }
+    counts = person_counts if person_counts is not None else defaultdict(int)
+    balance_on = float(people_balance_intensity or 0.0) > 0
 
     # Nach Score sortieren; schlechte Gesichter stark nach hinten
     def sort_key(i: int) -> tuple:
@@ -315,36 +336,76 @@ def _select_diverse(
         if not progressed:
             break
     # Rest anhängen
-    remaining = [i for i in ranked if i not in mixed]
-    mixed.extend(remaining)
+    remaining_rank = [i for i in ranked if i not in mixed]
+    mixed.extend(remaining_rank)
 
-    for i in mixed:
-        if len(selected) >= quota:
-            break
-        is_landmark = bool(photos[i].landmark)
-        if prefer_landmarks and is_landmark and landmark_count >= max_landmarks:
-            # Landmark-Deckel: überspringen wenn schon genug
-            # aber nur wenn noch Alternativen existieren
-            continue
-        too_similar = False
-        for j in selected:
-            if hist_similarity(hist_cache[i], hist_cache[j]) >= similarity_threshold:
-                too_similar = True
+    if not balance_on:
+        for i in mixed:
+            if len(selected) >= quota:
                 break
-        if too_similar:
-            continue
-        selected.append(i)
-        if is_landmark:
-            landmark_count += 1
+            is_landmark = bool(photos[i].landmark)
+            if prefer_landmarks and is_landmark and landmark_count >= max_landmarks:
+                continue
+            too_similar = False
+            for j in selected:
+                if hist_similarity(hist_cache[i], hist_cache[j]) >= similarity_threshold:
+                    too_similar = True
+                    break
+            if too_similar:
+                continue
+            selected.append(i)
+            if is_landmark:
+                landmark_count += 1
+    else:
+        # Greedy: Score minus Personen-Überrepräsentation, Reihenfolge in mixed als Tiebreaker
+        left = list(mixed)
+        while len(selected) < quota and left:
+            best_pos: Optional[int] = None
+            best_key: Optional[tuple] = None
+            for pos, i in enumerate(left):
+                is_landmark = bool(photos[i].landmark)
+                if prefer_landmarks and is_landmark and landmark_count >= max_landmarks:
+                    continue
+                too_similar = False
+                for j in selected:
+                    if hist_similarity(hist_cache[i], hist_cache[j]) >= similarity_threshold:
+                        too_similar = True
+                        break
+                if too_similar:
+                    continue
+                penalty = people_balance_penalty(
+                    photos[i], counts, float(people_balance_intensity)
+                )
+                key = (photos[i].final_score - penalty, -pos)
+                if best_key is None or key > best_key:
+                    best_key = key
+                    best_pos = pos
+            if best_pos is None:
+                break
+            i = left.pop(best_pos)
+            selected.append(i)
+            _bump_person_counts(photos[i], counts)
+            if photos[i].landmark:
+                landmark_count += 1
 
     # Falls durch Filter zu wenig: mit nächstbesten auffüllen (Similarity lockern)
     if len(selected) < quota:
-        for i in ranked:
+        pool = ranked if not balance_on else sorted(
+            ranked,
+            key=lambda i: (
+                photos[i].final_score
+                - people_balance_penalty(photos[i], counts, float(people_balance_intensity))
+            ),
+            reverse=True,
+        )
+        for i in pool:
             if i in selected:
                 continue
             if len(selected) >= quota:
                 break
             selected.append(i)
+            if balance_on:
+                _bump_person_counts(photos[i], counts)
 
     return selected[:quota]
 
@@ -357,6 +418,7 @@ def select_for_region(
     max_landmarks: int = 3,
     similarity_threshold: float = 0.92,
     coverage_intensity: float = 0.0,
+    people_balance_intensity: float = 0.0,
 ) -> tuple[list[int], list[int]]:
     """Gibt (hauptteil_indices, essen_indices) zurück, chronologisch sortiert."""
     # Nur Kandidaten bevorzugen, Fallback auf alle nicht-Duplikate
@@ -384,6 +446,8 @@ def select_for_region(
         food_quota = min(food_quota, len(food), quota)
     main_quota = max(0, quota - food_quota)
 
+    # Personen-Balance über Hauptteil + Essen einer Region teilen
+    person_counts: dict[int, int] = defaultdict(int)
     selected_main = _select_with_coverage(
         photos,
         main,
@@ -392,6 +456,8 @@ def select_for_region(
         coverage_intensity=coverage_intensity,
         prefer_landmarks=True,
         max_landmarks=max_landmarks,
+        people_balance_intensity=people_balance_intensity,
+        person_counts=person_counts,
     )
     selected_food = _select_with_coverage(
         photos,
@@ -400,6 +466,8 @@ def select_for_region(
         similarity_threshold=similarity_threshold,
         coverage_intensity=coverage_intensity,
         prefer_landmarks=False,
+        people_balance_intensity=people_balance_intensity,
+        person_counts=person_counts,
     )
 
     selected_main.sort(key=lambda i: photos[i].datetime_taken or datetime.min)
@@ -413,6 +481,7 @@ def select_for_transit(
     quota: int,
     similarity_threshold: float = 0.92,
     coverage_intensity: float = 0.0,
+    people_balance_intensity: float = 0.0,
 ) -> list[int]:
     def _ok(i: int) -> bool:
         return (
@@ -434,6 +503,7 @@ def select_for_transit(
         similarity_threshold=similarity_threshold,
         coverage_intensity=coverage_intensity,
         prefer_landmarks=False,
+        people_balance_intensity=people_balance_intensity,
     )
     selected.sort(key=lambda i: photos[i].datetime_taken or datetime.min)
     return selected
@@ -446,6 +516,7 @@ def build_book_order(
     max_landmarks: int = 3,
     similarity_threshold: float = 0.92,
     coverage_intensity: float = 0.0,
+    people_balance_intensity: float = 0.0,
 ) -> list[tuple[int, str, str]]:
     """
     Finale Buchreihenfolge.
@@ -466,6 +537,7 @@ def build_book_order(
             max_landmarks=max_landmarks,
             similarity_threshold=similarity_threshold,
             coverage_intensity=coverage_intensity,
+            people_balance_intensity=people_balance_intensity,
         )
         for i in main_sel:
             photos[i].is_selected = True
@@ -489,6 +561,7 @@ def build_book_order(
                 t.quota,
                 similarity_threshold=similarity_threshold,
                 coverage_intensity=coverage_intensity,
+                people_balance_intensity=people_balance_intensity,
             )
             for i in t_sel:
                 photos[i].is_selected = True

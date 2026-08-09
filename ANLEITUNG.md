@@ -67,11 +67,15 @@ Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter 
 | Serien/Bursts | an | `--bursts` / `--no-bursts` |
 | Dokumente separat | an | `--aside-documents` / `--no-aside-documents` |
 | Tages-Abdeckung | aus | Checkbox + Stärke-Regler, CLI: `--coverage-intensity 0.0–1.0` |
+| Personen-Balance | aus | Checkbox + Stärke-Regler, CLI: `--people-balance-intensity 0.0–1.0` |
 | KI-Bewertung | aus | `--ai-review` |
 | Auswahl prüfen | nach dem Lauf | manuell |
 
 **Tages-Abdeckung:** Verhindert, dass fast alle Bilder vom ersten Tag kommen.  
 `0` = aus, `0.5` = sanft, `1.0` = stark gleichmäßig über die Tage.
+
+**Personen-Balance:** Verhindert, dass dieselbe Person das Album dominiert; unterrepräsentierte Gesichter werden bevorzugt.  
+`0` = aus, `0.5` = sanft, `1.0` = stark ausgewogen.
 
 Optional: Haken bei **KI-Bewertung** setzen und API-Key eintragen (braucht Account auf [console.anthropic.com](https://console.anthropic.com/) — Claude-Chat-Abo reicht nicht).
 

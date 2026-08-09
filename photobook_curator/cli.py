@@ -138,6 +138,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Tages-Abdeckung 0.0–1.0 (0=aus, 1=stark gleichmäßig; Standard: 0)",
     )
     p.add_argument(
+        "--people-balance-intensity",
+        type=float,
+        default=0.0,
+        help="Personen-Balance 0.0–1.0 (0=aus, 1=stark ausgewogen; Standard: 0)",
+    )
+    p.add_argument(
         "--burst-seconds",
         type=float,
         default=30.0,
@@ -196,6 +202,9 @@ def main(argv: list[str] | None = None) -> int:
         enable_bursts=bool(args.bursts),
         enable_document_aside=bool(args.aside_documents),
         coverage_intensity=max(0.0, min(1.0, float(args.coverage_intensity))),
+        people_balance_intensity=max(
+            0.0, min(1.0, float(args.people_balance_intensity))
+        ),
         burst_max_seconds=args.burst_seconds,
         burst_keep=args.burst_keep,
     )

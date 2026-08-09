@@ -252,6 +252,11 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 face_cut_off=_bool("face_cut_off"),
                 face_too_small=_bool("face_too_small"),
                 bad_face=_bool("bad_face"),
+                person_cluster_ids=[
+                    int(x)
+                    for x in (row.get("person_cluster_ids") or "").split("|")
+                    if x.strip().isdigit()
+                ],
                 flags=[f for f in (row.get("flags") or "").split("|") if f],
                 region=(row.get("region") or None) or None,
             )
