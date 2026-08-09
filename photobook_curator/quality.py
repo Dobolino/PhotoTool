@@ -7,13 +7,12 @@ import numpy as np
 from tqdm import tqdm
 
 from .models import Photo
-from .utils import load_image, to_cv_bgr
+from .utils import load_bgr_cached
 
 
 def analyze_image_quality(photo: Photo) -> None:
     try:
-        img = load_image(photo.path)
-        bgr = to_cv_bgr(img)
+        bgr = load_bgr_cached(photo.path)
     except Exception:
         photo.add_flag("unreadable")
         photo.technical_score = 0.0

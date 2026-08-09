@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 from urllib.request import urlretrieve
@@ -13,6 +14,8 @@ from PIL import Image, ImageOps
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 DEFAULT_DOWNLOAD_TIMEOUT_S = 30.0
 MIN_MODEL_BYTES = 1000
+DEFAULT_BGR_CACHE_EDGE = 1024
+DEFAULT_BGR_CACHE_SIZE = 32
 
 # Typische Screenshot-Auflösungen (Breite x Höhe, beide Orientierungen)
 SCREEN_RESOLUTIONS = {
@@ -61,6 +64,69 @@ def load_image(path: Path) -> Image.Image:
     elif img.mode == "L":
         img = img.convert("RGB")
     return img
+
+
+def image_display_size(path: Path) -> tuple[int, int]:
+    """
+    Breite/Höhe in Anzeige-Orientierung, ohne vollständigen Pixel-Decode.
+    Tauscht bei EXIF-Orientation 5–8 Breite und Höhe.
+    """
+    register_heif()
+    with Image.open(path) as img:
+        w, h = img.size
+        orientation = None
+        try:
+            orientation = img.getexif().get(0x0112)  # Orientation
+        except Exception:
+            orientation = None
+        if orientation in (5, 6, 7, 8):
+            return h, w
+        return w, h
+
+
+class BgrImageCache:
+    """LRU-Cache für herunterskalierte BGR-Arrays (Analyse-Phasen)."""
+
+    def __init__(
+        self,
+        maxsize: int = DEFAULT_BGR_CACHE_SIZE,
+        max_edge: int = DEFAULT_BGR_CACHE_EDGE,
+    ) -> None:
+        self.maxsize = max(1, maxsize)
+        self.max_edge = max_edge
+        self._cache: OrderedDict[tuple[str, int], np.ndarray] = OrderedDict()
+
+    def get(self, path: Path, max_edge: int | None = None) -> np.ndarray:
+        edge = self.max_edge if max_edge is None else max_edge
+        key = (str(path.resolve()), edge)
+        hit = self._cache.get(key)
+        if hit is not None:
+            self._cache.move_to_end(key)
+            return hit
+        img = resize_max_edge(load_image(path), edge)
+        bgr = to_cv_bgr(img)
+        self._cache[key] = bgr
+        while len(self._cache) > self.maxsize:
+            self._cache.popitem(last=False)
+        return bgr
+
+    def clear(self) -> None:
+        self._cache.clear()
+
+
+_BGR_CACHE = BgrImageCache()
+
+
+def load_bgr_cached(
+    path: Path,
+    max_edge: int = DEFAULT_BGR_CACHE_EDGE,
+) -> np.ndarray:
+    """Dekodiert einmal, liefert skaliertes BGR aus dem Prozess-Cache."""
+    return _BGR_CACHE.get(path, max_edge=max_edge)
+
+
+def clear_bgr_cache() -> None:
+    _BGR_CACHE.clear()
 
 
 def download_model(

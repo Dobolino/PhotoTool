@@ -12,7 +12,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from .models import Photo
-from .utils import download_model, load_image, to_cv_bgr
+from .utils import download_model, load_bgr_cached
 
 # MediaPipe Face Detector Modell (gleich wie faces.py)
 _MP_MODEL_URL = (
@@ -25,21 +25,21 @@ def _ensure_detector_model(cache_dir: Path) -> Path | None:
     return download_model(_MP_MODEL_URL, cache_dir / "blaze_face_short_range.tflite")
 
 
-def _face_signature(crop_bgr: np.ndarray) -> str | None:
-    """Kompakte Signatur eines Gesichtscrops (pHash)."""
+def _face_signature(crop_bgr: np.ndarray) -> int | None:
+    """Kompakte Signatur eines Gesichtscrops (pHash als int)."""
     try:
         if crop_bgr.size == 0:
             return None
         rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(rgb)
         img = img.resize((64, 64), Image.Resampling.LANCZOS)
-        return str(imagehash.phash(img, hash_size=8))
+        return int(str(imagehash.phash(img, hash_size=8)), 16)
     except Exception:
         return None
 
 
-def _hamming(a: str, b: str) -> int:
-    return imagehash.hex_to_hash(a) - imagehash.hex_to_hash(b)
+def _hamming_int(a: int, b: int) -> int:
+    return (a ^ b).bit_count()
 
 
 class FaceCropper:
@@ -116,20 +116,20 @@ def analyze_people_clusters(
     """
     cropper = FaceCropper()
     backend = cropper.backend
-    # (photo_idx, sig)
-    face_entries: list[tuple[int, str]] = []
+    # (photo_idx, sig_int)
+    face_entries: list[tuple[int, int]] = []
 
     for i, photo in enumerate(tqdm(photos, desc=f"Personen-Cluster ({backend})", unit="img")):
         photo.person_cluster_ids = []
         if getattr(photo, "is_aside", False) or "unreadable" in photo.flags:
             continue
         try:
-            bgr = to_cv_bgr(load_image(photo.path))
+            bgr = load_bgr_cached(photo.path)
         except Exception:
             continue
         for crop in cropper.crops(bgr):
             sig = _face_signature(crop)
-            if sig:
+            if sig is not None:
                 face_entries.append((i, sig))
 
     cropper.close()
@@ -151,7 +151,7 @@ def analyze_people_clusters(
 
     for a in range(len(face_entries)):
         for b in range(a + 1, len(face_entries)):
-            if _hamming(face_entries[a][1], face_entries[b][1]) <= hash_threshold:
+            if _hamming_int(face_entries[a][1], face_entries[b][1]) <= hash_threshold:
                 union(a, b)
 
     root_to_id: dict[int, int] = {}

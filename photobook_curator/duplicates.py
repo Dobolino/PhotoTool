@@ -3,29 +3,46 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 
+import cv2
 import imagehash
+from PIL import Image
 from tqdm import tqdm
 
 from .bursts import _burst_score
 from .models import Photo
 from .quality import compute_technical_score
-from .utils import load_image
+from .utils import load_bgr_cached
+
+
+def _phash_int_from_bgr(bgr) -> int | None:
+    try:
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(rgb)
+        return int(str(imagehash.phash(img)), 16)
+    except Exception:
+        return None
 
 
 def compute_phashes(photos: list[Photo]) -> None:
     for photo in tqdm(photos, desc="pHash berechnen", unit="img"):
         try:
-            img = load_image(photo.path)
-            photo.phash = str(imagehash.phash(img))
+            bgr = load_bgr_cached(photo.path)
+            value = _phash_int_from_bgr(bgr)
+            if value is None:
+                photo.phash = None
+                photo.add_flag("phash_failed")
+            else:
+                # Hex-String bleibt für CSV/Kompatibilität
+                photo.phash = f"{value:016x}"
         except Exception:
             photo.phash = None
             photo.add_flag("phash_failed")
 
 
-def _hamming(a: str, b: str) -> int:
-    return imagehash.hex_to_hash(a) - imagehash.hex_to_hash(b)
+def _hamming_int(a: int, b: int) -> int:
+    return (a ^ b).bit_count()
 
 
 def _near_in_time(a: Photo, b: Photo, max_minutes: float) -> bool:
@@ -80,19 +97,76 @@ def mark_duplicates(
         if ri != rj:
             parent[rj] = ri
 
-    indexed = [(i, p) for i, p in enumerate(photos) if p.phash]
-    for idx_a, (i, a) in enumerate(tqdm(indexed, desc="Duplikate prüfen", unit="img")):
-        for j, b in indexed[idx_a + 1 :]:
+    # int-Hashes einmalig parsen
+    phash_ints: list[int | None] = []
+    for p in photos:
+        if p.phash:
+            try:
+                phash_ints.append(int(p.phash, 16))
+            except ValueError:
+                phash_ints.append(None)
+        else:
+            phash_ints.append(None)
+
+    with_time: list[int] = []
+    no_time: list[int] = []
+    for i, p in enumerate(photos):
+        if phash_ints[i] is None:
+            continue
+        if p.datetime_taken is None:
+            no_time.append(i)
+        else:
+            with_time.append(i)
+    with_time.sort(key=lambda i: photos[i].datetime_taken or datetime.min)
+
+    window = timedelta(minutes=max_minutes)
+
+    # Zwei-Zeiger: nur Paare innerhalb des Zeitfensters vergleichen
+    right = 0
+    for left in tqdm(range(len(with_time)), desc="Duplikate prüfen", unit="img"):
+        i = with_time[left]
+        t_i = photos[i].datetime_taken
+        assert t_i is not None
+        if right < left + 1:
+            right = left + 1
+        while right < len(with_time):
+            j = with_time[right]
+            t_j = photos[j].datetime_taken
+            assert t_j is not None
+            if t_j - t_i > window:
+                break
+            right += 1
+        ha = phash_ints[i]
+        assert ha is not None
+        for k in range(left + 1, right):
+            j = with_time[k]
+            hb = phash_ints[j]
+            assert hb is not None
+            if _hamming_int(ha, hb) <= hash_threshold and _near_in_space(photos[i], photos[j]):
+                union(i, j)
+
+    # Fotos ohne Zeitstempel: untereinander + gegen alle mit Hash (selten)
+    for a_pos, i in enumerate(no_time):
+        ha = phash_ints[i]
+        assert ha is not None
+        for j in no_time[a_pos + 1 :]:
+            hb = phash_ints[j]
+            assert hb is not None
+            if _hamming_int(ha, hb) <= hash_threshold and _near_in_space(photos[i], photos[j]):
+                union(i, j)
+        for j in with_time:
+            hb = phash_ints[j]
+            assert hb is not None
             if (
-                _hamming(a.phash, b.phash) <= hash_threshold
-                and _near_in_time(a, b, max_minutes)
-                and _near_in_space(a, b)
+                _hamming_int(ha, hb) <= hash_threshold
+                and _near_in_time(photos[i], photos[j], max_minutes)
+                and _near_in_space(photos[i], photos[j])
             ):
                 union(i, j)
 
     groups: dict[int, list[int]] = defaultdict(list)
     for i in range(n):
-        if photos[i].phash:
+        if phash_ints[i] is not None:
             groups[find(i)].append(i)
 
     dup_count = 0

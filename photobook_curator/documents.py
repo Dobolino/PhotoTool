@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 
 from .models import Photo
-from .utils import SCREEN_RESOLUTIONS, load_image, to_cv_bgr
+from .utils import SCREEN_RESOLUTIONS, load_bgr_cached
 
 ASIDE_FOLDER = "99_Optional_Dokumente"
 ASIDE_TYPES = ("screenshot", "dokument", "karte", "ticket")
@@ -108,7 +108,7 @@ def mark_aside_documents(photos: list[Photo]) -> int:
         )
         if need_pixels:
             try:
-                bgr = to_cv_bgr(load_image(photo.path))
+                bgr = load_bgr_cached(photo.path)
             except Exception:
                 bgr = None
 

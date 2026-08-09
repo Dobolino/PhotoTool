@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from .models import Photo
 from .quality import compute_technical_score
-from .utils import download_model, load_image, to_cv_bgr
+from .utils import download_model, load_bgr_cached
 
 # Offizielles MediaPipe Face Detector Modell (short range)
 _MP_MODEL_URL = (
@@ -117,8 +117,7 @@ def count_faces(photos: list[Photo], model_cache_dir: Path | None = None) -> str
     backend = counter.backend
     for photo in tqdm(photos, desc=f"Gesichter ({backend})", unit="img"):
         try:
-            img = load_image(photo.path)
-            bgr = to_cv_bgr(img)
+            bgr = load_bgr_cached(photo.path)
             photo.face_count = counter.count(bgr)
         except Exception:
             photo.face_count = 0

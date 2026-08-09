@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 
 from .models import Photo
-from .utils import download_model, load_image, to_cv_bgr
+from .utils import download_model, load_bgr_cached
 
 _HAND_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
@@ -198,7 +198,7 @@ def analyze_finger_obstruction(photos: list[Photo]) -> str:
             photo.finger_on_lens = False
             continue
         try:
-            bgr = to_cv_bgr(load_image(photo.path))
+            bgr = load_bgr_cached(photo.path)
         except Exception:
             photo.finger_on_lens = False
             continue

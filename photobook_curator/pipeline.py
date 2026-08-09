@@ -23,6 +23,7 @@ from .regions import build_location_plan
 from .scan import scan_photos
 from .selection import build_book_order, mark_candidates
 from .transit import detect_transits
+from .utils import clear_bgr_cache
 
 
 @dataclass
@@ -89,6 +90,7 @@ def export_book_outputs(
 def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cfg.output_dir / "geocode_cache.json"
+    clear_bgr_cache()
 
     print("=== Phase 1: Einlesen & technische Vorfilterung ===")
     photos = scan_photos(cfg.input_dir)
@@ -143,6 +145,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict[str, Any]:
         )
     else:
         print("  Serien/Burst-Erkennung übersprungen")
+    clear_bgr_cache()  # Analyse-Bilder freigeben vor Geocode/Auswahl
 
     print("=== Phase 2: Orte & Regionen ===")
     cache = GeocodeCache(cache_path, enabled=cfg.geocode)

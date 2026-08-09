@@ -12,7 +12,7 @@ import numpy as np
 from .ai_review import ensure_scene_types
 from .models import BookPlan, ChapterType, Photo
 from .people_balance import people_balance_penalty
-from .utils import load_image, to_cv_bgr
+from .utils import load_bgr_cached
 
 
 def mark_candidates(
@@ -101,11 +101,15 @@ def distribute_quotas(
 
 
 def color_histogram(photo: Photo, bins: int = 16) -> Optional[np.ndarray]:
+    """Farbhistogramm; gecacht pro Foto, aus skaliertem BGR-Cache."""
+    cached = getattr(photo, "_color_hist", None)
+    if cached is not None:
+        return cached
     try:
-        img = load_image(photo.path)
-        bgr = to_cv_bgr(img)
+        bgr = load_bgr_cached(photo.path, max_edge=256)
         hist = cv2.calcHist([bgr], [0, 1, 2], None, [bins, bins, bins], [0, 256, 0, 256, 0, 256])
         hist = cv2.normalize(hist, hist).flatten()
+        setattr(photo, "_color_hist", hist)
         return hist
     except Exception:
         return None

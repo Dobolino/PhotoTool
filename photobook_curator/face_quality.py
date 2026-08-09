@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from .models import Photo
 from .quality import compute_technical_score
-from .utils import download_model, load_image, to_cv_bgr
+from .utils import download_model, load_bgr_cached
 
 _LANDMARKER_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
@@ -299,8 +299,7 @@ def analyze_face_quality(photos: list[Photo]) -> str:
         # Nur Bilder mit Gesichtern oder Portrait-Kandidaten prüfen — trotzdem alle scannen,
         # da face_count vorher schon gesetzt sein kann; bei 0 trotzdem kurz prüfen.
         try:
-            img = load_image(photo.path)
-            bgr = to_cv_bgr(img)
+            bgr = load_bgr_cached(photo.path)
             result = analyzer.analyze_bgr(bgr)
             # Wenn vorher face_count > 0 aber Landmarker 0 findet: Flags nicht erzwingen
             if result.face_count == 0 and photo.face_count == 0:

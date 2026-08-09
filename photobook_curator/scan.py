@@ -10,7 +10,13 @@ import exifread
 from tqdm import tqdm
 
 from .models import Photo
-from .utils import IMAGE_EXTENSIONS, SCREEN_RESOLUTIONS, is_image_file, load_image, register_heif
+from .utils import (
+    IMAGE_EXTENSIONS,
+    SCREEN_RESOLUTIONS,
+    image_display_size,
+    is_image_file,
+    register_heif,
+)
 
 
 def find_images(input_dir: Path) -> list[Path]:
@@ -86,10 +92,9 @@ def extract_exif(path: Path) -> dict:
         lon = _dms_to_decimal(tags["GPS GPSLongitude"].values, str(tags["GPS GPSLongitudeRef"]))
         result["gps_lon"] = lon
 
-    # Bildmasse bevorzugt aus Datei, Fallback EXIF
+    # Bildmasse in Anzeige-Orientierung, ohne vollen Pixel-Decode
     try:
-        img = load_image(path)
-        result["width"], result["height"] = img.size
+        result["width"], result["height"] = image_display_size(path)
     except Exception:
         for wkey, hkey in (
             ("EXIF ExifImageWidth", "EXIF ExifImageLength"),
@@ -99,6 +104,14 @@ def extract_exif(path: Path) -> dict:
                 try:
                     result["width"] = int(str(tags[wkey]))
                     result["height"] = int(str(tags[hkey]))
+                    # EXIF-Orientation ggf. Breite/Höhe tauschen
+                    orient = tags.get("Image Orientation")
+                    try:
+                        orient_v = int(str(orient).split()[0]) if orient else 1
+                    except Exception:
+                        orient_v = 1
+                    if orient_v in (5, 6, 7, 8):
+                        result["width"], result["height"] = result["height"], result["width"]
                     break
                 except Exception:
                     pass
