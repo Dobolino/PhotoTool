@@ -85,7 +85,8 @@ Fotobuch starten.bat
    - *Finger vor der Linse* (aus) – sortiert typische Fehlaufnahmen aus.
    - *Tages-Abdeckung* – verhindert, dass fast alles vom ersten Tag stammt.
    - *Personen-Balance* – verhindert, dass eine Person das Album dominiert.
-   - *Kapitel-/Karten-Vorschau* – zeigt Kapitel & Karte **vor** dem Export.
+   - *Kapitel-/Karten-Vorschau* – Kapitelliste + Weltkarte (Reise-Ausschnitt
+     oder ganze Welt); im Browser dunkle OpenStreetMap-Weltkarte.
    - *KI-Bewertung* – optional, braucht einen Anthropic-API-Key.
 5. **Auswahl starten** – der Fortschrittsbalken zeigt die Phasen.
 6. Bei „Fertig" die Frage **Auswahl prüfen?** → **Ja**:
