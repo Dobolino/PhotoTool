@@ -26,7 +26,7 @@ from .selection_draft import (
     save_selection_draft,
 )
 from .settings import load_settings, save_settings, theme_colors
-from .utils import load_image_scaled
+from .utils import load_image_scaled, load_thumb_cached
 
 COLORS = theme_colors()
 
@@ -502,7 +502,7 @@ class ReviewWindow(tk.Toplevel):
                         canvas_img.paste(thumb, (x, y))
                         self._ready_queue.put((real, canvas_img))
                 else:
-                    img = load_image_scaled(photo.path, THUMB)
+                    img = load_thumb_cached(photo.path, THUMB)
                     pad = COLORS.get("thumb_pad", "#F5F1E9")
                     canvas_img = Image.new("RGB", (THUMB, THUMB), pad)
                     x = (THUMB - img.width) // 2

@@ -86,6 +86,34 @@ def copy_selected(
         dest_name = f"{n:03d}_{photo.filename}"
         shutil.copy2(photo.path, dest_dir / dest_name)
 
+    _prewarm_review_thumbs([photos[idx].path for idx, _f, _c in order])
+
+
+# Muss zur THUMB-Kantenlänge in review_gui.py passen (sonst nur Cache-Miss, kein Fehler).
+_REVIEW_THUMB_EDGE = 120
+
+
+def _prewarm_review_thumbs(paths: list[Path]) -> None:
+    """Erzeugt die Vorschau-Thumbnails der Auswahl im Hintergrund vor, damit
+    „Auswahl prüfen" schon beim ersten Öffnen flüssig ist. Blockiert den Export nicht."""
+    if not paths:
+        return
+
+    def _worker() -> None:
+        try:
+            from .utils import warm_thumb_cache
+
+            warm_thumb_cache(paths, _REVIEW_THUMB_EDGE)
+        except Exception:
+            pass
+
+    try:
+        import threading
+
+        threading.Thread(target=_worker, daemon=True).start()
+    except Exception:
+        pass
+
 
 def copy_aside_pool(photos: list[Photo], output_dir: Path) -> int:
     """Kopiert alle Aside-Dokumente in optional_dokumente/ (Pool zum späteren Einfügen)."""

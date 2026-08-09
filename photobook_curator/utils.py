@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 import socket
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Iterable, Optional
 from urllib.request import urlretrieve
 
 import numpy as np
@@ -90,6 +92,84 @@ def load_image_scaled(path: Path, max_edge: int) -> Image.Image:
     if max(img.size) > edge:
         img.thumbnail((edge, edge), Image.Resampling.BILINEAR)
     return img
+
+
+def thumb_cache_dir() -> Path:
+    """Beschreibbarer Cache-Ordner für Vorschau-Thumbnails."""
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(
+        os.path.expanduser("~"), ".cache"
+    )
+    d = Path(base) / "photobook_curator" / "thumbs"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return d
+
+
+def _thumb_cache_key(path: Path, edge: int) -> str:
+    try:
+        st = path.stat()
+        raw = f"{path.resolve()}|{st.st_mtime_ns}|{st.st_size}|{edge}"
+    except OSError:
+        raw = f"{path}|{edge}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def load_thumb_cached(path: Path, edge: int) -> Image.Image:
+    """
+    Wie load_image_scaled, aber mit persistentem Platten-Cache.
+    Beim zweiten Mal wird eine kleine JPEG geladen statt das (oft HEIC-)Original
+    neu zu dekodieren – Vorschau öffnet/scrollt danach flüssig.
+    """
+    cache = thumb_cache_dir()
+    cached = cache / f"{_thumb_cache_key(path, int(edge))}.jpg"
+    if cached.exists():
+        try:
+            img = Image.open(cached)
+            img.load()
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            return img
+        except Exception:
+            pass  # defekter Cache-Eintrag → neu erzeugen
+
+    img = load_image_scaled(path, edge)
+    try:
+        img.convert("RGB").save(cached, format="JPEG", quality=82)
+    except Exception:
+        pass
+    return img
+
+
+def warm_thumb_cache(
+    paths: Iterable[Path],
+    edge: int,
+    should_stop: Optional[Callable[[], bool]] = None,
+) -> int:
+    """
+    Erzeugt Thumbnails im Voraus (z. B. im Hintergrund nach dem Lauf), damit die
+    Vorschau schon beim ersten Öffnen schnell ist. Gibt die Anzahl erzeugter Einträge.
+    """
+    made = 0
+    cache = thumb_cache_dir()
+    for path in paths:
+        if should_stop is not None:
+            try:
+                if should_stop():
+                    break
+            except Exception:
+                pass
+        cached = cache / f"{_thumb_cache_key(path, int(edge))}.jpg"
+        if cached.exists():
+            continue
+        try:
+            img = load_image_scaled(path, edge)
+            img.convert("RGB").save(cached, format="JPEG", quality=82)
+            made += 1
+        except Exception:
+            continue
+    return made
 
 
 def image_display_size(path: Path) -> tuple[int, int]:
