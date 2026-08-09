@@ -63,6 +63,7 @@ Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter 
 
 | Option | Standard | Bedeutung |
 |--------|----------|-----------|
+| Ortsnamen | an (Englisch) | `--geocode` / `--no-geocode` — Städte z. B. Tokyo, Kyoto (nicht 東京) |
 | Gesichtserkennung / Augen zu | an | `--faces` / `--no-faces` |
 | Serien/Bursts | an | `--bursts` / `--no-bursts` |
 | Dokumente separat | an | `--aside-documents` / `--no-aside-documents` |

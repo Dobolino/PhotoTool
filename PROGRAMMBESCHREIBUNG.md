@@ -73,7 +73,7 @@ CLI exportiert immer sofort; `--map-preview` schreibt zusätzlich `kapitel_karte
 | `face_quality.py` | Augen zu, abgeschnitten, zu klein → `bad_face` |
 | `finger_obstruction.py` | Optional: Finger vor der Linse → `finger_on_lens`, aus Auswahl |
 | `people_balance.py` | Gesichtscrops clustern → `person_cluster_ids`, Penalty in Auswahl |
-| `geocoding.py` | Nominatim + Cache; Offline-Stadt-Fallback |
+| `geocoding.py` | Nominatim + Cache; Ortsnamen **Englisch** (`language=en`); Offline-Stadt-Fallback |
 | `regions.py` | DBSCAN auf GPS → Städte/Regionen; GPS-lose per Zeit zuordnen |
 | `transit.py` | Fotos zwischen Regionen → Transit-Kapitel |
 | `selection.py` | Kontingente, Kandidaten, Vielfalt, Coverage, Food-Split, Buchreihenfolge |
@@ -101,7 +101,9 @@ Reihenfolge im Code:
 
 ### Phase 2 – Orte
 - `build_location_plan` mit `GeocodeCache`
-- DBSCAN (`cluster_eps_meters`), Reverse-Geocode, Regionen bilden
+- DBSCAN (`cluster_eps_meters`), Reverse-Geocode (**Englisch**, z. B. Tokyo statt 東京), Regionen bilden
+- Cache-Key enthält Sprache (`lat,lon:en`), damit alte de/ja-Einträge nicht greifen
+- Transiente Geocode-Fehler werden **nicht** persistiert
 - Fotos ohne GPS per Zeitfenster (`gps_time_hours`) zuordnen
 
 ### Phase 3 – Transit

@@ -11,16 +11,27 @@ from typing import Any, Optional
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 from geopy.geocoders import Nominatim
 
+# Ortsnamen bewusst auf Englisch (Kapitel/UI einheitlich, z. B. Tokyo statt 東京)
+GEOCODE_LANGUAGE = "en"
+
 # Offline-Näherung für Tests / --no-geocode: Städte innerhalb max. Distanz
 OFFLINE_CITIES = [
-    {"city": "Paris", "region_admin": "Île-de-France", "country": "Frankreich", "lat": 48.8566, "lon": 2.3522},
-    {"city": "Lyon", "region_admin": "Auvergne-Rhône-Alpes", "country": "Frankreich", "lat": 45.7640, "lon": 4.8357},
-    {"city": "Marseille", "region_admin": "Provence-Alpes-Côte d'Azur", "country": "Frankreich", "lat": 43.2965, "lon": 5.3698},
-    {"city": "Berlin", "region_admin": "Berlin", "country": "Deutschland", "lat": 52.5200, "lon": 13.4050},
-    {"city": "München", "region_admin": "Bayern", "country": "Deutschland", "lat": 48.1351, "lon": 11.5820},
-    {"city": "Rom", "region_admin": "Latium", "country": "Italien", "lat": 41.9028, "lon": 12.4964},
-    {"city": "Florenz", "region_admin": "Toskana", "country": "Italien", "lat": 43.7696, "lon": 11.2558},
-    {"city": "Barcelona", "region_admin": "Katalonien", "country": "Spanien", "lat": 41.3874, "lon": 2.1686},
+    {"city": "Paris", "region_admin": "Ile-de-France", "country": "France", "lat": 48.8566, "lon": 2.3522},
+    {"city": "Lyon", "region_admin": "Auvergne-Rhone-Alpes", "country": "France", "lat": 45.7640, "lon": 4.8357},
+    {"city": "Marseille", "region_admin": "Provence-Alpes-Cote d'Azur", "country": "France", "lat": 43.2965, "lon": 5.3698},
+    {"city": "Berlin", "region_admin": "Berlin", "country": "Germany", "lat": 52.5200, "lon": 13.4050},
+    {"city": "Munich", "region_admin": "Bavaria", "country": "Germany", "lat": 48.1351, "lon": 11.5820},
+    {"city": "Rome", "region_admin": "Lazio", "country": "Italy", "lat": 41.9028, "lon": 12.4964},
+    {"city": "Florence", "region_admin": "Tuscany", "country": "Italy", "lat": 43.7696, "lon": 11.2558},
+    {"city": "Barcelona", "region_admin": "Catalonia", "country": "Spain", "lat": 41.3874, "lon": 2.1686},
+    {"city": "Tokyo", "region_admin": "Tokyo", "country": "Japan", "lat": 35.6762, "lon": 139.6503},
+    {"city": "Kyoto", "region_admin": "Kyoto", "country": "Japan", "lat": 35.0116, "lon": 135.7681},
+    {"city": "Osaka", "region_admin": "Osaka", "country": "Japan", "lat": 34.6937, "lon": 135.5023},
+    {"city": "Hiroshima", "region_admin": "Hiroshima", "country": "Japan", "lat": 34.3853, "lon": 132.4553},
+    {"city": "Nara", "region_admin": "Nara", "country": "Japan", "lat": 34.6851, "lon": 135.8048},
+    {"city": "Sapporo", "region_admin": "Hokkaido", "country": "Japan", "lat": 43.0618, "lon": 141.3545},
+    {"city": "Fukuoka", "region_admin": "Fukuoka", "country": "Japan", "lat": 33.5904, "lon": 130.4017},
+    {"city": "Nagoya", "region_admin": "Aichi", "country": "Japan", "lat": 35.1815, "lon": 136.9066},
 ]
 
 
@@ -75,7 +86,8 @@ class GeocodeCache:
             self._geocoder = Nominatim(user_agent=user_agent, timeout=15)
 
     def _key(self, lat: float, lon: float, precision: int = 4) -> str:
-        return f"{lat:.{precision}f},{lon:.{precision}f}"
+        # Sprache im Key: alte de/ja-Caches werden nicht wiederverwendet
+        return f"{lat:.{precision}f},{lon:.{precision}f}:{GEOCODE_LANGUAGE}"
 
     def save(self) -> None:
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,7 +102,7 @@ class GeocodeCache:
         self._last_call = time.time()
 
     def reverse(self, lat: float, lon: float) -> dict[str, Optional[str]]:
-        """Gibt city, region_admin, country zurück."""
+        """Gibt city, region_admin, country zurück (Namen auf Englisch)."""
         key = self._key(lat, lon)
         if key in self._cache:
             return self._cache[key]
@@ -103,9 +115,13 @@ class GeocodeCache:
 
         self._throttle()
         try:
-            loc = self._geocoder.reverse((lat, lon), language="de", exactly_one=True)
-        except (GeocoderTimedOut, GeocoderServiceError, Exception):
-            self._cache[key] = empty
+            loc = self._geocoder.reverse(
+                (lat, lon), language=GEOCODE_LANGUAGE, exactly_one=True
+            )
+        except (GeocoderTimedOut, GeocoderServiceError):
+            # Transient: nicht cachen, damit ein Folgelauf erneut versucht
+            return empty
+        except Exception:
             return empty
 
         if loc is None:

@@ -21,6 +21,18 @@ def test_offline_reverse_cities():
     assert offline_reverse(45.7640, 4.8357)["city"] == "Lyon"
     # zwischen Paris und Lyon: kein Stadtname
     assert offline_reverse(47.3, 3.6)["city"] is None
+    # Japan offline auf Englisch
+    tokyo = offline_reverse(35.6762, 139.6503)
+    assert tokyo["city"] == "Tokyo"
+    assert tokyo["country"] == "Japan"
+
+
+def test_geocode_cache_key_includes_english_language(tmp_path):
+    from photobook_curator.geocoding import GEOCODE_LANGUAGE
+
+    assert GEOCODE_LANGUAGE == "en"
+    cache = GeocodeCache(tmp_path / "cache.json", enabled=False)
+    assert cache._key(35.6762, 139.6503).endswith(":en")
 
 
 def test_cluster_and_regions(tmp_path):
