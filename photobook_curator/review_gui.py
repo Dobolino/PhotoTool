@@ -31,10 +31,15 @@ from .utils import load_image_scaled, load_thumb_cached
 COLORS = theme_colors()
 
 THUMB = 120
+CELL_W = THUMB + 28
+CELL_H = THUMB + 52
+HEADER_H = 44
+ALT_BTN_H = 36
+GRID_PAD = 14
 STRIP = 64
 STRIP_WINDOW = 9  # ungerade: aktuelle Bildmitte + Nachbarn
 # Wenige PhotoImage-Updates pro Tick → weniger Ruckeln beim Scrollen
-_THUMBS_PER_TICK = 3
+_THUMBS_PER_TICK = 6
 _SLIDE_MAX = 720  # max. Kantenlänge in der Diashow (kleiner = schneller)
 _LOADER_THREADS = 2
 _ALT_LIMIT = 6  # Varianten pro Kapitel (weniger Widgets = flüssiger)
@@ -90,8 +95,6 @@ class ReviewWindow(tk.Toplevel):
         self._photo_images: list[ImageTk.PhotoImage] = []  # Referenzen halten
         self._thumb_cache: dict[int, ImageTk.PhotoImage] = {}
         self._slide_cache: dict[int, ImageTk.PhotoImage] = {}
-        self._tile_state: dict[tuple[str, int], dict] = {}
-        self._thumb_labels: dict[int, list[tk.Label]] = {}
         self._pending_thumbs: set[int] = set()
         # PriorityQueue: (prio, seq, job) — job = ("thumb"|"slide", idx) oder None=Stop
         self._load_queue: queue.PriorityQueue = queue.PriorityQueue()
@@ -99,17 +102,13 @@ class ReviewWindow(tk.Toplevel):
         self._ready_queue: queue.Queue[tuple[int, Image.Image | None]] = queue.Queue()
         self._slide_queue: queue.Queue[tuple[int, Image.Image | None]] = queue.Queue()
         self._pending_slides: set[int] = set()
-        self._scroll_job: str | None = None
-        self._reflow_job: str | None = None
-        self._scroll_idle_job: str | None = None
-        self._scrolling = False
         self._wheel_bound = False
-        self._last_canvas_w = 0
         self._grid_cols = 6
-        self._section_grids: dict[str, tk.Misc] = {}
-        self._section_counts: dict[str, int] = {}
         self._session_added: set[int] = set()  # als Variante hinzugefügt
-        self._add_outers: dict[int, list[tk.Frame]] = {}
+        self._expanded_alts: set[str] = set()
+        self._canvas_img_ids: dict[int, int] = {}  # photo idx → canvas image id
+        self._canvas_border_ids: dict[tuple, int] = {}  # (mode, idx[, folder]) → rect
+        self._hit_tiles: list[dict] = []
         self._status_flash_job: str | None = None
         self._slideshow = False
         self._thumb_request_budget = 0
@@ -119,6 +118,7 @@ class ReviewWindow(tk.Toplevel):
         self._slide_showing_idx: int | None = None
         self._strip_frames: dict[int, tk.Frame] = {}
         self._strip_thumb_labels: dict[int, tk.Label] = {}
+        self._placeholder_img: ImageTk.PhotoImage | None = None
         self._loaders = [
             threading.Thread(target=self._thumb_worker, daemon=True)
             for _ in range(_LOADER_THREADS)
@@ -233,7 +233,7 @@ class ReviewWindow(tk.Toplevel):
         style.map("Rev.TRadiobutton", background=[("active", COLORS["bg"])])
 
     def _build(self) -> None:
-        from .ui_widgets import PaddedButton, soft_banner
+        from .ui_widgets import PaddedButton
 
         # Nacht-Header wie Hauptfenster (kein alter Akzent-Banner)
         tk.Frame(self, bg=COLORS["accent"], height=3).pack(fill=tk.X)
@@ -299,31 +299,28 @@ class ReviewWindow(tk.Toplevel):
         )
         self.mode_btn.pack(side=tk.LEFT, padx=(16, 0))
 
-        tip_host = tk.Frame(self, bg=COLORS["bg"], padx=20)
-        tip_host.pack(fill=tk.X, pady=(0, 8))
-        tip_text = self._draft_note or t("draft_auto")
-        self._tip_banner = soft_banner(tip_host, tip_text, COLORS)
-        self._tip_banner.pack(fill=tk.X)
+        # Kein Banner mehr – Hinweis steht kurz in der Zählerzeile / Hilfe
+        if self._draft_note:
+            self.after(100, lambda: self._flash_status(self._draft_note))
 
-        # Wichtig: nur tk.Frame im scrollbaren Bereich – ttk im Canvas
-        # erzeugt unter Windows die typischen Geister-/Überlappungsartefakte.
         self._body = tk.Frame(self, bg=COLORS["bg"])
         self._body.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 14))
 
         self._grid_host = tk.Frame(self._body, bg=COLORS["bg"])
         self._grid_host.pack(fill=tk.BOTH, expand=True)
 
+        # Reines Canvas-Raster (keine eingebetteten Frames) → kein Windows-Ghosting
         self.canvas = tk.Canvas(
             self._grid_host,
             bg=COLORS["bg"],
             highlightthickness=0,
             bd=0,
-            yscrollincrement=24,
+            yscrollincrement=40,
         )
         self._vscroll = tk.Scrollbar(
             self._grid_host,
             orient=tk.VERTICAL,
-            command=self._canvas_yview,
+            command=self.canvas.yview,
             bg=COLORS.get("chip_bg", COLORS["surface"]),
             troughcolor=COLORS["bg"],
             activebackground=COLORS["accent"],
@@ -332,121 +329,37 @@ class ReviewWindow(tk.Toplevel):
         self.canvas.configure(yscrollcommand=self._vscroll.set)
         self._vscroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        self.inner = tk.Frame(self.canvas, bg=COLORS["bg"], bd=0, highlightthickness=0)
-        self._win = self.canvas.create_window((0, 0), window=self.inner, anchor=tk.NW)
-        self.inner.bind("<Configure>", self._on_inner_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
-        # Mausrad: einmal global für dieses Review – funktioniert auch über Kacheln
+        self.canvas.bind("<Button-1>", self._on_grid_click)
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<Button-4>", lambda _e: self._scroll_units(-3))
+        self.canvas.bind("<Button-5>", lambda _e: self._scroll_units(3))
         self._install_wheel()
 
         self._slide_host = tk.Frame(self._body, bg=COLORS["bg"])
         self._build_slideshow_ui()
+        self._ensure_placeholder()
 
-    def _canvas_yview(self, *args) -> None:
-        """Scrollbar-Handler mit Paint-Fix (Windows Ghosting)."""
-        self._begin_scroll()
-        self.canvas.yview(*args)
-        self._repaint_after_scroll()
-        self._end_scroll_soon()
-
-    def _begin_scroll(self) -> None:
-        self._scrolling = True
-        # Keine scrollregion-/Thumb-Umbauten während aktiver Bewegung
-        if self._scroll_job is not None:
-            try:
-                self.after_cancel(self._scroll_job)
-            except Exception:
-                pass
-            self._scroll_job = None
-
-    def _end_scroll_soon(self) -> None:
-        if self._scroll_idle_job is not None:
-            try:
-                self.after_cancel(self._scroll_idle_job)
-            except Exception:
-                pass
-        self._scroll_idle_job = self.after(180, self._end_scroll)
-
-    def _end_scroll(self) -> None:
-        self._scroll_idle_job = None
-        self._scrolling = False
-        self._update_scrollregion()
-
-    def _repaint_after_scroll(self) -> None:
-        """Erzwingt Neuzeichnen der eingebetteten Fenster (Windows)."""
-        try:
-            # Kurz den Hintergrund neu setzen – triggert sauberes Clipping
-            self.canvas.configure(bg=COLORS["bg"])
-            self.inner.configure(bg=COLORS["bg"])
-            self.canvas.update_idletasks()
-        except tk.TclError:
-            pass
-
-    def _schedule_scrollregion(self, _event=None) -> None:
-        if self._scrolling:
+    def _ensure_placeholder(self) -> None:
+        if self._placeholder_img is not None:
             return
-        if self._scroll_job is not None:
-            try:
-                self.after_cancel(self._scroll_job)
-            except Exception:
-                pass
-        self._scroll_job = self.after(200, self._update_scrollregion)
-
-    def _on_inner_configure(self, _event=None) -> None:
-        # Nur wenn nicht gescrollt wird – sonst Ghosting durch scrollregion-Änderungen
-        if not self._scrolling:
-            self._schedule_scrollregion()
-
-    def _update_scrollregion(self) -> None:
-        self._scroll_job = None
-        if self._scrolling:
-            return
-        try:
-            self.inner.update_idletasks()
-            req_h = max(self.inner.winfo_reqheight(), 1)
-            req_w = max(self.inner.winfo_reqwidth(), self.canvas.winfo_width())
-            self.canvas.configure(scrollregion=(0, 0, req_w, req_h))
-        except tk.TclError:
-            pass
+        img = Image.new("RGB", (THUMB, THUMB), COLORS.get("thumb_pad", COLORS["line"]))
+        self._placeholder_img = ImageTk.PhotoImage(img)
+        self._photo_images.append(self._placeholder_img)
 
     def _on_canvas_configure(self, event) -> None:
-        try:
-            self.canvas.itemconfigure(self._win, width=max(event.width, 1))
-        except tk.TclError:
+        if self._slideshow or event.width < 80:
             return
-        cols = max(4, min(10, int(event.width) // (THUMB + 36)))
-        # Spalten nur merken – kein Live-Rebuild (das zerstört das Scrollen)
-        width_jump = abs(event.width - self._last_canvas_w) >= 96
-        self._last_canvas_w = event.width
-        if cols != self._grid_cols:
-            self._grid_cols = cols
-            if (
-                width_jump
-                and not self._slideshow
-                and not self._scrolling
-                and self._section_grids
-            ):
-                if self._reflow_job is not None:
-                    try:
-                        self.after_cancel(self._reflow_job)
-                    except Exception:
-                        pass
-                # Nur bei großem Resize, verzögert
-                self._reflow_job = self.after(400, self._reflow_grid)
-
-    def _reflow_grid(self) -> None:
-        self._reflow_job = None
-        if self._slideshow or self._scrolling or not self.winfo_exists():
+        cols = max(3, min(10, max(1, int(event.width) // CELL_W)))
+        if cols == self._grid_cols:
             return
+        self._grid_cols = cols
         try:
             top = self.canvas.yview()[0]
         except tk.TclError:
             top = 0.0
         self._render()
         try:
-            self.update_idletasks()
-            self._update_scrollregion()
             self.canvas.yview_moveto(top)
         except tk.TclError:
             pass
@@ -477,7 +390,7 @@ class ReviewWindow(tk.Toplevel):
             widget = self.winfo_containing(x, y)
             w = widget
             while w is not None:
-                if w in (self.canvas, self.inner, self._vscroll, self._grid_host):
+                if w in (self.canvas, self._vscroll, self._grid_host):
                     return True
                 w = getattr(w, "master", None)
             return False
@@ -486,10 +399,7 @@ class ReviewWindow(tk.Toplevel):
 
     def _scroll_units(self, units: int) -> None:
         if self.winfo_exists() and not self._slideshow:
-            self._begin_scroll()
             self.canvas.yview_scroll(units, "units")
-            self._repaint_after_scroll()
-            self._end_scroll_soon()
 
     def _on_linux_scroll_up(self, _event=None) -> None:
         if self._pointer_in_grid():
@@ -508,8 +418,7 @@ class ReviewWindow(tk.Toplevel):
         steps = -1 if delta > 0 else 1
         if abs(delta) >= 120:
             steps = int(-1 * (delta / 120))
-        # Windows liefert oft viele kleine Events → bündeln
-        self._scroll_units(max(-6, min(6, steps * 3)))
+        self._scroll_units(max(-8, min(8, steps * 3)))
         return "break"
 
     def _build_slideshow_ui(self) -> None:
@@ -727,11 +636,6 @@ class ReviewWindow(tk.Toplevel):
                 self._slide_cache.pop(idx, None)
 
     def _drain_thumbs(self) -> None:
-        # Während Scrollen keine Label-Updates → verhindert Windows-Ghosting
-        if self._scrolling and not self._slideshow:
-            if self.winfo_exists():
-                self.after(60, self._drain_thumbs)
-            return
         updated = 0
         try:
             while updated < _THUMBS_PER_TICK:
@@ -742,14 +646,12 @@ class ReviewWindow(tk.Toplevel):
                 tk_img = ImageTk.PhotoImage(canvas_img)
                 self._thumb_cache[idx] = tk_img
                 self._photo_images.append(tk_img)
-                for lbl in self._thumb_labels.get(idx, []):
+                img_id = self._canvas_img_ids.get(idx)
+                if img_id is not None:
                     try:
-                        if lbl.winfo_exists():
-                            # Feste Kachelgröße: kein width/height-Reset → weniger Scroll-Sprünge
-                            lbl.configure(image=tk_img, text="")
+                        self.canvas.itemconfigure(img_id, image=tk_img)
                     except tk.TclError:
                         pass
-                # Diashow: Thumb sofort als Platzhalter, Filmstreifen aktualisieren
                 if self._slideshow:
                     if (
                         self._slide_showing_idx == idx
@@ -762,7 +664,7 @@ class ReviewWindow(tk.Toplevel):
         except queue.Empty:
             pass
         if self.winfo_exists():
-            delay = 40 if updated else 90
+            delay = 30 if updated else 90
             self.after(delay, self._drain_thumbs)
 
     def _drain_slides(self) -> None:
@@ -1356,106 +1258,146 @@ class ReviewWindow(tk.Toplevel):
             )
         self.photos[idx].is_selected = True
 
-    def _ensure_chapter_grid(self, folder: str) -> tk.Misc:
-        try:
-            grid = self._section_grids.get(folder)
-            if grid is not None and grid.winfo_exists():
-                return grid
-        except tk.TclError:
-            pass
-        title = folder.replace("/", " · ").replace("\\", " · ") or "Kapitel"
-        shell = tk.Frame(self.inner, bg=COLORS["line"], padx=1, pady=1)
-        shell.pack(fill=tk.X, anchor=tk.NW, pady=(0, 12), padx=4)
-        wrap = tk.Frame(shell, bg=COLORS["surface"], padx=16, pady=14)
-        wrap.pack(fill=tk.X)
-        tk.Label(
-            wrap,
-            text=title,
-            bg=COLORS["surface"],
-            fg=COLORS["ink"],
-            font=("Segoe UI Semibold", 12),
-            anchor=tk.W,
-        ).pack(anchor=tk.W)
-        tk.Label(
-            wrap,
-            text=t("in_chapter_hint"),
-            bg=COLORS["surface"],
-            fg=COLORS["muted"],
-            font=("Segoe UI", 9),
-            anchor=tk.W,
-        ).pack(anchor=tk.W, pady=(4, 10))
-        grid = tk.Frame(wrap, bg=COLORS["surface"])
-        grid.pack(fill=tk.X)
-        self._section_grids[folder] = grid
-        self._section_counts.setdefault(folder, 0)
-        return grid
 
     def _place_in_chapter(self, idx: int, folder_name: str) -> None:
-        """Variante aus allen Alt-Listen nehmen und im Kapitel-Raster zeigen."""
-        self._remove_add_tiles(idx)
-        folder = folder_name or self.photos[idx].chapter_folder or ""
-        grid = self._ensure_chapter_grid(folder) if folder else None
-        if grid is None:
-            grid = self._ensure_chapter_grid("Unbestimmt")
-            folder = "Unbestimmt"
-            self._assign_chapter(idx, folder)
-        n = self._section_counts.get(folder, 0)
-        cols = self._grid_cols
+        """Variante ins Kapitel legen und Raster neu zeichnen."""
+        folder = folder_name or self.photos[idx].chapter_folder or "Unbestimmt"
+        self._assign_chapter(idx, folder)
         self._session_added.add(idx)
-        self._tile(grid, idx, n % cols, n // cols, mode="keep", folder=folder)
-        self._section_counts[folder] = n + 1
         self._flash_status(t("added_to_chapter", folder=folder))
-        self._schedule_scrollregion()
+        self._render()
 
-    def _remove_add_tiles(self, idx: int) -> None:
-        """Alle Varianten-Kacheln dieses Bildes entfernen (auch mehrfach angezeigt)."""
-        for outer in self._add_outers.pop(idx, []):
+    def _on_grid_click(self, event) -> None:
+        if self._slideshow:
+            return
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        for hit in reversed(self._hit_tiles):
+            x1, y1, x2, y2 = hit["box"]
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                kind = hit["kind"]
+                if kind == "photo":
+                    self._toggle_photo(hit["idx"], hit["mode"], hit.get("folder") or "")
+                elif kind == "alt_toggle":
+                    key = hit["key"]
+                    if key in self._expanded_alts:
+                        self._expanded_alts.discard(key)
+                    else:
+                        self._expanded_alts.add(key)
+                    try:
+                        top = self.canvas.yview()[0]
+                    except tk.TclError:
+                        top = 0.0
+                    self._render()
+                    try:
+                        self.canvas.yview_moveto(top)
+                    except tk.TclError:
+                        pass
+                return
+
+    def _toggle_photo(self, idx: int, mode: str, folder: str) -> None:
+        if mode == "add":
+            if idx in self.kept:
+                return
+            self.kept.add(idx)
+            self.baseline.add(idx)
+            self._assign_chapter(idx, folder)
+            self._place_in_chapter(idx, folder)
+            self._autosave_draft()
+            return
+        if idx in self.kept:
+            self.kept.remove(idx)
+            self.photos[idx].is_selected = False
+        else:
+            self.kept.add(idx)
+            self.photos[idx].is_selected = True
+        self._update_count()
+        self._paint_tile_state(idx, mode, folder)
+        self._autosave_draft()
+
+    def _paint_tile_state(self, idx: int, mode: str, folder: str) -> None:
+        key = (mode, idx, folder)
+        border_id = self._canvas_border_ids.get(key) or self._canvas_border_ids.get(("keep", idx, folder))
+        if border_id is None:
+            # Fallback: neu zeichnen
             try:
-                if outer.winfo_exists():
-                    outer.destroy()
+                top = self.canvas.yview()[0]
+            except tk.TclError:
+                top = 0.0
+            self._render()
+            try:
+                self.canvas.yview_moveto(top)
             except tk.TclError:
                 pass
-        for key in list(self._tile_state.keys()):
-            if len(key) >= 2 and key[0] == "add" and key[1] == idx:
-                state = self._tile_state.pop(key, None)
-                if state is None:
-                    continue
-                try:
-                    state["outer"].destroy()
-                except tk.TclError:
-                    pass
-        if idx in self._thumb_labels:
-            self._thumb_labels[idx] = [
-                lbl for lbl in self._thumb_labels[idx] if lbl.winfo_exists()
-            ]
+            return
+        kept = idx in self.kept
+        border = COLORS["keep_border"] if kept else COLORS["reject_border"]
+        try:
+            self.canvas.itemconfigure(border_id, outline=border)
+            # Overlay-Text aktualisieren
+            tag = f"ov_{mode}_{idx}_{folder}"
+            self.canvas.delete(tag)
+            if mode == "keep" and not kept:
+                # Position aus border coords
+                coords = self.canvas.coords(border_id)
+                if len(coords) >= 4:
+                    cx = (coords[0] + coords[2]) / 2
+                    cy = coords[1] + 16 + THUMB / 2
+                    self.canvas.create_text(
+                        cx,
+                        cy,
+                        text=t("removed_state"),
+                        fill=COLORS.get("hero_fg", "#FFFFFF"),
+                        font=("Segoe UI Semibold", 9),
+                        tags=("grid", tag),
+                    )
+            elif mode == "add" and idx not in self.kept:
+                coords = self.canvas.coords(border_id)
+                if len(coords) >= 4:
+                    cx = (coords[0] + coords[2]) / 2
+                    cy = coords[1] + 16 + THUMB / 2
+                    self.canvas.create_text(
+                        cx,
+                        cy,
+                        text="+",
+                        fill=COLORS.get("hero_fg", "#FFFFFF"),
+                        font=("Segoe UI Semibold", 14),
+                        tags=("grid", tag),
+                    )
+        except tk.TclError:
+            pass
 
     def _render(self) -> None:
-        for child in self.inner.winfo_children():
-            child.destroy()
-        self._tile_state.clear()
-        self._thumb_labels.clear()
-        self._section_grids.clear()
-        self._section_counts.clear()
-        self._add_outers.clear()
+        """Zeichnet das Raster direkt auf dem Canvas – scrollt ohne Geisterbilder."""
+        self._ensure_placeholder()
+        self.canvas.delete("grid")
+        self._canvas_img_ids.clear()
+        self._canvas_border_ids.clear()
+        self._hit_tiles.clear()
         self._update_count()
+
+        width = max(self.canvas.winfo_width(), CELL_W * self._grid_cols + GRID_PAD * 2)
+        cols = max(3, min(10, width // CELL_W))
+        self._grid_cols = cols
+        y = GRID_PAD
 
         display = sorted(self.baseline | self.kept)
         sections = chapter_sections(self.photos, display)
+
         if not sections:
-            tk.Label(
-                self.inner,
+            self.canvas.create_text(
+                GRID_PAD,
+                y + 8,
+                anchor=tk.NW,
                 text="Keine Bilder in der Auswahl. Füge unten Alternativen hinzu oder brich ab.",
-                bg=COLORS["bg"],
-                fg=COLORS["muted"],
+                fill=COLORS["muted"],
                 font=("Segoe UI", 10),
-                anchor=tk.W,
-                padx=8,
-                pady=16,
-            ).pack(anchor=tk.W)
+                tags=("grid",),
+            )
+            y += 40
 
         for title, folder, indices in sections:
-            show_alts = not folder.startswith("99_")
-            self._section(title, folder, indices, alternatives=show_alts)
+            y = self._draw_section(title, folder, indices, y, cols, show_alts=not folder.startswith("99_"))
 
         from .documents import ASIDE_FOLDER, aside_indices
 
@@ -1471,10 +1413,13 @@ class ReviewWindow(tk.Toplevel):
                     self.photos[i].filename,
                 )
             )
-            self._alt_block(
-                "Optional: Dokumente & Screenshots (tippen = ins Buch)",
+            y = self._draw_alt_section(
+                "Optional: Dokumente & Screenshots",
+                ASIDE_FOLDER,
                 aside[:40],
-                folder=ASIDE_FOLDER,
+                y,
+                cols,
+                collapsed=ASIDE_FOLDER not in self._expanded_alts,
             )
 
         if not sections:
@@ -1491,48 +1436,50 @@ class ReviewWindow(tk.Toplevel):
                 reverse=True,
             )
             if alts:
-                self._alt_block("Vorschläge", alts[:_ALT_LIMIT], collapsed=True)
+                y = self._draw_alt_section(
+                    "Vorschläge",
+                    "__suggestions__",
+                    alts[:_ALT_LIMIT],
+                    y,
+                    cols,
+                    collapsed="__suggestions__" not in self._expanded_alts,
+                )
 
-        # Scrollregion einmal nach Aufbau setzen (nicht während Scrollen)
-        self.after(50, self._update_scrollregion)
+        y += GRID_PAD
+        self.canvas.configure(scrollregion=(0, 0, width, max(y, 100)))
 
-    def _section(
+    def _draw_section(
         self,
         title: str,
         folder: str,
         indices: list[int],
-        alternatives: bool = False,
-    ) -> None:
-        shell = tk.Frame(self.inner, bg=COLORS["line"], padx=1, pady=1)
-        shell.pack(fill=tk.X, anchor=tk.NW, pady=(0, 12), padx=4)
-        wrap = tk.Frame(shell, bg=COLORS["surface"], padx=16, pady=14)
-        wrap.pack(fill=tk.X)
-        tk.Label(
-            wrap,
+        y: int,
+        cols: int,
+        *,
+        show_alts: bool,
+    ) -> int:
+        self.canvas.create_text(
+            GRID_PAD,
+            y,
+            anchor=tk.NW,
             text=title,
-            bg=COLORS["surface"],
-            fg=COLORS["ink"],
+            fill=COLORS["ink"],
             font=("Segoe UI Semibold", 12),
-            anchor=tk.W,
-        ).pack(anchor=tk.W)
-        tk.Label(
-            wrap,
+            tags=("grid",),
+        )
+        self.canvas.create_text(
+            GRID_PAD,
+            y + 20,
+            anchor=tk.NW,
             text=t("in_chapter_hint"),
-            bg=COLORS["surface"],
-            fg=COLORS["muted"],
+            fill=COLORS["muted"],
             font=("Segoe UI", 9),
-            anchor=tk.W,
-        ).pack(anchor=tk.W, pady=(4, 10))
+            tags=("grid",),
+        )
+        y += HEADER_H
+        y = self._draw_photo_rows(indices, folder, "keep", y, cols)
 
-        grid = tk.Frame(wrap, bg=COLORS["surface"])
-        grid.pack(fill=tk.X)
-        self._section_grids[folder] = grid
-        self._section_counts[folder] = len(indices)
-        cols = self._grid_cols
-        for n, idx in enumerate(indices):
-            self._tile(grid, idx, n % cols, n // cols, mode="keep", folder=folder)
-
-        if alternatives:
+        if show_alts:
             alts = candidate_alternatives(
                 self.photos,
                 folder,
@@ -1540,253 +1487,146 @@ class ReviewWindow(tk.Toplevel):
                 exclude=self.kept,
             )
             if alts:
-                self._alt_block(
+                y = self._draw_alt_section(
                     f"Varianten für „{title}“",
+                    folder,
                     alts,
-                    parent=wrap,
-                    folder=folder,
-                    collapsed=True,
+                    y,
+                    cols,
+                    collapsed=folder not in self._expanded_alts,
                 )
+        y += 10
+        return y
 
-    def _alt_block(
+    def _draw_alt_section(
         self,
         title: str,
+        key: str,
         indices: list[int],
-        parent: Optional[tk.Misc] = None,
-        folder: str = "",
-        collapsed: bool = True,
-    ) -> None:
-        """Varianten standardmäßig eingeklappt – spart massiv Widgets/Ladezeit."""
-        host = parent or self.inner
+        y: int,
+        cols: int,
+        *,
+        collapsed: bool,
+    ) -> int:
         indices = [i for i in indices if i not in self.kept]
         if not indices:
-            return
-        bg = COLORS["surface"] if parent is not None else COLORS["bg"]
-        box = tk.Frame(host, bg=bg)
-        box.pack(fill=tk.X, pady=(10, 0))
-        tk.Label(
-            box,
-            text=title,
-            bg=bg,
-            fg=COLORS["muted"],
-            font=("Segoe UI", 9),
-            anchor=tk.W,
-        ).pack(anchor=tk.W)
-        grid = tk.Frame(box, bg=bg)
-        state = {"open": False}
-
-        def _fill() -> None:
-            for child in grid.winfo_children():
-                child.destroy()
-            cols = self._grid_cols
-            for n, idx in enumerate(indices):
-                if idx in self.kept:
-                    continue
-                self._tile(grid, idx, n % cols, n // cols, mode="add", folder=folder)
-
-        def _toggle() -> None:
-            if state["open"]:
-                state["open"] = False
-                for child in grid.winfo_children():
-                    child.destroy()
-                grid.pack_forget()
-                btn.configure(text=t("show_variants", n=len(indices)))
-            else:
-                state["open"] = True
-                _fill()
-                grid.pack(fill=tk.X, pady=(6, 0))
-                btn.configure(text=t("hide_variants"))
-            self._schedule_scrollregion()
-
-        btn = ttk.Button(
-            box,
-            text=t("show_variants", n=len(indices)),
-            style="Rev.TButton",
-            command=_toggle,
+            return y
+        label = (
+            t("show_variants", n=len(indices))
+            if collapsed
+            else t("hide_variants")
         )
-        btn.pack(anchor=tk.W, pady=(6, 0))
+        btn_w = 220
+        btn_h = ALT_BTN_H
+        x1, y1 = GRID_PAD, y
+        x2, y2 = x1 + btn_w, y1 + btn_h
+        self.canvas.create_rectangle(
+            x1,
+            y1,
+            x2,
+            y2,
+            fill=COLORS.get("chip_bg", COLORS["surface"]),
+            outline=COLORS["line"],
+            tags=("grid",),
+        )
+        self.canvas.create_text(
+            x1 + 12,
+            y1 + btn_h / 2,
+            anchor=tk.W,
+            text=f"{title}: {label}",
+            fill=COLORS["ink"],
+            font=("Segoe UI Semibold", 9),
+            tags=("grid",),
+        )
+        self._hit_tiles.append(
+            {"kind": "alt_toggle", "key": key, "box": (x1, y1, x2, y2)}
+        )
+        y += btn_h + 8
         if not collapsed:
-            _toggle()
+            y = self._draw_photo_rows(indices, key if key != "__suggestions__" else "", "add", y, cols)
+        return y
 
-    def _apply_tile_visual(self, key: tuple) -> None:
-        state = self._tile_state.get(key)
-        if not state:
-            return
-        mode = state.get("mode") or key[0]
-        idx = int(state.get("idx") if state.get("idx") is not None else key[1])
-        kept = idx in self.kept
-        border = COLORS["keep_border"] if kept else COLORS["reject_border"]
-        outer: tk.Frame = state["outer"]
-        info: tk.Label = state["info"]
-        inner: tk.Frame = state["inner"]
-        try:
-            outer.configure(bg=border)
-            info.configure(
-                fg=COLORS["muted"] if (mode == "keep" and not kept) else COLORS["ink"]
-            )
-        except tk.TclError:
-            return
-
-        old = state.get("overlay")
-        if old is not None:
-            try:
-                old.destroy()
-            except tk.TclError:
-                pass
-            state["overlay"] = None
-
-        if mode == "keep" and not kept:
-            overlay = tk.Label(
-                inner,
-                text="ENTFERNT",
-                bg=COLORS["reject"],
-                fg="white",
-                font=("Segoe UI Semibold", 8),
-                cursor="hand2",
-            )
-            overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
-            state["overlay"] = overlay
-            self._bind_tile_click(overlay, state.get("toggle"))
-        elif mode == "add" and idx not in self.kept:
-            overlay = tk.Label(
-                inner,
-                text="+ HINZUFÜGEN",
-                bg=COLORS["accent"],
-                fg="white",
-                font=("Segoe UI Semibold", 8),
-                cursor="hand2",
-            )
-            overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
-            state["overlay"] = overlay
-            # Wichtig: Overlay liegt oben – ohne Bind greift der Klick nicht
-            self._bind_tile_click(overlay, state.get("toggle"))
-        elif mode == "add" and idx in self.kept:
-            # Sicherheit: sollte schon zerstört sein
-            try:
-                outer.destroy()
-            except tk.TclError:
-                pass
-
-    @staticmethod
-    def _bind_tile_click(widget, toggle) -> None:
-        if toggle is None or widget is None:
-            return
-        try:
-            widget.bind("<Button-1>", toggle)
-            widget.configure(cursor="hand2")
-        except tk.TclError:
-            pass
-
-    def _tile(
+    def _draw_photo_rows(
         self,
-        parent: tk.Misc,
-        idx: int,
-        col: int,
-        row: int,
+        indices: list[int],
+        folder: str,
         mode: str,
-        folder: str = "",
-    ) -> None:
-        kept = idx in self.kept
-        border = COLORS["keep_border"] if kept else COLORS["reject_border"]
-        outer = tk.Frame(parent, bg=border, padx=2, pady=2)
-        outer.grid(row=row, column=col, padx=8, pady=8, sticky=tk.NW)
+        y: int,
+        cols: int,
+    ) -> int:
+        for n, idx in enumerate(indices):
+            col = n % cols
+            if col == 0 and n:
+                y += CELL_H
+            x = GRID_PAD + col * CELL_W
+            self._draw_tile(x, y, idx, mode, folder)
+        if indices:
+            y += CELL_H
+        return y
 
-        inner = tk.Frame(outer, bg=COLORS["surface"])
-        inner.pack()
+    def _draw_tile(self, x: int, y: int, idx: int, mode: str, folder: str) -> None:
+        kept = idx in self.kept
+        border = COLORS["keep_border"] if (mode == "add" or kept) else COLORS["reject_border"]
+        if mode == "add":
+            border = COLORS["accent"] if idx not in self.kept else COLORS["keep_border"]
+        pad = COLORS.get("thumb_pad", COLORS["line"])
+        # Kachel-Hintergrund
+        self.canvas.create_rectangle(
+            x,
+            y,
+            x + THUMB + 12,
+            y + CELL_H - 8,
+            fill=COLORS["surface"],
+            outline="",
+            tags=("grid",),
+        )
+        border_id = self.canvas.create_rectangle(
+            x + 4,
+            y + 4,
+            x + 8 + THUMB,
+            y + 8 + THUMB,
+            outline=border,
+            width=2,
+            tags=("grid",),
+        )
+        key = (mode, idx, folder)
+        self._canvas_border_ids[key] = border_id
+
+        tk_img = self._thumb_cache.get(idx) or self._placeholder_img
+        img_id = self.canvas.create_image(
+            x + 6 + THUMB / 2,
+            y + 6 + THUMB / 2,
+            image=tk_img,
+            tags=("grid",),
+        )
+        self._canvas_img_ids[idx] = img_id
+        if idx not in self._thumb_cache:
+            self._request_thumb(idx, priority=30 if mode == "keep" else 45)
 
         photo = self.photos[idx]
         caption = photo.filename
-        if len(caption) > 22:
-            caption = caption[:19] + "…"
+        if len(caption) > 18:
+            caption = caption[:15] + "…"
         meta = photo.scene_type or photo.chapter_type or ""
         score = photo.final_score or photo.technical_score
-
-        # Feste Bildfläche – verhindert Layout-Sprünge beim Scrollen/Nachladen
-        img_host = tk.Frame(
-            inner,
-            bg=COLORS.get("thumb_pad", COLORS["line"]),
-            width=THUMB,
-            height=THUMB,
-        )
-        img_host.pack_propagate(False)
-        img_host.pack()
-
-        tk_img = self._thumb_cache.get(idx)
-        if tk_img is not None:
-            lbl = tk.Label(
-                img_host, image=tk_img, bg=COLORS.get("thumb_pad", COLORS["line"]), cursor="hand2"
-            )
-        else:
-            lbl = tk.Label(
-                img_host,
-                text="…",
-                bg=COLORS.get("thumb_pad", COLORS["line"]),
-                cursor="hand2",
-                fg=COLORS["muted"],
-                font=("Segoe UI", 10),
-            )
-            self._thumb_labels.setdefault(idx, []).append(lbl)
-            self._request_thumb(idx, priority=30 if mode == "keep" else 45)
-        lbl.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
-
         folder_bit = ""
         if mode == "keep" and folder:
             short = folder.replace("\\", "/").split("/")[-1]
+            if len(short) > 14:
+                short = short[:12] + "…"
             folder_bit = f" · {short}"
-        info = tk.Label(
-            inner,
+        fg = COLORS["muted"] if (mode == "keep" and not kept) else COLORS["ink"]
+        self.canvas.create_text(
+            x + 6 + THUMB / 2,
+            y + 14 + THUMB,
             text=f"{caption}\n{meta}{folder_bit} · {score:.0f}",
-            bg=COLORS["surface"],
-            fg=COLORS["muted"] if (mode == "keep" and not kept) else COLORS["ink"],
+            fill=fg,
             font=("Segoe UI", 8),
             justify=tk.CENTER,
-            cursor="hand2",
-            width=18,
+            tags=("grid",),
         )
-        info.pack(pady=(6, 4))
 
-        def toggle(_event=None, i=idx, m=mode, folder_name=folder):
-            if m == "add":
-                if i in self.kept:
-                    return
-                self.kept.add(i)
-                self.baseline.add(i)
-                self._assign_chapter(i, folder_name)
-                # Aus Alternativen entfernen und im Kapitel-Raster zeigen
-                self._place_in_chapter(i, folder_name)
-                self._autosave_draft()
-            else:
-                if i in self.kept:
-                    self.kept.remove(i)
-                    self.photos[i].is_selected = False
-                else:
-                    self.kept.add(i)
-                    self.photos[i].is_selected = True
-                self._update_count()
-                self._apply_tile_visual(("keep", i))
-                self._autosave_draft()
-
-        if mode == "add":
-            # Eindeutiger Key – gleiches Bild kann in mehreren Kapiteln als Variante stehen
-            key: tuple = ("add", idx, id(outer))
-            self._add_outers.setdefault(idx, []).append(outer)
-        else:
-            key = ("keep", idx)
-        self._tile_state[key] = {
-            "outer": outer,
-            "inner": inner,
-            "info": info,
-            "lbl": lbl,
-            "overlay": None,
-            "toggle": toggle,
-            "mode": mode,
-            "idx": idx,
-        }
-        # Klicks auf alle sichtbaren Teile (inkl. Overlay/+HINZUFÜGEN)
-        for widget in (lbl, info, inner, outer, img_host):
-            self._bind_tile_click(widget, toggle)
-        self._apply_tile_visual(key)
-
+        # Badges / Overlays
         warn = None
         if getattr(photo, "finger_on_lens", False) or "finger_on_lens" in photo.flags:
             warn = "Finger"
@@ -1797,27 +1637,73 @@ class ReviewWindow(tk.Toplevel):
                 else "Gesicht?"
             )
         if warn:
-            badge = tk.Label(
-                img_host,
-                text=f" {warn} ",
-                bg=COLORS.get("phase_run_bg", "#C47A3A"),
-                fg=COLORS.get("phase_run_fg", "#FFF8F0"),
-                font=("Segoe UI Semibold", 7),
-                cursor="hand2",
+            self.canvas.create_rectangle(
+                x + 8,
+                y + 8,
+                x + 70,
+                y + 24,
+                fill=COLORS.get("phase_run_bg", "#C47A3A"),
+                outline="",
+                tags=("grid",),
             )
-            badge.place(relx=0.03, rely=0.03, anchor=tk.NW)
-            self._bind_tile_click(badge, toggle)
+            self.canvas.create_text(
+                x + 12,
+                y + 16,
+                anchor=tk.W,
+                text=warn,
+                fill=COLORS.get("phase_run_fg", "#FFF8F0"),
+                font=("Segoe UI Semibold", 7),
+                tags=("grid",),
+            )
         elif mode == "keep" and idx in self._session_added:
-            neu = tk.Label(
-                img_host,
-                text=f" {t('new_badge')} ",
-                bg=COLORS["accent"],
-                fg=COLORS.get("hero_fg", "#FFFFFF"),
-                font=("Segoe UI Semibold", 7),
-                cursor="hand2",
+            self.canvas.create_rectangle(
+                x + 8,
+                y + 8,
+                x + 72,
+                y + 24,
+                fill=COLORS["accent"],
+                outline="",
+                tags=("grid",),
             )
-            neu.place(relx=0.03, rely=0.03, anchor=tk.NW)
-            self._bind_tile_click(neu, toggle)
+            self.canvas.create_text(
+                x + 12,
+                y + 16,
+                anchor=tk.W,
+                text=t("new_badge"),
+                fill=COLORS.get("hero_fg", "#FFFFFF"),
+                font=("Segoe UI Semibold", 7),
+                tags=("grid",),
+            )
+
+        tag = f"ov_{mode}_{idx}_{folder}"
+        if mode == "keep" and not kept:
+            self.canvas.create_text(
+                x + 6 + THUMB / 2,
+                y + 6 + THUMB / 2,
+                text=t("removed_state"),
+                fill=COLORS.get("hero_fg", "#FFFFFF"),
+                font=("Segoe UI Semibold", 9),
+                tags=("grid", tag),
+            )
+        elif mode == "add" and idx not in self.kept:
+            self.canvas.create_text(
+                x + 6 + THUMB / 2,
+                y + 6 + THUMB / 2,
+                text="+",
+                fill=COLORS.get("hero_fg", "#FFFFFF"),
+                font=("Segoe UI Semibold", 16),
+                tags=("grid", tag),
+            )
+
+        self._hit_tiles.append(
+            {
+                "kind": "photo",
+                "idx": idx,
+                "mode": mode,
+                "folder": folder,
+                "box": (x, y, x + THUMB + 12, y + CELL_H - 8),
+            }
+        )
 
     def _save(self) -> None:
         if not self.kept:
@@ -1856,14 +1742,12 @@ class ReviewWindow(tk.Toplevel):
     def _close(self) -> None:
         self._autosave_draft()
         self._unbind_wheel()
-        for job_attr in ("_scroll_job", "_scroll_idle_job", "_reflow_job"):
-            job = getattr(self, job_attr, None)
-            if job is not None:
-                try:
-                    self.after_cancel(job)
-                except Exception:
-                    pass
-                setattr(self, job_attr, None)
+        if self._status_flash_job is not None:
+            try:
+                self.after_cancel(self._status_flash_job)
+            except Exception:
+                pass
+            self._status_flash_job = None
         for _ in self._loaders:
             self._load_queue.put((0, next(self._load_seq), None))
         self.destroy()

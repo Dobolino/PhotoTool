@@ -1,4 +1,4 @@
-"""Alternativen-Kacheln müssen Klicks auf dem Overlay annehmen."""
+"""Review-Raster: Klicks und Varianten-Verhalten."""
 
 from __future__ import annotations
 
@@ -6,11 +6,14 @@ import ast
 from pathlib import Path
 
 
-def test_overlay_binds_toggle_in_apply_tile_visual() -> None:
+def test_canvas_grid_handles_clicks_and_overlays() -> None:
     src = Path("photobook_curator/review_gui.py").read_text(encoding="utf-8")
-    # Regression: "+ HINZUFÜGEN" lag oben ohne Click-Handler
-    assert "_bind_tile_click(overlay" in src
-    assert 'text="+ HINZUFÜGEN"' in src
+    # Reines Canvas-Raster (kein Frame-Ghosting) mit Hit-Testing
+    assert "_on_grid_click" in src
+    assert "_draw_tile" in src
+    assert "_hit_tiles" in src
+    assert 'text="+"' in src or "text=\"+\"" in src
+    assert "create_window" not in src
     tree = ast.parse(src)
     assert tree is not None
 
@@ -21,7 +24,7 @@ def test_alternatives_go_into_chapter_not_top_dump() -> None:
     assert "_assign_chapter" in src
     assert "Neu hinzugefügt (diese Sitzung)" not in src
     assert "_ensure_added_section" not in src
-    assert "_add_outers" in src
+    assert "_expanded_alts" in src
     assert "show_variants" in src or 't("show_variants"' in src
 
 

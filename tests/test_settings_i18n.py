@@ -140,13 +140,12 @@ def test_world_basemap_data() -> None:
 def test_review_has_night_header_and_wheel_fix() -> None:
     src = Path("photobook_curator/review_gui.py").read_text(encoding="utf-8")
     assert "_install_wheel" in src
-    assert "soft_banner" in src
-    assert "pack_propagate(False)" in src
     assert 'font=("Georgia"' not in src
-    # Canvas-Inhalt muss tk.Frame sein (ttk → Windows-Ghosting beim Scrollen)
-    assert "self.inner = tk.Frame(self.canvas" in src
-    assert "_repaint_after_scroll" in src
-    assert "self._scrolling" in src
+    # Reines Canvas-Raster (kein create_window / keine Frames im Canvas)
+    assert "_draw_tile" in src
+    assert "_on_grid_click" in src
+    assert "create_window" not in src
+    assert "self.inner = tk.Frame(self.canvas" not in src
 
 
 def test_alternatives_helper_exists() -> None:
