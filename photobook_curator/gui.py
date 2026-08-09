@@ -17,12 +17,96 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .pipeline import PipelineConfig
 
-from .i18n import sync_language_from_settings, t
 from .phases import PHASE_STEPS, initial_phase_status, match_step_id
-from .settings import load_settings, theme_colors
 
-# Palette aus Einstellungen (Design-Variante)
-COLORS = theme_colors()
+# Fallback-Palette (falls Settings/Theme nicht laden)
+_FALLBACK_COLORS = {
+    "bg": "#F3EFE7",
+    "surface": "#FFFCF7",
+    "ink": "#1F1A17",
+    "muted": "#6E645C",
+    "line": "#D9D0C4",
+    "accent": "#2F5D50",
+    "accent_hover": "#244A40",
+    "accent_soft": "#E2EDE8",
+    "danger": "#8B3A2C",
+    "reject": "#8B3A2C",
+    "keep_border": "#2F5D50",
+    "reject_border": "#C4B8AA",
+    "log_bg": "#1C2421",
+    "log_fg": "#D7E0DB",
+    "phase_pending_bg": "#E8E2D8",
+    "phase_pending_fg": "#6E645C",
+    "phase_run_bg": "#C45C26",
+    "phase_run_fg": "#FFF8F2",
+    "phase_done_bg": "#2F7D4F",
+    "phase_done_fg": "#FFFFFF",
+    "phase_skip_bg": "#F0EBE3",
+    "phase_skip_fg": "#A89F95",
+    "hero_fg": "#F7F3EC",
+    "hero_muted": "#D5E4DE",
+    "slide_stage": "#1F1A17",
+    "slide_fg": "#E8E2D8",
+    "thumb_pad": "#F5F1E9",
+}
+
+try:
+    from .i18n import sync_language_from_settings, t
+    from .settings import load_settings, theme_colors
+
+    COLORS = {**_FALLBACK_COLORS, **theme_colors()}
+except Exception:  # pragma: no cover - Notfallstart
+    def sync_language_from_settings() -> str:  # type: ignore
+        return "de"
+
+    def t(key: str, **kwargs: Any) -> str:  # type: ignore
+        return {
+            "app_title": "Fotobuch-Auswahl",
+            "brand": "Fotobuch",
+            "help": "Hilfe",
+            "settings": "Darstellung & Sprache",
+            "photos_folder": "Fotos-Ordner",
+            "output_folder": "Ausgabe-Ordner",
+            "browse": "Durchsuchen",
+            "options_box": "  Einstellungen  ",
+            "target_count": "Zielanzahl Bilder",
+            "more_options": "Weitere Optionen ▸",
+            "more_options_open": "Weitere Optionen ▾",
+            "explain_options": "Optionen erklären",
+            "start": "Auswahl starten",
+            "cancel": "Abbrechen",
+            "review": "Auswahl prüfen / fortsetzen",
+            "map": "Karte",
+            "next_pick_folders": "Nächster Schritt: Ordner wählen…",
+            "loading_modules": "Lade Erkennungsmodule…",
+            "steps_hint": "Schritte (orange = läuft, grün = fertig)",
+            "log": "Verlauf",
+            "close": "Schließen",
+            "opt_geocode": "Ortsnamen per Internet",
+            "opt_faces": "Gesichtserkennung / Augen zu",
+            "opt_bursts": "Serien/Bursts (beste 1–2)",
+            "opt_aside": "Dokumente & Screenshots separat",
+            "opt_finger": "Finger vor der Linse aussortieren",
+            "opt_coverage": "Tages-Abdeckung",
+            "opt_people": "Personen-Balance",
+            "opt_map": "Kapitel-/Karten-Vorschau vor Export",
+            "opt_ai": "KI-Bewertung (Anthropic API)",
+            "opt_dry": "Nur Kosten schätzen",
+        }.get(key, key)
+
+    def load_settings():  # type: ignore
+        class _S:
+            language = "de"
+            theme = "forest"
+            slideshow_auto_advance = False
+            slideshow_show_alternative = True
+
+        return _S()
+
+    def theme_colors(theme_id=None):  # type: ignore
+        return dict(_FALLBACK_COLORS)
+
+    COLORS = dict(_FALLBACK_COLORS)
 
 PHASE_STYLE = {
     "pending": ("phase_pending_bg", "phase_pending_fg"),
@@ -170,13 +254,39 @@ class ConsoleQueueWriter:
 class PhotobookApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
+        # Sofort sichtbar: verhindert „totales Leeren Fenster“ bei späteren Fehlern
+        self.title("Fotobuch-Auswahl")
+        self.minsize(720, 620)
+        self.geometry("780x680")
+        self.configure(bg="#F3EFE7")
+        self._boot_lbl = tk.Label(
+            self,
+            text="Fotobuch wird geladen…",
+            bg="#F3EFE7",
+            fg="#1F1A17",
+            font=("Segoe UI", 12),
+            padx=24,
+            pady=24,
+        )
+        self._boot_lbl.pack(expand=True)
+        try:
+            self.update_idletasks()
+        except tk.TclError:
+            pass
+
+        self._init_ok = False
+        try:
+            self._init_app()
+            self._init_ok = True
+        except Exception:
+            self._show_init_failure()
+
+    def _init_app(self) -> None:
         sync_language_from_settings()
         self.app_settings = load_settings()
         global COLORS
-        COLORS = theme_colors(self.app_settings.theme)
+        COLORS = {**_FALLBACK_COLORS, **theme_colors(self.app_settings.theme)}
         self.title(t("app_title"))
-        self.minsize(720, 620)
-        self.geometry("780x680")
         self.configure(bg=COLORS["bg"])
         self._set_icon()
         self._advanced_open = False
@@ -223,12 +333,64 @@ class PhotobookApp(tk.Tk):
         self._pipeline_ready = False
         self._pipeline_error: str | None = None
         self._setup_style()
+        # Boot-Hinweis entfernen, dann echte UI
+        try:
+            if getattr(self, "_boot_lbl", None) is not None:
+                self._boot_lbl.destroy()
+                self._boot_lbl = None
+        except tk.TclError:
+            pass
         self._build()
+        try:
+            self.update_idletasks()
+        except tk.TclError:
+            pass
         self.protocol("WM_DELETE_WINDOW", self._on_close_request)
         self.after(100, self._drain_queues)
         # Schwere Module (OpenCV/MediaPipe) erst NACH dem Fenster laden,
         # sonst wirkt der Start wie ein leeres schwarzes Konsolenfenster.
         self.after(200, self._warmup_backend)
+
+    def _show_init_failure(self) -> None:
+        """Fehlertext im Fenster – nicht nur leeres Grau."""
+        err = traceback.format_exc()
+        try:
+            log = Path(__file__).resolve().parent.parent / "fehler_beim_start.txt"
+            log.write_text(err, encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            print(err, file=sys.stderr)
+        except Exception:
+            pass
+        try:
+            for child in list(self.winfo_children()):
+                child.destroy()
+        except Exception:
+            pass
+        self.configure(bg="#F3EFE7")
+        box = tk.Frame(self, bg="#F3EFE7", padx=20, pady=20)
+        box.pack(fill=tk.BOTH, expand=True)
+        tk.Label(
+            box,
+            text="Startfehler – Oberfläche konnte nicht geladen werden",
+            bg="#F3EFE7",
+            fg="#8B3A2C",
+            font=("Segoe UI Semibold", 12),
+            anchor=tk.W,
+        ).pack(fill=tk.X)
+        tk.Label(
+            box,
+            text="Details stehen in fehler_beim_start.txt und start_log.txt",
+            bg="#F3EFE7",
+            fg="#6E645C",
+            font=("Segoe UI", 10),
+            anchor=tk.W,
+        ).pack(fill=tk.X, pady=(4, 10))
+        txt = tk.Text(box, height=18, wrap=tk.WORD, bg="#FFFCF7", fg="#1F1A17")
+        txt.pack(fill=tk.BOTH, expand=True)
+        txt.insert("1.0", err)
+        txt.configure(state=tk.DISABLED)
 
     def _is_analysis_running(self) -> bool:
         return bool(self._worker and self._worker.is_alive())
@@ -632,6 +794,10 @@ class PhotobookApp(tk.Tk):
 
     def _sync_dependent_controls(self) -> None:
         """Regler nur zeigen, wenn die Option an ist; KI-Felder abhängig von KI-Haken."""
+        # Während des UI-Aufbaus können Widgets noch fehlen
+        if not hasattr(self, "api_entry") or not hasattr(self, "coverage_scale"):
+            return
+
         def enable(widget, on: bool) -> None:
             try:
                 widget.state(["!disabled"] if on else ["disabled"])
@@ -655,11 +821,12 @@ class PhotobookApp(tk.Tk):
 
         ai_on = bool(self.ai_var.get())
         enable(self.api_entry, ai_on)
-        enable(self.dry_run_chk, ai_on)
+        if hasattr(self, "dry_run_chk"):
+            enable(self.dry_run_chk, ai_on)
         enable(self.coverage_scale, bool(self.coverage_var.get()))
         enable(self.people_scale, bool(self.people_var.get()))
         # Schritt-Tafel vor dem Start an Optionen anpassen
-        if not self._is_analysis_running():
+        if hasattr(self, "_phase_inner") and not self._is_analysis_running():
             self._reset_phase_board(self._ui_phase_config())
 
     def _folder_row(
@@ -1502,19 +1669,21 @@ def _report_startup_error() -> None:
 def main() -> int:
     try:
         app = PhotobookApp()
-        # Sofort sichtbar machen (manche Windows-Setups legen das Fenster hinten an)
-        try:
-            app.lift()
-            app.attributes("-topmost", True)
-            app.after(400, lambda: app.attributes("-topmost", False))
-            app.focus_force()
-        except tk.TclError:
-            pass
-        app.mainloop()
-        return 0
     except Exception:
         _report_startup_error()
         return 1
+
+    # Sofort sichtbar machen (manche Windows-Setups legen das Fenster hinten an)
+    try:
+        app.lift()
+        app.attributes("-topmost", True)
+        app.after(400, lambda: app.attributes("-topmost", False))
+        app.focus_force()
+    except tk.TclError:
+        pass
+
+    app.mainloop()
+    return 0 if getattr(app, "_init_ok", False) else 1
 
 
 if __name__ == "__main__":

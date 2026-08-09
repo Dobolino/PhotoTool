@@ -127,20 +127,29 @@ echo.
 :RUN
 echo Starte Programmfenster...
 echo Falls es einige Sekunden dauert: normal beim ersten Start.
-echo Fehler werden auch in start_log.txt / fehler_beim_start.txt gespeichert.
+echo Fehler erscheinen hier UND in start_log.txt / fehler_beim_start.txt.
 echo.
-".venv\Scripts\python.exe" -m photobook_curator.gui 2> "start_log.txt"
+rem stderr+stdout loggen, Fehler aber auch im schwarzen Fenster zeigen
+".venv\Scripts\python.exe" -m photobook_curator.gui > "start_log.txt" 2>&1
 set "ERR=%ERRORLEVEL%"
+if exist "start_log.txt" (
+  echo.
+  echo ----- letzte Meldungen aus start_log.txt -----
+  powershell -NoProfile -Command "Get-Content -Path 'start_log.txt' -Tail 40 -ErrorAction SilentlyContinue"
+  echo ---------------------------------------------
+)
 
 echo.
 if not "%ERR%"=="0" (
   echo ----------------------------------------
   echo Das Programm ist mit Fehlercode %ERR% beendet.
   echo Siehe start_log.txt und ggf. fehler_beim_start.txt
+  echo Oft hilft: "Programm aktualisieren.bat", dann erneut starten.
   echo ----------------------------------------
 ) else (
   echo Programm beendet.
-  echo Falls sich kein Fenster geoeffnet hat: start_log.txt / fehler_beim_start.txt
+  echo Falls das Fenster leer war: fehler_beim_start.txt oeffnen
+  echo und "Programm aktualisieren.bat" ausfuehren.
 )
 echo.
 pause
