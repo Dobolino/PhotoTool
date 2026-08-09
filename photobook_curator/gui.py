@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .pipeline import PipelineConfig
 
+from .phases import PHASE_STEPS, initial_phase_status, match_step_id
+
 # Ruhige Foto-Editor-Palette (kein Lila, kein Neon)
 COLORS = {
     "bg": "#F3EFE7",
@@ -30,6 +32,21 @@ COLORS = {
     "danger": "#8B3A2C",
     "log_bg": "#1C2421",
     "log_fg": "#D7E0DB",
+    "phase_pending_bg": "#E8E2D8",
+    "phase_pending_fg": "#6E645C",
+    "phase_run_bg": "#C45C26",
+    "phase_run_fg": "#FFF8F2",
+    "phase_done_bg": "#2F7D4F",
+    "phase_done_fg": "#FFFFFF",
+    "phase_skip_bg": "#F0EBE3",
+    "phase_skip_fg": "#A89F95",
+}
+
+PHASE_STYLE = {
+    "pending": ("phase_pending_bg", "phase_pending_fg"),
+    "running": ("phase_run_bg", "phase_run_fg"),
+    "done": ("phase_done_bg", "phase_done_fg"),
+    "skipped": ("phase_skip_bg", "phase_skip_fg"),
 }
 
 # tqdm-Zeilen (auch wenn ohne \r als normale Zeile kommen)
@@ -46,9 +63,9 @@ HELP_TEXT = (
     "2. Ausgabe-Ordner wählen (am besten leer / neu).\n"
     "3. Zielanzahl einstellen (z. B. 80).\n"
     "4. Optionen nach Bedarf lassen oder anpassen.\n"
-    "5. „Auswahl starten“ – Fortschritt siehst du am Balken und unter Verlauf.\n"
-    "   Bei vielen Fotos kann das mehrere Minuten dauern; das Fenster kann\n"
-    "   kurz „Keine Rückmeldung“ zeigen, arbeitet aber weiter.\n"
+    "5. „Auswahl starten“ – unter Analyse-Schritte siehst du den Ablauf:\n"
+    "   Orange = läuft gerade, Grün = fertig, Blass = übersprungen.\n"
+    "   Bei vielen Fotos kann das mehrere Minuten dauern.\n"
     "6. Wenn fertig: „Auswahl prüfen“ – einzelne Bilder rausnehmen oder\n"
     "   Alternativen / Dokumente hinzufügen, dann speichern.\n\n"
     "Tipp: Zum Aktualisieren des Programms „Programm aktualisieren.bat“\n"
@@ -122,8 +139,8 @@ class PhotobookApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Fotobuch-Auswahl")
-        self.minsize(720, 640)
-        self.geometry("780x700")
+        self.minsize(760, 720)
+        self.geometry("820x780")
         self.configure(bg=COLORS["bg"])
         self._set_icon()
 
@@ -146,12 +163,16 @@ class PhotobookApp(tk.Tk):
         self.api_key_var = tk.StringVar(value=os.environ.get("ANTHROPIC_API_KEY", ""))
 
         self._log_queue: queue.Queue = queue.Queue()
-        self._progress_queue: queue.Queue[tuple[str, float]] = queue.Queue()
+        self._progress_queue: queue.Queue = queue.Queue()
         self._cancel_event = threading.Event()
         self._status_shown = False       # tqdm-Zwischenstand als eine ersetzbare Zeile
         self._status_mark = "log_status"
         self._pending_status: str | None = None
         self._last_status_paint = 0.0
+        self._phase_status: dict[str, str] = {
+            s.id: "pending" for s in PHASE_STEPS
+        }
+        self._phase_labels: dict[str, tk.Label] = {}
         self._worker: threading.Thread | None = None
         self._last_photos = None
         self._last_plan = None
@@ -438,6 +459,19 @@ class PhotobookApp(tk.Tk):
         self.progress = ttk.Progressbar(prog_row, mode="determinate", maximum=100)
         self.progress.pack(fill=tk.X, pady=(4, 0))
 
+        phase_box = ttk.LabelFrame(
+            body, text="  Analyse-Schritte  ", style="Card.TLabelframe", padding=8
+        )
+        phase_box.pack(fill=tk.X, pady=(10, 0))
+        ttk.Label(
+            phase_box,
+            text="Grau = noch offen · Orange = läuft · Grün = fertig · Blass = übersprungen",
+            style="Field.TLabel",
+        ).pack(anchor=tk.W)
+        self._phase_inner = ttk.Frame(phase_box, style="Card.TFrame")
+        self._phase_inner.pack(fill=tk.X, pady=(6, 0))
+        self._build_phase_chips()
+
         self.next_step_var = tk.StringVar(
             value="Nächster Schritt: Fotos- und Ausgabe-Ordner wählen, dann „Auswahl starten“."
         )
@@ -488,6 +522,23 @@ class PhotobookApp(tk.Tk):
         except Exception:
             pass
 
+    def _ui_phase_config(self) -> Any:
+        """Leichte Config-Ansicht aus den Checkboxen (für Schritt-Vorschau)."""
+
+        class _Cfg:
+            pass
+
+        cfg = _Cfg()
+        cfg.enable_document_aside = bool(self.aside_var.get())
+        cfg.enable_faces = bool(self.faces_var.get())
+        cfg.enable_bursts = bool(self.bursts_var.get())
+        cfg.enable_finger_filter = bool(self.finger_var.get())
+        cfg.enable_map_preview = bool(self.map_preview_var.get())
+        cfg.people_balance_intensity = (
+            float(self.people_intensity_var.get()) if self.people_var.get() else 0.0
+        )
+        return cfg
+
     def _sync_dependent_controls(self) -> None:
         """Regler/Felder nur aktiv, wenn die zugehörige Option angehakt ist."""
         def enable(widget, on: bool) -> None:
@@ -501,6 +552,9 @@ class PhotobookApp(tk.Tk):
         ai_on = bool(self.ai_var.get())
         enable(self.api_entry, ai_on)
         enable(self.dry_run_chk, ai_on)
+        # Schritt-Tafel vor dem Start an Optionen anpassen
+        if not self._is_analysis_running():
+            self._reset_phase_board(self._ui_phase_config())
 
     def _folder_row(
         self,
@@ -597,6 +651,76 @@ class PhotobookApp(tk.Tk):
     def _set_next_step(self, text: str) -> None:
         self.next_step_var.set(text)
 
+    def _build_phase_chips(self) -> None:
+        for child in self._phase_inner.winfo_children():
+            child.destroy()
+        self._phase_labels.clear()
+        cols = 4
+        for i, step in enumerate(PHASE_STEPS):
+            status = self._phase_status.get(step.id, "pending")
+            bg_key, fg_key = PHASE_STYLE.get(status, PHASE_STYLE["pending"])
+            lbl = tk.Label(
+                self._phase_inner,
+                text=f"  {step.label}  ",
+                bg=COLORS[bg_key],
+                fg=COLORS[fg_key],
+                font=("Segoe UI Semibold", 9),
+                padx=4,
+                pady=4,
+            )
+            lbl.grid(row=i // cols, column=i % cols, padx=3, pady=3, sticky="ew")
+            self._phase_labels[step.id] = lbl
+        for c in range(cols):
+            self._phase_inner.grid_columnconfigure(c, weight=1)
+
+    def _reset_phase_board(self, cfg: Any) -> None:
+        self._phase_status = initial_phase_status(cfg)
+        self._build_phase_chips()
+
+    def _paint_phase_chip(self, step_id: str) -> None:
+        lbl = self._phase_labels.get(step_id)
+        if lbl is None:
+            return
+        status = self._phase_status.get(step_id, "pending")
+        bg_key, fg_key = PHASE_STYLE.get(status, PHASE_STYLE["pending"])
+        try:
+            lbl.configure(bg=COLORS[bg_key], fg=COLORS[fg_key])
+        except tk.TclError:
+            pass
+
+    def _apply_phase_progress(self, label: str, step_id: str | None) -> None:
+        """Orange = aktueller Schritt, Grün = bereits erledigt."""
+        sid = step_id or match_step_id(label)
+        if not sid:
+            return
+        if sid == "done" or (label or "").lower().startswith("fertig"):
+            for step in PHASE_STEPS:
+                st = self._phase_status.get(step.id)
+                if st == "running":
+                    self._phase_status[step.id] = "done"
+                elif st == "pending":
+                    # z. B. Dry-Run: nicht gelaufene Reste als übersprungen
+                    self._phase_status[step.id] = "skipped"
+                self._paint_phase_chip(step.id)
+            return
+
+        seen = False
+        for step in PHASE_STEPS:
+            cur = self._phase_status.get(step.id, "pending")
+            if step.id == sid:
+                seen = True
+                if cur == "skipped":
+                    continue
+                if cur != "done":
+                    self._phase_status[step.id] = "running"
+                    self._paint_phase_chip(step.id)
+                continue
+            if cur == "skipped":
+                continue
+            if not seen and cur in ("pending", "running"):
+                self._phase_status[step.id] = "done"
+                self._paint_phase_chip(step.id)
+
     def _append_log(self, text: str) -> None:
         """Feste Log-Zeile (bleibt stehen)."""
         self.log.configure(state=tk.NORMAL)
@@ -627,10 +751,13 @@ class PhotobookApp(tk.Tk):
         self.log.see(tk.END)
         self.log.configure(state=tk.DISABLED)
 
-    def _set_progress(self, label: str, frac: float) -> None:
+    def _set_progress(self, label: str, frac: float, step_id: str | None = None) -> None:
         self.phase_var.set(label)
         self.progress["value"] = max(0, min(100, int(round(frac * 100))))
-        if label and label not in ("Fertig", "Abgebrochen", "Fehler"):
+        self._apply_phase_progress(label, step_id)
+        if label and label not in ("Fertig", "Abgebrochen", "Fehler") and not str(
+            label
+        ).lower().startswith("fertig"):
             self.status_var.set(label)
             self._set_next_step(
                 f"Analyse läuft ({label}). Bitte warten – bei vielen Fotos dauert das."
@@ -664,14 +791,19 @@ class PhotobookApp(tk.Tk):
             self._pending_status = None
             self._last_status_paint = now
 
+        latest: tuple[str, float, str | None] | None = None
         try:
-            label, frac = None, None
             while True:
-                label, frac = self._progress_queue.get_nowait()
+                item = self._progress_queue.get_nowait()
+                if isinstance(item, tuple) and len(item) >= 2:
+                    label = str(item[0])
+                    frac = float(item[1])
+                    step_id = item[2] if len(item) > 2 else None
+                    latest = (label, frac, step_id)
         except queue.Empty:
             pass
-        if label is not None and frac is not None:
-            self._set_progress(label, frac)
+        if latest is not None:
+            self._set_progress(latest[0], latest[1], latest[2])
 
         self.after(100, self._drain_queues)
 
@@ -739,9 +871,9 @@ class PhotobookApp(tk.Tk):
         self.phase_var.set("Start…")
         self.progress["value"] = 0
         self._pending_status = None
+        self._reset_phase_board(cfg)
         self._set_next_step(
-            "Analyse läuft… Fortschritt am Balken und in einer Zeile unter Verlauf. "
-            "Bitte warten."
+            "Analyse läuft… Orange = aktueller Schritt, Grün = fertig. Bitte warten."
         )
         self._append_log("Start…")
         self._worker = threading.Thread(target=self._run, args=(cfg,), daemon=True)
@@ -757,8 +889,8 @@ class PhotobookApp(tk.Tk):
             self._append_log("Abbruch angefordert…")
 
     def _run(self, cfg: Any) -> None:
-        def on_progress(label: str, frac: float) -> None:
-            self._progress_queue.put((label, frac))
+        def on_progress(label: str, frac: float, step_id: str | None = None) -> None:
+            self._progress_queue.put((label, frac, step_id))
 
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout = ConsoleQueueWriter(self._log_queue, old_out)  # type: ignore[assignment]
@@ -781,7 +913,7 @@ class PhotobookApp(tk.Tk):
             self._last_plan = result.get("plan")
             self._last_order = result.get("order")
             self._last_output = result.get("output_dir") or cfg.output_dir
-            self._progress_queue.put(("Fertig", 1.0))
+            self._progress_queue.put(("Fertig", 1.0, "done"))
             self.after(0, lambda: self.status_var.set("Fertig"))
             self.after(
                 0,

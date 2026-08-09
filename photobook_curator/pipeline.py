@@ -10,7 +10,7 @@ from .ai_review import ensure_scene_types, run_ai_review
 from .analysis_cache import AnalysisCache
 from .bursts import mark_bursts
 from .documents import mark_aside_documents
-from .duplicates import mark_duplicates
+from .duplicates import compute_phashes, mark_duplicates
 from .face_quality import analyze_face_quality
 from .faces import count_faces
 from .finger_obstruction import analyze_finger_obstruction
@@ -26,8 +26,8 @@ from .selection import build_book_order, mark_candidates
 from .transit import detect_transits
 from .utils import clear_bgr_cache
 
-# (Phasenname, Fortschritt 0–1 nach Abschluss der Phase)
-ProgressCallback = Callable[[str, float], None]
+# progress(label, fraction) oder progress(label, fraction, step_id)
+ProgressCallback = Callable[..., None]
 # Rückgabe True => Abbruch gewünscht
 CancelCheck = Callable[[], bool]
 
@@ -110,7 +110,7 @@ def run_pipeline(
     Phasengrenze mit PipelineCancelled abgebrochen (kein Export).
     """
 
-    def report(label: str, frac: float) -> None:
+    def report(label: str, frac: float, step_id: str | None = None) -> None:
         # Abbruch an jeder Phasengrenze prüfen (vor dem nächsten Schritt).
         if cancel_check is not None:
             try:
@@ -121,8 +121,14 @@ def run_pipeline(
                 raise PipelineCancelled(label)
         if progress is None:
             return
+        frac_n = float(max(0.0, min(1.0, frac)))
         try:
-            progress(label, float(max(0.0, min(1.0, frac))))
+            progress(label, frac_n, step_id)
+        except TypeError:
+            try:
+                progress(label, frac_n)
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -133,32 +139,35 @@ def run_pipeline(
         analysis_cache = AnalysisCache(cfg.output_dir / "analysis_cache.json")
     clear_bgr_cache()
 
-    report("Einlesen…", 0.02)
+    report("Einlesen…", 0.02, "scan")
     print("=== Phase 1: Einlesen & technische Vorfilterung ===")
     photos = scan_photos(cfg.input_dir)
     print(f"  {len(photos)} Bilder gefunden")
-    report("Technische Analyse…", 0.08)
+    report("Technische Analyse…", 0.08, "quality")
     analyze_all(photos, cache=analysis_cache)
-    report("Dokumente…", 0.22)
     if cfg.enable_document_aside:
+        report("Dokumente…", 0.22, "documents")
         aside_count = mark_aside_documents(photos)
         print(f"  {aside_count} Screenshots/Dokumente → Optional-Pool (nicht Auto-Kapitel)")
     else:
         print("  Dokumente/Screenshots-Trennung übersprungen")
-    report("Duplikate…", 0.30)
+    report("pHash…", 0.26, "phash")
+    compute_phashes(photos, cache=analysis_cache)
+    report("Duplikate…", 0.30, "duplicates")
     dup_count, burst_from_dup = mark_duplicates(
         photos,
         burst_seconds=cfg.burst_max_seconds if cfg.enable_bursts else 0.0,
         keep_per_burst=cfg.burst_keep if cfg.enable_bursts else 1,
         min_burst_size=cfg.burst_min_size if cfg.enable_bursts else 10**9,
         cache=analysis_cache,
+        compute_hashes=False,
     )
     print(f"  {dup_count} Duplikate markiert")
     if analysis_cache is not None:
         analysis_cache.save()
         print(f"  Analyse-Cache: {cfg.output_dir / 'analysis_cache.json'}")
-    report("Gesichter…", 0.45)
     if cfg.enable_faces:
+        report("Gesichter…", 0.45, "faces")
         backend = count_faces(photos)
         print(f"  Gesichtserkennung: {backend}")
         fq_backend = analyze_face_quality(photos)
@@ -168,12 +177,12 @@ def run_pipeline(
     else:
         print("  Gesichtserkennung übersprungen")
     if cfg.enable_finger_filter:
-        report("Finger-Check…", 0.55)
+        report("Finger-Check…", 0.55, "finger")
         finger_backend = analyze_finger_obstruction(photos)
         n_finger = sum(1 for p in photos if p.finger_on_lens)
         print(f"  Finger vor Linse: {finger_backend} ({n_finger} aussortiert)")
     if cfg.people_balance_intensity > 0:
-        report("Personen-Balance…", 0.58)
+        report("Personen-Balance…", 0.58, "people")
         pb_backend = analyze_people_clusters(photos)
         n_clustered = sum(1 for p in photos if p.person_cluster_ids)
         n_people = len({pid for p in photos for pid in p.person_cluster_ids})
@@ -182,8 +191,8 @@ def run_pipeline(
             f"({n_people} Personen-Cluster in {n_clustered} Fotos, "
             f"Stärke {cfg.people_balance_intensity:.0%})"
         )
-    report("Serien…", 0.62)
     if cfg.enable_bursts:
+        report("Serien…", 0.62, "bursts")
         burst_extra = mark_bursts(
             photos,
             max_seconds=cfg.burst_max_seconds,
@@ -200,7 +209,7 @@ def run_pipeline(
         print("  Serien/Burst-Erkennung übersprungen")
     clear_bgr_cache()  # Analyse-Bilder freigeben vor Geocode/Auswahl
 
-    report("Orte & Regionen…", 0.68)
+    report("Orte & Regionen…", 0.68, "regions")
     print("=== Phase 2: Orte & Regionen ===")
     cache = GeocodeCache(cache_path, enabled=cfg.geocode)
     plan = build_location_plan(
@@ -212,7 +221,7 @@ def run_pipeline(
     print(f"  {len(plan.regions)} Regionen: {[r.name for r in plan.regions]}")
     print(f"  {len(plan.unassigned_indices)} unbestimmt")
 
-    report("Transit…", 0.78)
+    report("Transit…", 0.78, "transit")
     print("=== Phase 3: Transit ===")
     detect_transits(
         photos,
@@ -224,7 +233,7 @@ def run_pipeline(
     for t in plan.transits:
         print(f"    - {t.name} ({len(t.photo_indices)} Fotos, Quota {t.quota})")
 
-    report("Kandidaten…", 0.82)
+    report("Kandidaten…", 0.82, "candidates")
     print("=== Kandidatenauswahl ===")
     candidates = mark_candidates(
         photos,
@@ -236,7 +245,7 @@ def run_pipeline(
     print(f"  {len(candidates)} Kandidaten (Faktor {cfg.candidate_factor})")
 
     ai_stats: dict[str, Any] = {}
-    report("Szenen / KI…", 0.86)
+    report("Szenen / KI…", 0.86, "scenes")
     if cfg.ai_review:
         print("=== Phase 4: AI-Review ===")
         ai_stats = run_ai_review(
@@ -252,7 +261,7 @@ def run_pipeline(
     if cfg.dry_run and cfg.ai_review:
         # Im Dry-Run nach Kostenschätzung stoppen, trotzdem CSV der bisherigen Analyse schreiben
         write_csv(photos, cfg.output_dir / "photos_analysis.csv")
-        report("Fertig (Dry-Run)", 1.0)
+        report("Fertig (Dry-Run)", 1.0, "done")
         return {
             "photos": len(photos),
             "regions": [r.name for r in plan.regions],
@@ -262,7 +271,7 @@ def run_pipeline(
             "dry_run": True,
         }
 
-    report("Auswahl & Buchstruktur…", 0.90)
+    report("Auswahl & Buchstruktur…", 0.90, "selection")
     print("=== Phase 5: Auswahl & Buchstruktur ===")
     if cfg.coverage_intensity > 0:
         print(f"  Tages-Abdeckung aktiv (Stärke {cfg.coverage_intensity:.0%})")
@@ -281,12 +290,12 @@ def run_pipeline(
 
     map_path = None
     if cfg.enable_map_preview:
-        report("Karte…", 0.94)
+        report("Karte…", 0.94, "map")
         map_path = write_chapter_map(photos, plan, cfg.output_dir, order)
         print(f"  Kapitel-Karte: {map_path}")
 
     exported = False
-    report("Ausgabe…", 0.96)
+    report("Ausgabe…", 0.96, "export")
     if cfg.skip_export:
         print("=== Ausgabe zurückgestellt (Kapitel-Vorschau) ===")
         write_csv(photos, cfg.output_dir / "photos_analysis.csv")
@@ -302,7 +311,7 @@ def run_pipeline(
         )
         exported = True
 
-    report("Fertig", 1.0)
+    report("Fertig", 1.0, "done")
     return {
         "photos": len(photos),
         "regions": [r.name for r in plan.regions],

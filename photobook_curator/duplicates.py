@@ -82,6 +82,7 @@ def mark_duplicates(
     keep_per_burst: int = 2,
     min_burst_size: int = 3,
     cache=None,
+    compute_hashes: bool = True,
 ) -> tuple[int, int]:
     """
     Gruppiert nahezu identische Bilder.
@@ -89,7 +90,8 @@ def mark_duplicates(
     - Sonst: 1 bestes behalten, Rest Duplikat
     Returns (duplicate_count, burst_reject_count).
     """
-    compute_phashes(photos, cache=cache)
+    if compute_hashes:
+        compute_phashes(photos, cache=cache)
     n = len(photos)
     parent = list(range(n))
 
