@@ -33,6 +33,8 @@ COLORS = {
 }
 
 THUMB = 140
+# Wenige PhotoImage-Updates pro Tick → weniger Ruckeln beim Scrollen
+_THUMBS_PER_TICK = 4
 
 
 class ReviewWindow(tk.Toplevel):
@@ -46,9 +48,10 @@ class ReviewWindow(tk.Toplevel):
     ) -> None:
         super().__init__(master)
         self.title("Auswahl prüfen")
-        self.geometry("980x720")
-        self.minsize(820, 600)
+        self.minsize(900, 640)
+        self.resizable(True, True)
         self.configure(bg=COLORS["bg"])
+        self._open_large()
 
         self.photos = photos
         self.plan = plan
@@ -65,14 +68,37 @@ class ReviewWindow(tk.Toplevel):
         self._pending_thumbs: set[int] = set()
         self._load_queue: queue.Queue[int | None] = queue.Queue()
         self._ready_queue: queue.Queue[tuple[int, Image.Image | None]] = queue.Queue()
+        self._scroll_job: str | None = None
+        self._wheel_bound = False
+        self._grid_cols = 6
         self._loader = threading.Thread(target=self._thumb_worker, daemon=True)
         self._loader.start()
 
         self._setup_style()
         self._build()
         self._render()
-        self.after(40, self._drain_thumbs)
+        self.after(50, self._drain_thumbs)
         self.protocol("WM_DELETE_WINDOW", self._close)
+
+    def _open_large(self) -> None:
+        """Groß öffnen (möglichst maximiert), frei skalierbar."""
+        try:
+            self.update_idletasks()
+            # Windows: maximiert; sonst ~92% der Bildschirmfläche
+            self.state("zoomed")
+            return
+        except tk.TclError:
+            pass
+        try:
+            sw = max(1024, int(self.winfo_screenwidth()))
+            sh = max(700, int(self.winfo_screenheight()))
+            w = int(sw * 0.92)
+            h = int(sh * 0.88)
+            x = max(0, (sw - w) // 2)
+            y = max(0, (sh - h) // 2)
+            self.geometry(f"{w}x{h}+{x}+{y}")
+        except tk.TclError:
+            self.geometry("1200x800")
 
     def _setup_style(self) -> None:
         style = ttk.Style(self)
@@ -146,19 +172,87 @@ class ReviewWindow(tk.Toplevel):
 
         self.inner = ttk.Frame(self.canvas, style="Rev.TFrame")
         self._win = self.canvas.create_window((0, 0), window=self.inner, anchor=tk.NW)
-        self.inner.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
-        )
-        self.canvas.bind(
-            "<Configure>",
-            lambda e: self.canvas.itemconfigure(self._win, width=e.width),
-        )
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.inner.bind("<Configure>", self._schedule_scrollregion)
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        # Mausrad nur über dem Canvas – nicht global (weniger Konflikte/Ruckeln)
+        self.canvas.bind("<Enter>", self._bind_wheel)
+        self.canvas.bind("<Leave>", self._unbind_wheel)
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        # Linux
+        self.canvas.bind("<Button-4>", lambda e: self._scroll_units(-3))
+        self.canvas.bind("<Button-5>", lambda e: self._scroll_units(3))
+
+    def _schedule_scrollregion(self, _event=None) -> None:
+        if self._scroll_job is not None:
+            try:
+                self.after_cancel(self._scroll_job)
+            except Exception:
+                pass
+        self._scroll_job = self.after(80, self._update_scrollregion)
+
+    def _update_scrollregion(self) -> None:
+        self._scroll_job = None
+        try:
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        except tk.TclError:
+            pass
+
+    def _on_canvas_configure(self, event) -> None:
+        try:
+            self.canvas.itemconfigure(self._win, width=event.width)
+        except tk.TclError:
+            return
+        # Spaltenanzahl an Fensterbreite anpassen
+        cols = max(4, min(10, int(event.width) // (THUMB + 28)))
+        if cols != self._grid_cols:
+            self._grid_cols = cols
+
+    def _bind_wheel(self, _event=None) -> None:
+        if not self._wheel_bound:
+            self.bind_all("<MouseWheel>", self._on_mousewheel)
+            self._wheel_bound = True
+
+    def _unbind_wheel(self, _event=None) -> None:
+        if self._wheel_bound:
+            try:
+                self.unbind_all("<MouseWheel>")
+            except Exception:
+                pass
+            self._wheel_bound = False
+
+    def _scroll_units(self, units: int) -> None:
+        if self.winfo_exists():
+            self.canvas.yview_scroll(units, "units")
 
     def _on_mousewheel(self, event) -> None:
-        if self.winfo_exists():
-            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        # Nur scrollen, wenn Zeiger über diesem Review-Fenster liegt
+        try:
+            if not self.winfo_exists():
+                return
+            x, y = self.winfo_pointerxy()
+            widget = self.winfo_containing(x, y)
+            if widget is None:
+                return
+            # Gehört der Widget-Pfad zu diesem Fenster?
+            w = widget
+            ok = False
+            while w is not None:
+                if w == self or w == self.canvas or w == self.inner:
+                    ok = True
+                    break
+                w = w.master if hasattr(w, "master") else None
+            if not ok:
+                return
+        except tk.TclError:
+            return
+        delta = int(getattr(event, "delta", 0) or 0)
+        if delta == 0:
+            return
+        # Größere Schritte, weniger Events → spürbar flüssiger
+        steps = -1 if delta > 0 else 1
+        if abs(delta) >= 120:
+            steps = int(-1 * (delta / 120))
+        self._scroll_units(steps * 2)
 
     def _thumb_worker(self) -> None:
         while True:
@@ -168,7 +262,8 @@ class ReviewWindow(tk.Toplevel):
             photo = self.photos[idx]
             try:
                 img = load_image(photo.path)
-                img.thumbnail((THUMB, THUMB), Image.Resampling.LANCZOS)
+                # BILINEAR ist für Thumbs schnell genug und entlastet den UI-Thread indirekt
+                img.thumbnail((THUMB, THUMB), Image.Resampling.BILINEAR)
                 canvas_img = Image.new("RGB", (THUMB, THUMB), (245, 241, 233))
                 x = (THUMB - img.width) // 2
                 y = (THUMB - img.height) // 2
@@ -184,8 +279,9 @@ class ReviewWindow(tk.Toplevel):
         self._load_queue.put(idx)
 
     def _drain_thumbs(self) -> None:
+        updated = 0
         try:
-            while True:
+            while updated < _THUMBS_PER_TICK:
                 idx, canvas_img = self._ready_queue.get_nowait()
                 self._pending_thumbs.discard(idx)
                 if canvas_img is None:
@@ -199,10 +295,15 @@ class ReviewWindow(tk.Toplevel):
                             lbl.configure(image=tk_img, text="", width=0, height=0)
                     except tk.TclError:
                         pass
+                updated += 1
         except queue.Empty:
             pass
+        if updated:
+            self._schedule_scrollregion()
         if self.winfo_exists():
-            self.after(40, self._drain_thumbs)
+            # Etwas längerer Abstand, wenn gerade viel geladen wird
+            delay = 30 if updated else 80
+            self.after(delay, self._drain_thumbs)
 
     def _update_count(self) -> None:
         self.count_var.set(f"{len(self.kept)} Bilder ausgewählt")
@@ -281,7 +382,7 @@ class ReviewWindow(tk.Toplevel):
 
         grid = ttk.Frame(wrap, style="Rev.TFrame")
         grid.pack(fill=tk.X)
-        cols = 5
+        cols = self._grid_cols
         for n, idx in enumerate(indices):
             self._tile(grid, idx, n % cols, n // cols, mode="keep", folder=folder)
 
@@ -305,7 +406,7 @@ class ReviewWindow(tk.Toplevel):
         ttk.Label(box, text=title, style="RevMuted.TLabel").pack(anchor=tk.W)
         grid = ttk.Frame(box, style="Rev.TFrame")
         grid.pack(fill=tk.X, pady=(4, 0))
-        cols = 5
+        cols = self._grid_cols
         for n, idx in enumerate(indices):
             self._tile(grid, idx, n % cols, n // cols, mode="add", folder=folder)
 
@@ -493,10 +594,12 @@ class ReviewWindow(tk.Toplevel):
         self._close()
 
     def _close(self) -> None:
-        try:
-            self.canvas.unbind_all("<MouseWheel>")
-        except Exception:
-            pass
+        self._unbind_wheel()
+        if self._scroll_job is not None:
+            try:
+                self.after_cancel(self._scroll_job)
+            except Exception:
+                pass
         self._load_queue.put(None)
         self.destroy()
 
@@ -509,6 +612,11 @@ def open_review(
     on_saved: Optional[Callable[[], None]] = None,
 ) -> ReviewWindow:
     win = ReviewWindow(master, photos, plan, output_dir, on_saved=on_saved)
-    win.transient(master)
-    win.focus_set()
+    # transient macht das Fenster manchmal „klein gebunden“ an den Parent –
+    # für Review lieber eigenständig groß und maximierbar.
+    try:
+        win.lift()
+        win.focus_force()
+    except tk.TclError:
+        pass
     return win
