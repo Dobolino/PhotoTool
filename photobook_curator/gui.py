@@ -752,10 +752,41 @@ class PhotobookApp(tk.Tk):
         open_review(self, photos, plan, Path(output_dir), on_saved=lambda: self.status_var.set("Auswahl gespeichert"))
 
 
+def _report_startup_error() -> None:
+    """Zeigt einen Startfehler als Dialog und schreibt ihn in eine Datei."""
+    import traceback
+
+    err = traceback.format_exc()
+    try:
+        log = Path(__file__).resolve().parent.parent / "fehler_beim_start.txt"
+        log.write_text(err, encoding="utf-8")
+    except Exception:
+        pass
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(
+            "Fotobuch – Startfehler",
+            "Das Programm konnte nicht starten:\n\n"
+            + err
+            + "\n\n(Diese Meldung steht auch in der Datei 'fehler_beim_start.txt'.)",
+        )
+        root.destroy()
+    except Exception:
+        print(err)
+
+
 def main() -> int:
-    app = PhotobookApp()
-    app.mainloop()
-    return 0
+    try:
+        app = PhotobookApp()
+        app.mainloop()
+        return 0
+    except Exception:
+        _report_startup_error()
+        return 1
 
 
 if __name__ == "__main__":

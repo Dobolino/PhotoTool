@@ -21,6 +21,11 @@ if not exist ".venv\Scripts\python.exe" (
   )
 )
 
-".venv\Scripts\python.exe" -m photobook_curator.gui
-if errorlevel 1 pause
+echo Starte Fotobuch...
+".venv\Scripts\python.exe" -m photobook_curator.gui 2> "start_log.txt"
+echo.
+echo Programm beendet. Falls sich kein Fenster geoeffnet hat, steht der Fehler
+echo in der Datei "start_log.txt" (und ggf. "fehler_beim_start.txt") in diesem Ordner.
+echo.
+pause
 endlocal
