@@ -16,12 +16,16 @@ def test_slideshow_api_in_review_gui() -> None:
         "_request_slide",
         "_rebuild_filmstrip",
         "_show_slide_placeholder",
-        "_slide_chapter_next",
+        "_apply_folder_change",
+        "_sync_slide_chapter_to_grid_folder",
         "_refresh_alt_panel",
         'bind("<Left>"',
         'bind("<space>"',
     ):
         assert needle in src, f"missing: {needle}"
+    # Ordner-Buttons nur oben – nicht nochmal in der unteren Diashow-Leiste
+    assert 'command=self._slide_chapter_prev' not in src
+    assert 'command=self._slide_chapter_next' not in src
     tree = ast.parse(src)
     names = {
         node.name
@@ -32,6 +36,7 @@ def test_slideshow_api_in_review_gui() -> None:
     assert "_slide_next" in names
     assert "_slide_prev" in names
     assert "_rebuild_filmstrip" in names
+    assert "_apply_folder_change" in names
 
 
 def test_load_image_scaled_exists() -> None:

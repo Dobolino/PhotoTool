@@ -530,14 +530,13 @@ class ReviewWindow(tk.Toplevel):
         stage_row = ttk.Frame(host, style="Rev.TFrame")
         stage_row.pack(fill=tk.BOTH, expand=True)
 
-        stage = tk.Frame(
-            stage_row, bg=COLORS.get("slide_stage", COLORS["ink"]), padx=8, pady=8
-        )
+        stage_bg = COLORS.get("slide_stage", COLORS["ink"])
+        stage = tk.Frame(stage_row, bg=stage_bg, padx=8, pady=8)
         stage.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._slide_image_lbl = tk.Label(
             stage,
             text=t("loading_image"),
-            bg=COLORS.get("slide_stage", COLORS["ink"]),
+            bg=stage_bg,
             fg=COLORS.get("slide_fg", "#E8E2D8"),
             font=("Segoe UI", 12),
             cursor="hand2",
@@ -548,15 +547,65 @@ class ReviewWindow(tk.Toplevel):
         self._slide_image_lbl.bind("<Button-4>", lambda e: self._slide_prev())
         self._slide_image_lbl.bind("<Button-5>", lambda e: self._slide_next())
 
+        # Umgebung + Meta + Bild-Navigation: direkt unter dem Bild, zentriert
+        below = tk.Frame(stage, bg=stage_bg)
+        below.pack(fill=tk.X, pady=(10, 0))
+        below_inner = tk.Frame(below, bg=stage_bg)
+        below_inner.pack(anchor=tk.CENTER)
+
+        tk.Label(
+            below_inner,
+            text=t("surroundings"),
+            bg=stage_bg,
+            fg=COLORS.get("slide_fg", "#E8E2D8"),
+            font=("Segoe UI", 9),
+        ).pack(anchor=tk.CENTER)
+        self._strip_bar = tk.Frame(below_inner, bg=stage_bg)
+        self._strip_bar.pack(anchor=tk.CENTER, pady=(4, 0))
+        self._strip_bar.bind("<MouseWheel>", self._slide_mousewheel)
+
+        self._slide_status = tk.StringVar(value="")
+        self._slide_caption = tk.StringVar(value="")
+        tk.Label(
+            below_inner,
+            textvariable=self._slide_status,
+            bg=stage_bg,
+            fg=COLORS.get("slide_fg", "#E8E2D8"),
+            font=("Segoe UI Semibold", 10),
+            justify=tk.CENTER,
+        ).pack(anchor=tk.CENTER, pady=(10, 0))
+        tk.Label(
+            below_inner,
+            textvariable=self._slide_caption,
+            bg=stage_bg,
+            fg=COLORS.get("muted", "#A8A0B8"),
+            font=("Segoe UI", 9),
+            justify=tk.CENTER,
+        ).pack(anchor=tk.CENTER, pady=(2, 0))
+
+        controls = tk.Frame(below_inner, bg=stage_bg)
+        controls.pack(anchor=tk.CENTER, pady=(12, 4))
+        ttk.Button(controls, text=t("prev"), command=self._slide_prev).pack(side=tk.LEFT)
+        ttk.Button(controls, text=t("next"), command=self._slide_next).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+        self._slide_toggle_btn = ttk.Button(
+            controls,
+            text=t("remove"),
+            style="RevSave.TButton",
+            command=self._slide_toggle_current,
+        )
+        self._slide_toggle_btn.pack(side=tk.LEFT, padx=(16, 0))
+
         self._alt_panel = tk.Frame(
-            stage_row, bg=COLORS.get("slide_stage", COLORS["ink"]), padx=8, pady=8, width=320
+            stage_row, bg=stage_bg, padx=8, pady=8, width=320
         )
         self._alt_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(8, 0))
         self._alt_panel.pack_propagate(False)
         self._alt_title_lbl = tk.Label(
             self._alt_panel,
             text=t("alt_title"),
-            bg=COLORS.get("slide_stage", COLORS["ink"]),
+            bg=stage_bg,
             fg=COLORS.get("slide_fg", "#E8E2D8"),
             font=("Segoe UI Semibold", 10),
         )
@@ -564,7 +613,7 @@ class ReviewWindow(tk.Toplevel):
         self._alt_image_lbl = tk.Label(
             self._alt_panel,
             text=t("alt_none"),
-            bg=COLORS.get("slide_stage", COLORS["ink"]),
+            bg=stage_bg,
             fg=COLORS.get("slide_fg", "#E8E2D8"),
             font=("Segoe UI", 10),
             cursor="hand2",
@@ -575,7 +624,7 @@ class ReviewWindow(tk.Toplevel):
         tk.Label(
             self._alt_panel,
             textvariable=self._alt_caption,
-            bg=COLORS.get("slide_stage", COLORS["ink"]),
+            bg=stage_bg,
             fg=COLORS.get("slide_fg", "#E8E2D8"),
             font=("Segoe UI", 9),
             wraplength=280,
@@ -588,46 +637,9 @@ class ReviewWindow(tk.Toplevel):
         if not self._show_alt_panel:
             self._alt_panel.pack_forget()
 
-        strip_wrap = ttk.Frame(host, style="Rev.TFrame", padding=(0, 10, 0, 0))
-        strip_wrap.pack(fill=tk.X)
-        ttk.Label(strip_wrap, text=t("surroundings"), style="RevMuted.TLabel").pack(
-            anchor=tk.W
-        )
-        self._strip_bar = tk.Frame(strip_wrap, bg=COLORS["bg"])
-        self._strip_bar.pack(fill=tk.X, pady=(4, 0))
-        self._strip_bar.bind("<MouseWheel>", self._slide_mousewheel)
-
-        meta = ttk.Frame(host, style="Rev.TFrame", padding=(0, 10, 0, 0))
-        meta.pack(fill=tk.X)
-        self._slide_status = tk.StringVar(value="")
-        self._slide_caption = tk.StringVar(value="")
-        ttk.Label(meta, textvariable=self._slide_status, style="RevHead.TLabel").pack(
-            anchor=tk.W
-        )
-        ttk.Label(meta, textvariable=self._slide_caption, style="RevMuted.TLabel").pack(
-            anchor=tk.W, pady=(2, 0)
-        )
-
-        controls = ttk.Frame(host, style="Rev.TFrame", padding=(0, 12, 0, 0))
-        controls.pack(fill=tk.X)
-        ttk.Button(controls, text=t("prev"), command=self._slide_prev).pack(side=tk.LEFT)
-        ttk.Button(controls, text=t("next"), command=self._slide_next).pack(
-            side=tk.LEFT, padx=(8, 0)
-        )
-        ttk.Button(
-            controls, text=t("chapter_jump_prev"), command=self._slide_chapter_prev
-        ).pack(side=tk.LEFT, padx=(16, 0))
-        ttk.Button(
-            controls, text=t("chapter_jump_next"), command=self._slide_chapter_next
-        ).pack(side=tk.LEFT, padx=(8, 0))
-        self._slide_toggle_btn = ttk.Button(
-            controls,
-            text=t("remove"),
-            style="RevSave.TButton",
-            command=self._slide_toggle_current,
-        )
-        self._slide_toggle_btn.pack(side=tk.LEFT, padx=(24, 0))
-        ttk.Button(controls, text=t("back_grid"), command=self._exit_slideshow).pack(
+        foot = ttk.Frame(host, style="Rev.TFrame", padding=(0, 8, 0, 0))
+        foot.pack(fill=tk.X)
+        ttk.Button(foot, text=t("back_grid"), command=self._exit_slideshow).pack(
             side=tk.RIGHT
         )
 
@@ -874,12 +886,7 @@ class ReviewWindow(tk.Toplevel):
             if label == title:
                 self._grid_folder = folder
                 break
-        self._update_folder_meta()
-        self._render()
-        try:
-            self.canvas.yview_moveto(0)
-        except tk.TclError:
-            pass
+        self._apply_folder_change(reset_slide=True)
 
     def _grid_folder_prev(self) -> None:
         folders = [f for f, _t in self._folder_labels]
@@ -890,12 +897,7 @@ class ReviewWindow(tk.Toplevel):
         except ValueError:
             i = 0
         self._grid_folder = folders[(i - 1) % len(folders)]
-        self._refresh_folder_nav()
-        self._render()
-        try:
-            self.canvas.yview_moveto(0)
-        except tk.TclError:
-            pass
+        self._apply_folder_change(reset_slide=True)
 
     def _grid_folder_next(self) -> None:
         folders = [f for f, _t in self._folder_labels]
@@ -906,10 +908,36 @@ class ReviewWindow(tk.Toplevel):
         except ValueError:
             i = 0
         self._grid_folder = folders[(i + 1) % len(folders)]
+        self._apply_folder_change(reset_slide=True)
+
+    def _apply_folder_change(self, *, reset_slide: bool = False) -> None:
+        """Ordnerwechsel: Raster neu zeichnen oder Diashow auf diesen Ordner setzen."""
         self._refresh_folder_nav()
+        if self._slideshow:
+            self._sync_slide_chapter_to_grid_folder()
+            self._reapply_slide_filter(keep_photo=not reset_slide)
+            return
         self._render()
         try:
             self.canvas.yview_moveto(0)
+        except tk.TclError:
+            pass
+
+    def _sync_slide_chapter_to_grid_folder(self) -> None:
+        """Diashow-Kapitel-Filter = aktueller Ordner aus der oberen Navigation."""
+        folder = self._grid_folder or ""
+        self._chapter_filter = folder
+        try:
+            self._chapters = self._chapter_list()
+            values = [t("chapter_all")] + [
+                c for c in self._chapters if c != folder
+            ]
+            if folder:
+                values = [t("chapter_all"), folder] + [
+                    c for c in self._chapters if c != folder
+                ]
+            self._chapter_combo.configure(values=values)
+            self._chapter_var.set(folder if folder else t("chapter_all"))
         except tk.TclError:
             pass
 
@@ -971,6 +999,10 @@ class ReviewWindow(tk.Toplevel):
             self._chapter_filter = ""
         else:
             self._chapter_filter = val
+            # Obere Ordner-Navigation mitziehen
+            if val in {f for f, _t in self._folder_labels}:
+                self._grid_folder = val
+                self._refresh_folder_nav()
         self._reapply_slide_filter(keep_photo=True)
 
     def _toggle_auto_advance(self) -> None:
@@ -1023,17 +1055,20 @@ class ReviewWindow(tk.Toplevel):
                 t("no_slide_photos"),
             )
             return
-        current_idx = None
-        if self._slide_indices and 0 <= self._slide_pos < len(self._slide_indices):
-            current_idx = self._slide_indices[self._slide_pos]
         self._slideshow = True
-        self._refresh_chapter_combo()
+        # Gleicher Ordner wie im Raster
+        self._sync_slide_chapter_to_grid_folder()
         indices = self._filtered_slide_indices()
+        # Fallback: wenn Ordner leer (Filter), alle Bilder zeigen
+        if not indices and self._chapter_filter:
+            self._chapter_filter = ""
+            try:
+                self._chapter_var.set(t("chapter_all"))
+            except tk.TclError:
+                pass
+            indices = self._filtered_slide_indices()
         self._slide_indices = indices
-        if current_idx is not None and current_idx in indices:
-            self._slide_pos = indices.index(current_idx)
-        else:
-            self._slide_pos = 0
+        self._slide_pos = 0
         try:
             self._grid_host.pack_forget()
         except tk.TclError:
@@ -1136,17 +1171,34 @@ class ReviewWindow(tk.Toplevel):
         self._strip_frames.clear()
         self._strip_thumb_labels.clear()
         positions = self._filmstrip_range()
+        stage_bg = COLORS.get("slide_stage", COLORS["ink"])
+        try:
+            self._strip_bar.configure(bg=stage_bg)
+        except tk.TclError:
+            pass
         for pos in positions:
             idx = self._slide_indices[pos]
             kept = idx in self.kept
             is_current = pos == self._slide_pos
-            border = COLORS["accent"] if is_current else (
+            size = STRIP + 12 if is_current else STRIP
+            accent = COLORS["accent"]
+            border = accent if is_current else (
                 COLORS["keep_border"] if kept else COLORS["reject_border"]
             )
-            pad = 3 if is_current else 2
-            outer = tk.Frame(self._strip_bar, bg=border, padx=pad, pady=pad, cursor="hand2")
-            outer.pack(side=tk.LEFT, padx=3, pady=2)
-            inner = tk.Frame(outer, bg=COLORS["surface"], width=STRIP, height=STRIP)
+            # Äußerer Ring markiert die aktuelle Position klar
+            ring_pad = 3 if is_current else 0
+            ring = tk.Frame(
+                self._strip_bar,
+                bg=accent if is_current else stage_bg,
+                padx=ring_pad,
+                pady=ring_pad,
+                cursor="hand2",
+            )
+            ring.pack(side=tk.LEFT, padx=5 if is_current else 3, pady=2)
+            pad = 3 if is_current else 1
+            outer = tk.Frame(ring, bg=border, padx=pad, pady=pad, cursor="hand2")
+            outer.pack()
+            inner = tk.Frame(outer, bg=COLORS["surface"], width=size, height=size)
             inner.pack()
             inner.pack_propagate(False)
             tk_img = self._thumb_cache.get(idx)
@@ -1163,6 +1215,18 @@ class ReviewWindow(tk.Toplevel):
                 )
                 self._request_thumb(idx, priority=8)
             lbl.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+            if is_current:
+                # Kleiner Indikator oben am aktuellen Bild
+                here = tk.Label(
+                    inner,
+                    text="●",
+                    bg=COLORS["surface"],
+                    fg=accent,
+                    font=("Segoe UI", 8),
+                    cursor="hand2",
+                )
+                here.place(relx=0.5, rely=0.0, anchor=tk.N)
+                here.bind("<Button-1>", lambda e, p=pos: self._jump_slide(p))
             if not kept:
                 mark = tk.Label(
                     inner,
@@ -1178,7 +1242,7 @@ class ReviewWindow(tk.Toplevel):
             def jump(_event=None, p=pos):
                 self._jump_slide(p)
 
-            for w in (outer, inner, lbl):
+            for w in (ring, outer, inner, lbl):
                 w.bind("<Button-1>", jump)
             self._strip_frames[idx] = outer
             self._strip_thumb_labels[idx] = lbl
@@ -1202,23 +1266,10 @@ class ReviewWindow(tk.Toplevel):
             pass
 
     def _refresh_strip_borders(self) -> None:
-        """Nur Rahmenfarben aktualisieren (nach Keep/Remove)."""
+        """Nach Keep/Remove Filmstrip neu aufbauen (aktuelles Bild bleibt markiert)."""
         if not self._slideshow:
             return
-        for pos in self._filmstrip_range():
-            idx = self._slide_indices[pos]
-            outer = self._strip_frames.get(idx)
-            if outer is None:
-                continue
-            kept = idx in self.kept
-            is_current = pos == self._slide_pos
-            border = COLORS["accent"] if is_current else (
-                COLORS["keep_border"] if kept else COLORS["reject_border"]
-            )
-            try:
-                outer.configure(bg=border)
-            except tk.TclError:
-                pass
+        self._rebuild_filmstrip()
 
     def _refresh_slide_meta(self) -> None:
         if not self._slide_indices:
@@ -1431,12 +1482,14 @@ class ReviewWindow(tk.Toplevel):
 
     def _slide_key_chapter_prev(self, _event=None) -> None:
         if self._slideshow:
-            self._slide_chapter_prev()
+            # PageUp = vorheriger Ordner (wie oben)
+            self._grid_folder_prev()
             return "break"
 
     def _slide_key_chapter_next(self, _event=None) -> None:
         if self._slideshow:
-            self._slide_chapter_next()
+            # PageDown = nächster Ordner (wie oben)
+            self._grid_folder_next()
             return "break"
 
     def _slide_key_escape(self, _event=None) -> None:
