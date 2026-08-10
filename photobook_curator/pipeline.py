@@ -53,6 +53,8 @@ class PipelineConfig:
     enable_bursts: bool = True
     enable_document_aside: bool = True
     enable_finger_filter: bool = False  # Finger vor der Linse aussortieren
+    enable_accidental_filter: bool = True  # Fehlauslösungen / schlechte Komposition
+    enable_weak_night_filter: bool = True  # schwummerige Nachtaufnahmen
     coverage_intensity: float = 0.0  # 0=aus, 1=starke Tages-Abdeckung
     people_balance_intensity: float = 0.0  # 0=aus, 1=starke Personen-Balance
     enable_map_preview: bool = False
@@ -148,6 +150,8 @@ def run_pipeline(
             enable_documents=cfg.enable_document_aside,
             enable_faces=cfg.enable_faces,
             enable_finger=cfg.enable_finger_filter,
+            enable_accidental=cfg.enable_accidental_filter,
+            enable_weak_night=cfg.enable_weak_night_filter,
         ),
         cache=analysis_cache,
         progress=lambda f: report(
@@ -196,6 +200,11 @@ def run_pipeline(
         print(
             f"  Finger vor Linse: {local.finger_backend} "
             f"({local.finger_hits} aussortiert)"
+        )
+    if cfg.enable_accidental_filter or cfg.enable_weak_night_filter:
+        print(
+            f"  Fehlaufnahmen: {local.accidental_hits} · "
+            f"schwache Nacht: {local.weak_night_hits}"
         )
 
     if cfg.people_balance_intensity > 0:

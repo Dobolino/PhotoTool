@@ -16,6 +16,18 @@ from .people_balance import people_balance_penalty
 from .utils import load_bgr_cached
 
 
+def _ok_for_selection(photo: Photo) -> bool:
+    return (
+        not photo.is_duplicate
+        and not getattr(photo, "is_burst_reject", False)
+        and not getattr(photo, "is_aside", False)
+        and not getattr(photo, "finger_on_lens", False)
+        and not getattr(photo, "is_accidental", False)
+        and not getattr(photo, "is_weak_night", False)
+        and "unreadable" not in photo.flags
+    )
+
+
 def mark_candidates(
     photos: list[Photo],
     plan: BookPlan,
@@ -28,15 +40,7 @@ def mark_candidates(
     candidate_indices: list[int] = []
 
     def pick_for(indices: list[int], quota: int) -> list[int]:
-        eligible = [
-            i
-            for i in indices
-            if not photos[i].is_duplicate
-            and not getattr(photos[i], "is_burst_reject", False)
-            and not getattr(photos[i], "is_aside", False)
-            and not getattr(photos[i], "finger_on_lens", False)
-            and "unreadable" not in photos[i].flags
-        ]
+        eligible = [i for i in indices if _ok_for_selection(photos[i])]
         eligible.sort(key=lambda i: photos[i].technical_score, reverse=True)
         k = max(quota, int(np.ceil(quota * candidate_factor)))
         chosen = eligible[:k]
@@ -431,12 +435,7 @@ def select_for_region(
     """Gibt (hauptteil_indices, essen_indices) zurück, chronologisch sortiert."""
     # Nur Kandidaten bevorzugen, Fallback auf alle nicht-Duplikate
     def _ok(i: int) -> bool:
-        return (
-            not photos[i].is_duplicate
-            and not getattr(photos[i], "is_burst_reject", False)
-            and not getattr(photos[i], "is_aside", False)
-            and not getattr(photos[i], "finger_on_lens", False)
-        )
+        return _ok_for_selection(photos[i])
 
     cand = [i for i in indices if photos[i].is_candidate and _ok(i)]
     if not cand:
@@ -493,12 +492,7 @@ def select_for_transit(
     people_balance_intensity: float = 0.0,
 ) -> list[int]:
     def _ok(i: int) -> bool:
-        return (
-            not photos[i].is_duplicate
-            and not getattr(photos[i], "is_burst_reject", False)
-            and not getattr(photos[i], "is_aside", False)
-            and not getattr(photos[i], "finger_on_lens", False)
-        )
+        return _ok_for_selection(photos[i])
 
     cand = [i for i in indices if photos[i].is_candidate and _ok(i)]
     if not cand:

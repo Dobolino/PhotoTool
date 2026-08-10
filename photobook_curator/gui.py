@@ -171,6 +171,11 @@ OPTIONS_HELP = (
     "Dokumente & Screenshots separat\n"
     "  Tickets, Maps, Chats usw. nicht automatisch ins Buch, sondern\n"
     "  in den Ordner optional_dokumente/ (später manuell reinnehmbar).\n\n"
+    "Fehlaufnahmen aussortieren\n"
+    "  Typische Auslöser-Misses: viel Boden/Himmel, Motiv am Rand,\n"
+    "  starke Schräglage – werden nicht ins Buch genommen.\n\n"
+    "Schwache Nachtaufnahmen entfernen\n"
+    "  Dunkle, weiche, „schwummerige“ Nachtbilder aussortieren.\n\n"
     "Finger vor der Linse\n"
     "  Typische Fehlaufnahmen mit Finger/Hand vor der Kamera aussortieren.\n\n"
     "Tages-Abdeckung (+ Stärke)\n"
@@ -324,6 +329,8 @@ class PhotobookApp(tk.Tk):
         self.bursts_var = tk.BooleanVar(value=True)
         self.aside_var = tk.BooleanVar(value=True)
         self.finger_var = tk.BooleanVar(value=False)
+        self.accidental_var = tk.BooleanVar(value=True)
+        self.weak_night_var = tk.BooleanVar(value=True)
         self.coverage_var = tk.BooleanVar(value=False)
         self.coverage_intensity_var = tk.DoubleVar(value=0.5)
         self.people_var = tk.BooleanVar(value=False)
@@ -779,6 +786,8 @@ class PhotobookApp(tk.Tk):
             ("opt_faces", "opt_faces_long", self.faces_var),
             ("opt_bursts", "opt_bursts", self.bursts_var),
             ("opt_aside", "opt_aside", self.aside_var),
+            ("opt_accidental", "opt_accidental", self.accidental_var),
+            ("opt_weak_night", "opt_weak_night", self.weak_night_var),
         ):
             row = tk.Frame(settings, bg=c["surface"])
             row.pack(fill=tk.X, pady=6)
@@ -990,6 +999,8 @@ class PhotobookApp(tk.Tk):
         cfg.enable_faces = bool(self.faces_var.get())
         cfg.enable_bursts = bool(self.bursts_var.get())
         cfg.enable_finger_filter = bool(self.finger_var.get())
+        cfg.enable_accidental_filter = bool(self.accidental_var.get())
+        cfg.enable_weak_night_filter = bool(self.weak_night_var.get())
         cfg.enable_map_preview = bool(self.map_preview_var.get())
         cfg.people_balance_intensity = (
             float(self.people_intensity_var.get()) if self.people_var.get() else 0.0
@@ -1546,6 +1557,8 @@ class PhotobookApp(tk.Tk):
             enable_bursts=bool(self.bursts_var.get()),
             enable_document_aside=bool(self.aside_var.get()),
             enable_finger_filter=bool(self.finger_var.get()),
+            enable_accidental_filter=bool(self.accidental_var.get()),
+            enable_weak_night_filter=bool(self.weak_night_var.get()),
             coverage_intensity=coverage_intensity,
             people_balance_intensity=people_balance_intensity,
             enable_map_preview=map_preview,

@@ -314,6 +314,8 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 face_too_small=_bool("face_too_small"),
                 bad_face=_bool("bad_face"),
                 finger_on_lens=_bool("finger_on_lens"),
+                is_accidental=_bool("is_accidental"),
+                is_weak_night=_bool("is_weak_night"),
                 person_cluster_ids=[
                     int(x)
                     for x in (row.get("person_cluster_ids") or "").split("|")

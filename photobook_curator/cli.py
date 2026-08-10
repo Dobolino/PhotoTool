@@ -138,6 +138,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Finger vor der Linse erkennen und aussortieren (Standard: aus)",
     )
     p.add_argument(
+        "--accidental-filter",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Fehlaufnahmen/Komposition aussortieren (Standard: an)",
+    )
+    p.add_argument(
+        "--weak-night-filter",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Schwache/schwummerige Nachtaufnahmen aussortieren (Standard: an)",
+    )
+    p.add_argument(
         "--coverage-intensity",
         type=float,
         default=0.0,
@@ -220,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
         enable_bursts=bool(args.bursts),
         enable_document_aside=bool(args.aside_documents),
         enable_finger_filter=bool(args.finger_filter),
+        enable_accidental_filter=bool(args.accidental_filter),
+        enable_weak_night_filter=bool(args.weak_night_filter),
         coverage_intensity=max(0.0, min(1.0, float(args.coverage_intensity))),
         people_balance_intensity=max(
             0.0, min(1.0, float(args.people_balance_intensity))

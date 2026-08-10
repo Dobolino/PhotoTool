@@ -34,6 +34,8 @@ CSV_FIELDS = [
     "face_too_small",
     "bad_face",
     "finger_on_lens",
+    "is_accidental",
+    "is_weak_night",
     "person_cluster_ids",
     "technical_score",
     "aesthetic_score",

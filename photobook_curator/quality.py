@@ -89,6 +89,11 @@ def compute_technical_score(photo: Photo) -> float:
     if getattr(photo, "face_too_small", False) and photo.face_count >= 1:
         score -= 8.0
 
+    if getattr(photo, "is_accidental", False):
+        score -= 45.0
+    if getattr(photo, "is_weak_night", False):
+        score -= 40.0
+
     photo.technical_score = float(max(0.0, min(100.0, score)))
     return photo.technical_score
 

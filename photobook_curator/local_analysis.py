@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 from tqdm import tqdm
 
+from .composition import analyze_composition_bgr
 from .documents import (
     _filename_hint,
     _looks_like_phone_ui,
@@ -34,6 +35,8 @@ class LocalAnalysisOptions:
     enable_documents: bool = True
     enable_faces: bool = True
     enable_finger: bool = False
+    enable_accidental: bool = True
+    enable_weak_night: bool = True
 
 
 @dataclass
@@ -47,6 +50,8 @@ class LocalAnalysisResult:
     closed_eyes: int = 0
     bad_faces: int = 0
     finger_hits: int = 0
+    accidental_hits: int = 0
+    weak_night_hits: int = 0
     notes: list[str] = field(default_factory=list)
 
 
@@ -113,6 +118,9 @@ def run_local_analysis(
             need_phash = not photo.phash
             need_faces = options.enable_faces
             need_finger = options.enable_finger and not getattr(photo, "is_aside", False)
+            need_composition = (
+                options.enable_accidental or options.enable_weak_night
+            ) and not getattr(photo, "is_aside", False)
             need_quality = not quality_hit
             need_bgr = (
                 need_quality
@@ -120,6 +128,7 @@ def run_local_analysis(
                 or need_docs_pixels
                 or need_faces
                 or need_finger
+                or need_composition
             )
 
             scored = False
@@ -149,7 +158,8 @@ def run_local_analysis(
                 if is_aside:
                     _apply_aside(photo, aside_type)
                     result.aside_count += 1
-                    need_finger = False  # Aside: kein Finger-Check
+                    need_finger = False
+                    need_composition = False
 
             if need_phash and bgr is not None and not photo.phash:
                 value = phash_hex_from_bgr(bgr)
@@ -183,7 +193,26 @@ def run_local_analysis(
                     except Exception:
                         photo.add_flag("face_quality_failed")
 
+            # Komposition vor finalem Score (nutzt quality + face_count)
+            if need_composition and bgr is not None and not getattr(photo, "is_aside", False):
+                try:
+                    comp = analyze_composition_bgr(
+                        photo,
+                        bgr,
+                        enable_accidental=options.enable_accidental,
+                        enable_weak_night=options.enable_weak_night,
+                    )
+                    if comp.is_accidental:
+                        result.accidental_hits += 1
+                    if comp.is_weak_night:
+                        result.weak_night_hits += 1
+                except Exception:
+                    pass
+
             if not scored:
+                compute_technical_score(photo)
+            elif getattr(photo, "is_accidental", False) or getattr(photo, "is_weak_night", False):
+                # Face-Qualität hat schon gescored – Abzüge nachziehen
                 compute_technical_score(photo)
 
             if (

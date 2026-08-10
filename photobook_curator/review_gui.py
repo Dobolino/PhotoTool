@@ -2038,6 +2038,10 @@ class ReviewWindow(tk.Toplevel):
         warn = None
         if getattr(photo, "finger_on_lens", False) or "finger_on_lens" in photo.flags:
             warn = "Finger"
+        elif getattr(photo, "is_accidental", False) or "accidental" in photo.flags:
+            warn = "Fehlausl."
+        elif getattr(photo, "is_weak_night", False) or "weak_night" in photo.flags:
+            warn = "Nacht?"
         elif getattr(photo, "bad_face", False) or "eyes_closed" in photo.flags:
             warn = (
                 "Augen zu"
