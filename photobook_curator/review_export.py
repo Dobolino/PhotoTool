@@ -454,6 +454,22 @@ def all_duplicate_indices(photos: list[Photo]) -> list[int]:
     ]
 
 
+def best_swap_candidate(
+    photos: list[Photo],
+    idx: int,
+    kept: set[int],
+) -> int | None:
+    """
+    Beste Alternative zum Tauschen: zuerst Serien-/Inhalts-Verwandte,
+    sonst Kandidaten aus dem Kapitel.
+    """
+    for i in related_duplicates(photos, idx, limit=12):
+        if i not in kept and i != idx:
+            return i
+    alts = alternatives_for_index(photos, idx, kept, limit=3)
+    return alts[0] if alts else None
+
+
 def alternatives_for_index(
     photos: list[Photo],
     idx: int,

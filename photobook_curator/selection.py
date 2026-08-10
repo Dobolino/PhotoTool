@@ -147,6 +147,13 @@ def compute_final_score(photo: Photo) -> float:
         and getattr(photo, "face_count", 0) > 0
     ):
         score *= 0.92
+    # Gruppenfoto-Bonus: viele Gesichter und/oder erkannte Personen
+    faces = int(getattr(photo, "face_count", 0) or 0)
+    people = len(getattr(photo, "person_cluster_ids", None) or [])
+    group_n = max(faces, people)
+    if group_n >= 3 and not getattr(photo, "bad_face", False):
+        # 3 Personen → +3.5, danach +1.2 je weiterer, Deckel +9
+        score += min(9.0, 3.5 + (group_n - 3) * 1.2)
     photo.final_score = float(max(0.0, min(100.0, score)))
     return photo.final_score
 

@@ -19,11 +19,13 @@ from .review_export import (
     all_duplicate_indices,
     alternatives_for_index,
     apply_manual_selection,
+    best_swap_candidate,
     candidate_alternatives,
     chapter_sections,
     duplicate_kind,
     related_duplicates,
 )
+from .review_warnings import collect_review_warnings
 from .selection_draft import (
     apply_selection_draft,
     load_selection_draft,
@@ -314,7 +316,7 @@ class ReviewWindow(tk.Toplevel):
         ).pack(side=tk.RIGHT, padx=(0, 10))
 
         bar = tk.Frame(self, bg=COLORS["bg"], padx=20)
-        bar.pack(fill=tk.X, pady=(0, 8))
+        bar.pack(fill=tk.X, pady=(0, 4))
         self.count_var = tk.StringVar()
         tk.Label(
             bar,
@@ -332,6 +334,23 @@ class ReviewWindow(tk.Toplevel):
             pady=8,
         )
         self.mode_btn.pack(side=tk.LEFT, padx=(16, 0))
+
+        # Warn-Leiste (Tageslücken, Personen, Auflösung)
+        self._warn_host = tk.Frame(self, bg=COLORS["bg"], padx=20)
+        self._warn_host.pack(fill=tk.X, pady=(0, 8))
+        self._warn_var = tk.StringVar(value="")
+        self._warn_lbl = tk.Label(
+            self._warn_host,
+            textvariable=self._warn_var,
+            bg=COLORS.get("phase_run_bg", COLORS.get("chip_bg", COLORS["surface"])),
+            fg=COLORS.get("phase_run_fg", COLORS["ink"]),
+            font=("Segoe UI", 9),
+            anchor=tk.W,
+            justify=tk.LEFT,
+            padx=10,
+            pady=6,
+            wraplength=900,
+        )
 
         # Ordner-Navigation (ein Kapitel/Ordner nach dem anderen)
         nav = tk.Frame(self, bg=COLORS["bg"], padx=20)
@@ -797,8 +816,40 @@ class ReviewWindow(tk.Toplevel):
 
     def _update_count(self) -> None:
         self.count_var.set(t("selected_count", n=len(self.kept)))
+        self._refresh_warnings()
         if self._slideshow:
             self._refresh_slide_meta()
+
+    def _refresh_warnings(self) -> None:
+        """Aktualisiert die Warn-Leiste unter der Zählerzeile."""
+        try:
+            warns = collect_review_warnings(
+                self.photos,
+                self.kept,
+                folder=self._grid_folder or None,
+            )
+        except Exception:
+            warns = []
+        if not warns:
+            self._warn_var.set("")
+            try:
+                self._warn_lbl.pack_forget()
+            except tk.TclError:
+                pass
+            return
+        # Max. 3 Hinweise, mit Trenner
+        parts: list[str] = []
+        for w in warns[:3]:
+            try:
+                parts.append(t(w.key, **w.params))
+            except Exception:
+                parts.append(w.key)
+        self._warn_var.set("  ·  ".join(parts))
+        try:
+            if not self._warn_lbl.winfo_ismapped():
+                self._warn_lbl.pack(fill=tk.X)
+        except tk.TclError:
+            pass
 
     def _display_indices(self) -> list[int]:
         """Review-Menge: Baseline ∪ Kept, bei Filter „Duplikate“ die aussortierten."""
@@ -888,6 +939,7 @@ class ReviewWindow(tk.Toplevel):
         self._folder_meta.set(
             f"{t('folder_of', i=i, n=len(folders))}  ·  {t('folder_count', n=n_in)}"
         )
+        self._refresh_warnings()
 
     def _on_grid_folder_chosen(self, _event=None) -> None:
         title = self._grid_folder_var.get()
@@ -1591,6 +1643,8 @@ class ReviewWindow(tk.Toplevel):
         kind = hit["kind"]
         if kind == "photo":
             self._toggle_photo(hit["idx"], hit["mode"], hit.get("folder") or "")
+        elif kind == "swap":
+            self._grid_swap_alternative(hit["idx"], hit.get("folder") or "")
         elif kind == "alt_toggle":
             key = hit["key"]
             if key in self._expanded_alts:
@@ -1606,6 +1660,37 @@ class ReviewWindow(tk.Toplevel):
                 self.canvas.yview_moveto(top)
             except tk.TclError:
                 pass
+
+    def _grid_swap_alternative(self, idx: int, folder: str) -> None:
+        """1-Klick: behaltenes Bild gegen beste Burst-/Kapitel-Alternative tauschen."""
+        if idx not in self.kept:
+            return
+        alt = best_swap_candidate(self.photos, idx, self.kept)
+        if alt is None:
+            self._flash_status(t("alt_none"))
+            return
+        target_folder = folder or self.photos[idx].chapter_folder or self._grid_folder or ""
+        self.kept.remove(idx)
+        self.photos[idx].is_selected = False
+        # Alternative ggf. aus Duplikat-Status holen
+        photo = self.photos[alt]
+        photo.is_duplicate = False
+        photo.is_burst_reject = False
+        photo.duplicate_of = None
+        photo.flags = [
+            f
+            for f in photo.flags
+            if f not in ("duplicate", "content_duplicate", "burst_reject")
+        ]
+        self.kept.add(alt)
+        self.baseline.add(alt)
+        self._session_added.add(alt)
+        self._assign_chapter(alt, target_folder)
+        self._flash_status(t("alt_swapped", name=photo.filename))
+        self._autosave_draft()
+        self._update_count()
+        self._refresh_folder_nav()
+        self._render()
 
     def _on_grid_right_click(self, event) -> None:
         """Rechtsklick: Bild in anderen Ordner verschieben."""
@@ -2239,6 +2324,40 @@ class ReviewWindow(tk.Toplevel):
                 "box": (x, y, x + tile_w, y + tile_h),
             }
         )
+
+        # Swap-Button nur auf behaltenen Raster-Kacheln (nach photo-Hit → gewinnt)
+        if mode == "keep" and kept:
+            alt = best_swap_candidate(self.photos, idx, self.kept)
+            if alt is not None:
+                bw, bh = 52, 18
+                bx2, by1 = img_x2 - 4, img_y1 + 4
+                bx1, by2 = bx2 - bw, by1 + bh
+                self.canvas.create_rectangle(
+                    bx1,
+                    by1,
+                    bx2,
+                    by2,
+                    fill=COLORS.get("accent", "#7B6CFF"),
+                    outline="",
+                    tags=("grid",),
+                )
+                self.canvas.create_text(
+                    (bx1 + bx2) / 2,
+                    (by1 + by2) / 2,
+                    text=t("alt_swap"),
+                    fill=COLORS.get("hero_fg", "#FFFFFF"),
+                    font=("Segoe UI Semibold", 7),
+                    anchor=tk.CENTER,
+                    tags=("grid",),
+                )
+                self._hit_tiles.append(
+                    {
+                        "kind": "swap",
+                        "idx": idx,
+                        "folder": folder,
+                        "box": (bx1, by1, bx2, by2),
+                    }
+                )
 
     def _save(self) -> None:
         if not self.kept:
