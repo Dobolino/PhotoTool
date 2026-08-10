@@ -25,6 +25,14 @@ def _phash_int_from_bgr(bgr) -> int | None:
         return None
 
 
+def phash_hex_from_bgr(bgr) -> str | None:
+    """pHash als 16-stelliges Hex aus BGR, oder None bei Fehler."""
+    value = _phash_int_from_bgr(bgr)
+    if value is None:
+        return None
+    return f"{value:016x}"
+
+
 def compute_phashes(photos: list[Photo], cache=None) -> None:
     from .analysis_cache import quality_payload
 
@@ -33,13 +41,12 @@ def compute_phashes(photos: list[Photo], cache=None) -> None:
             continue
         try:
             bgr = load_bgr_cached(photo.path)
-            value = _phash_int_from_bgr(bgr)
+            value = phash_hex_from_bgr(bgr)
             if value is None:
                 photo.phash = None
                 photo.add_flag("phash_failed")
             else:
-                # Hex-String bleibt für CSV/Kompatibilität
-                photo.phash = f"{value:016x}"
+                photo.phash = value
             if cache is not None and photo.phash:
                 cache.put(photo.path, quality_payload(photo))
         except Exception:

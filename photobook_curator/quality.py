@@ -15,18 +15,11 @@ if TYPE_CHECKING:
     from .analysis_cache import AnalysisCache
 
 
-def analyze_image_quality(photo: Photo) -> None:
-    try:
-        bgr = load_bgr_cached(photo.path)
-    except Exception:
-        photo.add_flag("unreadable")
-        photo.technical_score = 0.0
-        return
-
+def analyze_image_quality_from_bgr(photo: Photo, bgr) -> None:
+    """Technische Metriken aus bereits geladenem BGR (kein erneutes Decode)."""
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     photo.sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
-    # Belichtung über Luminanz-Histogramm
     hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).flatten()
     hist_norm = hist / max(hist.sum(), 1.0)
     bins = np.arange(256)
@@ -45,6 +38,16 @@ def analyze_image_quality(photo: Photo) -> None:
 
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     photo.saturation = float(hsv[:, :, 1].mean())
+
+
+def analyze_image_quality(photo: Photo) -> None:
+    try:
+        bgr = load_bgr_cached(photo.path)
+    except Exception:
+        photo.add_flag("unreadable")
+        photo.technical_score = 0.0
+        return
+    analyze_image_quality_from_bgr(photo, bgr)
 
 
 def compute_technical_score(photo: Photo) -> float:

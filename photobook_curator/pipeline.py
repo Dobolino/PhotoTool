@@ -9,17 +9,13 @@ from typing import Any, Callable, Optional
 from .ai_review import ensure_scene_types, run_ai_review
 from .analysis_cache import AnalysisCache
 from .bursts import mark_bursts
-from .documents import mark_aside_documents
-from .duplicates import compute_phashes, mark_duplicates
-from .face_quality import analyze_face_quality
-from .faces import count_faces
-from .finger_obstruction import analyze_finger_obstruction
+from .duplicates import mark_duplicates
 from .geocoding import GeocodeCache
+from .local_analysis import LocalAnalysisOptions, run_local_analysis
 from .map_preview import write_chapter_map
 from .models import BookPlan, Photo
 from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
 from .people_balance import analyze_people_clusters
-from .quality import analyze_all
 from .regions import build_location_plan
 from .scan import scan_photos
 from .selection import build_book_order, mark_candidates
@@ -143,17 +139,35 @@ def run_pipeline(
     print("=== Phase 1: Einlesen & technische Vorfilterung ===")
     photos = scan_photos(cfg.input_dir)
     print(f"  {len(photos)} Bilder gefunden")
-    report("Technische Analyse…", 0.08, "quality")
-    analyze_all(photos, cache=analysis_cache)
+
+    # Ein Decode pro Foto für Qualität + Dokumente + pHash + Faces + Finger
+    report("Lokale Analyse…", 0.08, "quality")
+    local = run_local_analysis(
+        photos,
+        LocalAnalysisOptions(
+            enable_documents=cfg.enable_document_aside,
+            enable_faces=cfg.enable_faces,
+            enable_finger=cfg.enable_finger_filter,
+        ),
+        cache=analysis_cache,
+        progress=lambda f: report(
+            "Lokale Analyse…",
+            0.08 + 0.45 * float(max(0.0, min(1.0, f))),
+            "quality",
+        ),
+    )
+    for note in local.notes:
+        print(f"  {note}")
+    print(f"  Decode-Durchläufe: {local.decoded}/{len(photos)} (fusioniert)")
+
     if cfg.enable_document_aside:
-        report("Dokumente…", 0.22, "documents")
-        aside_count = mark_aside_documents(photos)
-        print(f"  {aside_count} Screenshots/Dokumente → Optional-Pool (nicht Auto-Kapitel)")
+        report("Dokumente…", 0.54, "documents")
+        print(f"  {local.aside_count} Screenshots/Dokumente → Optional-Pool (nicht Auto-Kapitel)")
     else:
         print("  Dokumente/Screenshots-Trennung übersprungen")
-    report("pHash…", 0.26, "phash")
-    compute_phashes(photos, cache=analysis_cache)
-    report("Duplikate…", 0.30, "duplicates")
+
+    report("pHash…", 0.56, "phash")
+    report("Duplikate…", 0.58, "duplicates")
     dup_count, burst_from_dup = mark_duplicates(
         photos,
         burst_seconds=cfg.burst_max_seconds if cfg.enable_bursts else 0.0,
@@ -166,23 +180,26 @@ def run_pipeline(
     if analysis_cache is not None:
         analysis_cache.save()
         print(f"  Analyse-Cache: {cfg.output_dir / 'analysis_cache.json'}")
+
     if cfg.enable_faces:
-        report("Gesichter…", 0.45, "faces")
-        backend = count_faces(photos)
-        print(f"  Gesichtserkennung: {backend}")
-        fq_backend = analyze_face_quality(photos)
-        bad = sum(1 for p in photos if p.bad_face)
-        closed = sum(1 for p in photos if p.eyes_closed)
-        print(f"  Gesichtsqualität: {fq_backend} ({closed} Augen zu, {bad} problematisch)")
+        report("Gesichter…", 0.62, "faces")
+        print(f"  Gesichtserkennung: {local.face_backend}")
+        print(
+            f"  Gesichtsqualität: {local.face_quality_backend} "
+            f"({local.closed_eyes} Augen zu, {local.bad_faces} problematisch)"
+        )
     else:
         print("  Gesichtserkennung übersprungen")
+
     if cfg.enable_finger_filter:
-        report("Finger-Check…", 0.55, "finger")
-        finger_backend = analyze_finger_obstruction(photos)
-        n_finger = sum(1 for p in photos if p.finger_on_lens)
-        print(f"  Finger vor Linse: {finger_backend} ({n_finger} aussortiert)")
+        report("Finger-Check…", 0.64, "finger")
+        print(
+            f"  Finger vor Linse: {local.finger_backend} "
+            f"({local.finger_hits} aussortiert)"
+        )
+
     if cfg.people_balance_intensity > 0:
-        report("Personen-Balance…", 0.58, "people")
+        report("Personen-Balance…", 0.66, "people")
         pb_backend = analyze_people_clusters(photos)
         n_clustered = sum(1 for p in photos if p.person_cluster_ids)
         n_people = len({pid for p in photos for pid in p.person_cluster_ids})
@@ -192,7 +209,7 @@ def run_pipeline(
             f"Stärke {cfg.people_balance_intensity:.0%})"
         )
     if cfg.enable_bursts:
-        report("Serien…", 0.62, "bursts")
+        report("Serien…", 0.68, "bursts")
         burst_extra = mark_bursts(
             photos,
             max_seconds=cfg.burst_max_seconds,
@@ -209,7 +226,7 @@ def run_pipeline(
         print("  Serien/Burst-Erkennung übersprungen")
     clear_bgr_cache()  # Analyse-Bilder freigeben vor Geocode/Auswahl
 
-    report("Orte & Regionen…", 0.68, "regions")
+    report("Orte & Regionen…", 0.72, "regions")
     print("=== Phase 2: Orte & Regionen ===")
     cache = GeocodeCache(cache_path, enabled=cfg.geocode)
     plan = build_location_plan(

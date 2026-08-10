@@ -17,7 +17,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 DEFAULT_DOWNLOAD_TIMEOUT_S = 30.0
 MIN_MODEL_BYTES = 1000
 DEFAULT_BGR_CACHE_EDGE = 1024
-DEFAULT_BGR_CACHE_SIZE = 32
+DEFAULT_BGR_CACHE_SIZE = 64
 
 # Typische Screenshot-Auflösungen (Breite x Höhe, beide Orientierungen)
 SCREEN_RESOLUTIONS = {

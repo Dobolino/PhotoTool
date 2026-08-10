@@ -68,6 +68,7 @@ def match_step_id(label: str) -> Optional[str]:
     low = (label or "").lower()
     mapping = (
         ("einlesen", "scan"),
+        ("lokale analyse", "quality"),
         ("technische", "quality"),
         ("dokument", "documents"),
         ("phash", "phash"),
