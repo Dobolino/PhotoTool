@@ -82,6 +82,8 @@ Fotobuch starten.bat
    - *Gesichtserkennung / Augen zu* (an) – wertet schlechte Gesichter ab.
    - *Serien/Bursts* (an) – behält aus Serien nur die besten 1–2.
    - *Dokumente & Screenshots separat* (an) – Tickets/Screenshots kommen in einen Extra-Pool.
+   - *Fehlaufnahmen aussortieren* (an) – Auslöser-Misses (viel Boden/Himmel, Motiv am Rand).
+   - *Schwache Nachtaufnahmen entfernen* (an) – dunkle, schwummerige Nachtbilder raus.
    - *Finger vor der Linse* (aus) – sortiert typische Fehlaufnahmen aus.
    - *Tages-Abdeckung* – verhindert, dass fast alles vom ersten Tag stammt.
    - *Personen-Balance* – verhindert, dass eine Person das Album dominiert.
