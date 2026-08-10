@@ -198,8 +198,10 @@ _STRINGS: dict[str, dict[str, str]] = {
             "und behält die besten – nutzt Embeddings und den Analyse-Cache."
         ),
         "help_opt_aesthetic": (
-            "Schätzt Bildqualität lokal (Schärfe, Belichtung, Komposition) ohne Cloud. "
-            "Bei KI-Bewertung wird das übersprungen."
+            "Teil der lokalen Vorfilterung (ohne Cloud): Schärfe, Belichtung, "
+            "Komposition – schnell und kostenlos. Deckt ca. den Großteil der "
+            "Aussortierung zusammen mit Gesichtern/Duplikaten. "
+            "Bei KI-Bewertung wird diese lokale Ästhetik übersprungen."
         ),
         "help_opt_timezone": (
             "Verschiebt alle EXIF-Zeiten um X Stunden (z. B. +9, wenn die Kamera "
@@ -223,18 +225,26 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Vor dem Kopieren Kapitel und Karte zeigen, dann bestätigen."
         ),
         "help_opt_ai": (
-            "Optional: Kandidatenbilder von einer KI bewerten lassen. "
-            "Darunter Anbieter wählen: Anthropic (Cloud, API-Key, kostet) oder "
-            "Gratis KI über Ollama lokal (kein API-Key, $0)."
+            "Optionaler Feinschliff nach der lokalen Vorfilterung "
+            "(Gesichter, Schärfe, Duplikate, Ästhetik decken schon ~90 % ab).\n\n"
+            "Nur die verbleibenden Top-Kandidaten werden von einer KI bewertet "
+            "(Szene, Emotion, Landmarken, Keep/Drop).\n\n"
+            "Ohne KI läuft alles rein lokal und kostenlos – oft schon sehr gut. "
+            "Anbieter wählst du im Dropdown darunter."
         ),
         "help_ai_provider": (
-            "Anthropic: Cloud-API mit Key (Kosten siehe Schätzung). "
-            "Gratis KI: lokales Ollama mit Vision-Modell (z. B. llava) – "
-            "Ollama installieren, starten und Modell laden."
+            "Welches KI-Modell?\n\n"
+            "• Anthropic (Cloud, z. B. Claude): beste Präzision für Inhalt/Ästhetik "
+            "der Kandidaten. Braucht API-Key + Internet, kostet meist nur Cent-Beträge. "
+            "Empfohlen, wenn du maximale Qualität willst.\n\n"
+            "• Gratis KI / Ollama (lokal, z. B. LLaVA): kein Cloud-Upload, $0. "
+            "Sinnvoll, wenn du keine API nutzen willst – am besten mit starker "
+            "lokaler GPU. Qualität meist unter Anthropic, dafür privat und offline.\n\n"
+            "Ollama: installieren, starten, z. B. „ollama pull llava“."
         ),
         "help_opt_dry": (
             "Kein echter Anthropic-Aufruf: zählt nur Kandidaten und schätzt den Betrag. "
-            "Nur sinnvoll bei Anthropic; bei Ollama ausgeblendet."
+            "Nur sinnvoll bei Anthropic; bei Ollama ausgeblendet (dort immer $0)."
         ),
     },
     "en": {
@@ -428,7 +438,8 @@ _STRINGS: dict[str, dict[str, str]] = {
             "the best – uses embeddings and the analysis cache."
         ),
         "help_opt_aesthetic": (
-            "Local quality estimate (sharpness, exposure, composition) with no cloud. "
+            "Part of the local prefilter (no cloud): sharpness, exposure, composition – "
+            "fast and free. Together with faces/duplicates this covers most culling. "
             "Skipped when AI review is on."
         ),
         "help_opt_timezone": (
@@ -453,18 +464,26 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Show chapters and map before copying files, then confirm."
         ),
         "help_opt_ai": (
-            "Optional: let an AI score candidate photos. "
-            "Choose provider below: Anthropic (cloud, API key, costs money) or "
-            "free local AI via Ollama (no API key, $0)."
+            "Optional fine-tuning after local prefiltering "
+            "(faces, sharpness, duplicates, aesthetic already cover ~90%).\n\n"
+            "Only remaining top candidates are scored by an AI "
+            "(scene, emotion, landmarks, keep/drop).\n\n"
+            "Without AI everything stays local and free – often already strong. "
+            "Pick the provider in the dropdown below."
         ),
         "help_ai_provider": (
-            "Anthropic: cloud API with a key (see cost estimate). "
-            "Free AI: local Ollama with a vision model (e.g. llava) – "
-            "install Ollama, start it, and pull the model."
+            "Which AI model?\n\n"
+            "• Anthropic (cloud, e.g. Claude): best precision for content/aesthetics "
+            "on candidates. Needs API key + internet; usually only cents. "
+            "Recommended when you want maximum quality.\n\n"
+            "• Free AI / Ollama (local, e.g. LLaVA): no cloud upload, $0. "
+            "Best if you refuse APIs – ideally with a strong local GPU. "
+            "Quality usually below Anthropic, but private and offline.\n\n"
+            "Ollama: install, start, e.g. “ollama pull llava”."
         ),
         "help_opt_dry": (
             "No real Anthropic call: counts candidates and estimates cost only. "
-            "Only useful with Anthropic; hidden for Ollama."
+            "Only useful with Anthropic; hidden for Ollama (always $0 there)."
         ),
     },
 }
