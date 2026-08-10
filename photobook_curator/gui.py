@@ -88,6 +88,8 @@ except Exception:  # pragma: no cover - Notfallstart
             "opt_faces": "Gesichtserkennung / Augen zu",
             "opt_bursts": "Serien/Bursts (beste 1–2)",
             "opt_aside": "Dokumente & Screenshots separat",
+            "opt_accidental": "Fehlaufnahmen aussortieren",
+            "opt_weak_night": "Schwache Nachtaufnahmen entfernen",
             "opt_finger": "Finger vor der Linse aussortieren",
             "opt_coverage": "Tages-Abdeckung",
             "opt_people": "Personen-Balance",
