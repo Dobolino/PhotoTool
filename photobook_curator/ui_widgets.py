@@ -306,7 +306,7 @@ class HelpTip(tk.Label):
             fg=c.get("ink", "#eee"),
             font=("Segoe UI", 9),
             justify=tk.LEFT,
-            wraplength=400,
+            wraplength=440,
             anchor=tk.W,
         ).pack(fill=tk.X)
         tip.update_idletasks()
