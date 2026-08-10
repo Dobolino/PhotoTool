@@ -171,7 +171,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--analysis-cache",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Quality/pHash zwischen Läufen cachen (Standard: an)",
+        help="SQLite Feature-Cache zwischen Läufen (Standard: an)",
+    )
+    p.add_argument(
+        "--content-clusters",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Inhalts-ähnliche Motive per Embedding clustern (Standard: an)",
+    )
+    p.add_argument(
+        "--local-aesthetic",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Lokale Ästhetik ohne API (Standard: an; bei --ai-review aus)",
+    )
+    p.add_argument(
+        "--video-frames",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Best-Frame aus Videos/Live Photos extrahieren (Standard: aus)",
+    )
+    p.add_argument(
+        "--timezone-offset-hours",
+        type=float,
+        default=0.0,
+        help="Stunden-Korrektur für EXIF-Zeiten (z. B. 9 bei Kamera auf Heimatzeit)",
     )
     p.add_argument(
         "--burst-seconds",
@@ -240,6 +264,10 @@ def main(argv: list[str] | None = None) -> int:
         ),
         enable_map_preview=bool(args.map_preview),
         enable_analysis_cache=bool(args.analysis_cache),
+        enable_content_clusters=bool(args.content_clusters),
+        enable_local_aesthetic=bool(args.local_aesthetic),
+        enable_video_frames=bool(args.video_frames),
+        timezone_offset_hours=float(args.timezone_offset_hours),
         burst_max_seconds=args.burst_seconds,
         burst_keep=args.burst_keep,
     )

@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 from .ai_review import ensure_scene_types, run_ai_review
 from .analysis_cache import AnalysisCache
 from .bursts import mark_bursts
+from .content_clusters import mark_content_clusters
 from .duplicates import mark_duplicates
 from .geocoding import GeocodeCache
 from .local_analysis import LocalAnalysisOptions, run_local_analysis
@@ -21,6 +22,7 @@ from .scan import scan_photos
 from .selection import build_book_order, mark_candidates
 from .transit import detect_transits
 from .utils import clear_bgr_cache
+from .video_frames import extract_video_stills
 
 # progress(label, fraction) oder progress(label, fraction, step_id)
 ProgressCallback = Callable[..., None]
@@ -55,11 +57,17 @@ class PipelineConfig:
     enable_finger_filter: bool = False  # Finger vor der Linse aussortieren
     enable_accidental_filter: bool = True  # Fehlauslösungen / schlechte Komposition
     enable_weak_night_filter: bool = True  # schwummerige Nachtaufnahmen
+    enable_content_clusters: bool = True  # Embedding-Ähnlichkeit (Inhalts-Duplikate)
+    content_cluster_similarity: float = 0.92
+    enable_local_aesthetic: bool = True  # lokale Ästhetik ohne API
+    enable_video_frames: bool = False  # Best-Frame aus Videos / Live Photos
+    timezone_offset_hours: float = 0.0  # manuelle Zeitkorrektur (Urlaub)
+    apply_exif_offset: bool = False  # EXIF OffsetTime → UTC (selten)
     coverage_intensity: float = 0.0  # 0=aus, 1=starke Tages-Abdeckung
     people_balance_intensity: float = 0.0  # 0=aus, 1=starke Personen-Balance
     enable_map_preview: bool = False
     skip_export: bool = False  # GUI: Export nach Kapitel-Vorschau
-    enable_analysis_cache: bool = True  # Quality/pHash zwischen Läufen cachen
+    enable_analysis_cache: bool = True  # SQLite Feature-Cache zwischen Läufen
     burst_max_seconds: float = 30.0
     burst_keep: int = 2
     burst_min_size: int = 3
@@ -139,10 +147,25 @@ def run_pipeline(
 
     report("Einlesen…", 0.02, "scan")
     print("=== Phase 1: Einlesen & technische Vorfilterung ===")
-    photos = scan_photos(cfg.input_dir)
+    extra_stills: list[Path] = []
+    if cfg.enable_video_frames:
+        report("Video-Standbilder…", 0.03, "video")
+        stills_dir = cfg.output_dir / "video_stills"
+        extra_stills = extract_video_stills(
+            cfg.input_dir, stills_dir, enabled=True
+        )
+        print(f"  Video-/Live-Photo-Standbilder: {len(extra_stills)}")
+    photos = scan_photos(
+        cfg.input_dir,
+        timezone_offset_hours=cfg.timezone_offset_hours,
+        apply_exif_offset=cfg.apply_exif_offset,
+        extra_paths=extra_stills,
+    )
     print(f"  {len(photos)} Bilder gefunden")
+    if cfg.timezone_offset_hours:
+        print(f"  Zeitzone: +{cfg.timezone_offset_hours:g} h Korrektur")
 
-    # Ein Decode pro Foto für Qualität + Dokumente + pHash + Faces + Finger
+    # Ein Decode pro Foto für Qualität + Dokumente + pHash + Faces + Finger + …
     report("Lokale Analyse…", 0.08, "quality")
     local = run_local_analysis(
         photos,
@@ -152,6 +175,8 @@ def run_pipeline(
             enable_finger=cfg.enable_finger_filter,
             enable_accidental=cfg.enable_accidental_filter,
             enable_weak_night=cfg.enable_weak_night_filter,
+            enable_embeddings=cfg.enable_content_clusters,
+            enable_local_aesthetic=cfg.enable_local_aesthetic and not cfg.ai_review,
         ),
         cache=analysis_cache,
         progress=lambda f: report(
@@ -181,16 +206,28 @@ def run_pipeline(
         compute_hashes=False,
     )
     print(f"  {dup_count} Duplikate markiert")
+
+    content_dup = 0
+    if cfg.enable_content_clusters and local.embeddings:
+        report("Inhalts-Cluster…", 0.60, "content")
+        content_dup = mark_content_clusters(
+            photos,
+            local.embeddings,
+            similarity=cfg.content_cluster_similarity,
+        )
+        print(f"  Inhalts-ähnliche Motive: {content_dup} zusätzlich aussortiert")
+
     if analysis_cache is not None:
         analysis_cache.save()
-        print(f"  Analyse-Cache: {cfg.output_dir / 'analysis_cache.json'}")
+        print(f"  Analyse-Cache: {analysis_cache.cache_path}")
 
     if cfg.enable_faces:
         report("Gesichter…", 0.62, "faces")
         print(f"  Gesichtserkennung: {local.face_backend}")
         print(
             f"  Gesichtsqualität: {local.face_quality_backend} "
-            f"({local.closed_eyes} Augen zu, {local.bad_faces} problematisch)"
+            f"({local.closed_eyes} Augen zu, {local.bad_faces} problematisch, "
+            f"{local.smiling_hits} Lächeln, {local.looking_hits} Blick zur Kamera)"
         )
     else:
         print("  Gesichtserkennung übersprungen")

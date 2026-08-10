@@ -91,6 +91,10 @@ except Exception:  # pragma: no cover - Notfallstart
             "opt_accidental": "Fehlaufnahmen aussortieren",
             "opt_weak_night": "Schwache Nachtaufnahmen entfernen",
             "opt_finger": "Finger vor der Linse aussortieren",
+            "opt_content": "Ähnliche Motive clustern",
+            "opt_aesthetic": "Lokale Ästhetik (ohne API)",
+            "opt_video": "Video-/Live-Photo-Standbilder",
+            "opt_timezone": "Zeitzone korrigieren (Stunden)",
             "opt_coverage": "Tages-Abdeckung",
             "opt_people": "Personen-Balance",
             "opt_map": "Kapitel-/Karten-Vorschau vor Export",
@@ -178,6 +182,18 @@ OPTIONS_HELP = (
     "  starke Schräglage – werden nicht ins Buch genommen.\n\n"
     "Schwache Nachtaufnahmen entfernen\n"
     "  Dunkle, weiche, „schwummerige“ Nachtbilder aussortieren.\n\n"
+    "Ähnliche Motive clustern\n"
+    "  Erkennt inhaltsgleiche Szenen (nicht nur pixelgleiche Duplikate)\n"
+    "  und behält die besten – nutzt Embeddings + SQLite-Cache.\n\n"
+    "Lokale Ästhetik (ohne API)\n"
+    "  Schätzt Bildqualität lokal (Schärfe, Belichtung, Komposition).\n"
+    "  Bei KI-Bewertung wird das übersprungen.\n\n"
+    "Video-/Live-Photo-Standbilder\n"
+    "  Extrahiert den schärfsten Frame aus kurzen Videos ohne\n"
+    "  Schwester-JPG/HEIC (typisch Live Photo ohne Standbild).\n\n"
+    "Zeitzone korrigieren\n"
+    "  Verschiebt alle EXIF-Zeiten um X Stunden (z. B. +9 wenn die\n"
+    "  Kamera noch auf Heimatzeit stand).\n\n"
     "Finger vor der Linse\n"
     "  Typische Fehlaufnahmen mit Finger/Hand vor der Kamera aussortieren.\n\n"
     "Tages-Abdeckung (+ Stärke)\n"
@@ -333,6 +349,10 @@ class PhotobookApp(tk.Tk):
         self.finger_var = tk.BooleanVar(value=False)
         self.accidental_var = tk.BooleanVar(value=True)
         self.weak_night_var = tk.BooleanVar(value=True)
+        self.content_var = tk.BooleanVar(value=True)
+        self.aesthetic_var = tk.BooleanVar(value=True)
+        self.video_var = tk.BooleanVar(value=False)
+        self.timezone_offset_var = tk.DoubleVar(value=0.0)
         self.coverage_var = tk.BooleanVar(value=False)
         self.coverage_intensity_var = tk.DoubleVar(value=0.5)
         self.people_var = tk.BooleanVar(value=False)
@@ -790,6 +810,8 @@ class PhotobookApp(tk.Tk):
             ("opt_aside", "opt_aside", self.aside_var),
             ("opt_accidental", "opt_accidental", self.accidental_var),
             ("opt_weak_night", "opt_weak_night", self.weak_night_var),
+            ("opt_content", "opt_content", self.content_var),
+            ("opt_aesthetic", "opt_aesthetic", self.aesthetic_var),
         ):
             row = tk.Frame(settings, bg=c["surface"])
             row.pack(fill=tk.X, pady=6)
@@ -814,6 +836,26 @@ class PhotobookApp(tk.Tk):
             self._toggle_rows.append((lbl, tog, long_key))
             self._core_checks.append((tog, key))
 
+        tz_row = tk.Frame(settings, bg=c["surface"])
+        tz_row.pack(fill=tk.X, pady=6)
+        self._tz_lbl = tk.Label(
+            tz_row,
+            text=t("opt_timezone"),
+            bg=c["surface"],
+            fg=c["ink"],
+            font=("Segoe UI", 10),
+            anchor=tk.W,
+        )
+        self._tz_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.timezone_spin = ttk.Spinbox(
+            tz_row,
+            from_=-14,
+            to=14,
+            increment=0.5,
+            textvariable=self.timezone_offset_var,
+            width=6,
+        )
+        self.timezone_spin.pack(side=tk.RIGHT)
         opt_row = ttk.Frame(settings, style="Card.TFrame")
         opt_row.pack(fill=tk.X, pady=(12, 0))
         self.advanced_toggle = ttk.Button(
@@ -834,6 +876,7 @@ class PhotobookApp(tk.Tk):
         self.advanced_frame = ttk.Frame(settings, style="Card.TFrame")
         self._adv_checks: list[tuple[ttk.Checkbutton, str]] = []
         for key, var in (
+            ("opt_video", self.video_var),
             ("opt_finger", self.finger_var),
             ("opt_coverage", self.coverage_var),
             ("opt_people", self.people_var),
@@ -1003,6 +1046,9 @@ class PhotobookApp(tk.Tk):
         cfg.enable_finger_filter = bool(self.finger_var.get())
         cfg.enable_accidental_filter = bool(self.accidental_var.get())
         cfg.enable_weak_night_filter = bool(self.weak_night_var.get())
+        cfg.enable_content_clusters = bool(self.content_var.get())
+        cfg.enable_local_aesthetic = bool(self.aesthetic_var.get())
+        cfg.enable_video_frames = bool(self.video_var.get())
         cfg.enable_map_preview = bool(self.map_preview_var.get())
         cfg.people_balance_intensity = (
             float(self.people_intensity_var.get()) if self.people_var.get() else 0.0
@@ -1148,6 +1194,8 @@ class PhotobookApp(tk.Tk):
             for lbl, tog, key in getattr(self, "_toggle_rows", []):
                 lbl.configure(text=t(key))
                 tog.set_labels(t("toggle_on"), t("toggle_off"))
+            if getattr(self, "_tz_lbl", None) is not None:
+                self._tz_lbl.configure(text=t("opt_timezone"))
             for chk, key in self._adv_checks:
                 chk.configure(text=t(key))
             tip = getattr(self, "_tip_banner", None)
@@ -1561,6 +1609,10 @@ class PhotobookApp(tk.Tk):
             enable_finger_filter=bool(self.finger_var.get()),
             enable_accidental_filter=bool(self.accidental_var.get()),
             enable_weak_night_filter=bool(self.weak_night_var.get()),
+            enable_content_clusters=bool(self.content_var.get()),
+            enable_local_aesthetic=bool(self.aesthetic_var.get()),
+            enable_video_frames=bool(self.video_var.get()),
+            timezone_offset_hours=float(self.timezone_offset_var.get() or 0.0),
             coverage_intensity=coverage_intensity,
             people_balance_intensity=people_balance_intensity,
             enable_map_preview=map_preview,

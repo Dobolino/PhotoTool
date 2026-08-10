@@ -275,6 +275,16 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
             def _bool(key: str) -> bool:
                 return (row.get(key) or "").strip().lower() in ("true", "1", "yes")
 
+            def _opt_bool(key: str) -> Optional[bool]:
+                v = (row.get(key) or "").strip().lower()
+                if v == "":
+                    return None
+                if v in ("true", "1", "yes"):
+                    return True
+                if v in ("false", "0", "no"):
+                    return False
+                return None
+
             bp_raw = (row.get("book_position") or "").strip()
             photo = Photo(
                 path=path,
@@ -316,6 +326,11 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 finger_on_lens=_bool("finger_on_lens"),
                 is_accidental=_bool("is_accidental"),
                 is_weak_night=_bool("is_weak_night"),
+                smiling=_opt_bool("smiling"),
+                looking_at_camera=_opt_bool("looking_at_camera"),
+                content_cluster_id=_int("content_cluster_id")
+                if (row.get("content_cluster_id") or "").strip()
+                else None,
                 person_cluster_ids=[
                     int(x)
                     for x in (row.get("person_cluster_ids") or "").split("|")

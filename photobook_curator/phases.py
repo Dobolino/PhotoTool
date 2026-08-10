@@ -19,10 +19,12 @@ class PhaseStep:
 # Reihenfolge = Ablauf in run_pipeline
 PHASE_STEPS: tuple[PhaseStep, ...] = (
     PhaseStep("scan", "Einlesen"),
+    PhaseStep("video", "Video-Frames", require_attr="enable_video_frames"),
     PhaseStep("quality", "Technik"),
     PhaseStep("documents", "Dokumente", require_attr="enable_document_aside"),
     PhaseStep("phash", "pHash"),
     PhaseStep("duplicates", "Duplikate"),
+    PhaseStep("content", "Inhalte", require_attr="enable_content_clusters"),
     PhaseStep("faces", "Gesichter", require_attr="enable_faces"),
     PhaseStep("finger", "Finger", require_attr="enable_finger_filter"),
     PhaseStep("people", "Personen", require_positive="people_balance_intensity"),
@@ -68,11 +70,14 @@ def match_step_id(label: str) -> Optional[str]:
     low = (label or "").lower()
     mapping = (
         ("einlesen", "scan"),
+        ("video", "video"),
+        ("standbild", "video"),
         ("lokale analyse", "quality"),
         ("technische", "quality"),
         ("dokument", "documents"),
         ("phash", "phash"),
         ("duplikat", "duplicates"),
+        ("inhalts", "content"),
         ("gesicht", "faces"),
         ("finger", "finger"),
         ("personen", "people"),

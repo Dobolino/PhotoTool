@@ -34,6 +34,8 @@ class FaceQualityResult:
     eyes_closed: bool = False
     face_cut_off: bool = False
     face_too_small: bool = False
+    smiling: bool | None = None
+    looking_at_camera: bool | None = None
     issues: list[str] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -79,14 +81,16 @@ def _analyze_landmarks(
     width: int,
     height: int,
     blendshapes=None,
-) -> tuple[bool, bool, bool, list[str]]:
+) -> tuple[bool, bool, bool, bool | None, bool | None, list[str]]:
     pts = _landmarks_to_xy(landmarks, width, height)
     issues: list[str] = []
 
     # Geschlossene Augen: Blendshapes bevorzugt, sonst EAR
     eyes_closed = False
+    smiling: bool | None = None
+    looking: bool | None = None
+    scores: dict[str, float] = {}
     if blendshapes is not None:
-        # MediaPipe liefert entweder Classifications oder eine Liste von Category
         cats = getattr(blendshapes, "categories", None) or blendshapes
         scores = {b.category_name: b.score for b in cats}
         left = scores.get("eyeBlinkLeft", 0.0)
@@ -94,8 +98,12 @@ def _analyze_landmarks(
         if left >= BLINK_SCORE_THRESHOLD and right >= BLINK_SCORE_THRESHOLD:
             eyes_closed = True
         elif max(left, right) >= 0.7 and min(left, right) >= 0.35:
-            # ein Auge fest zu, anderes fast
             eyes_closed = True
+        smile_l = scores.get("mouthSmileLeft", 0.0)
+        smile_r = scores.get("mouthSmileRight", 0.0)
+        smiling = (smile_l + smile_r) / 2.0 >= 0.35
+        if not smiling and max(smile_l, smile_r) < 0.15:
+            smiling = False
     if not eyes_closed:
         try:
             left_ear = eye_aspect_ratio(pts[list(_LEFT_EYE)])
@@ -106,6 +114,22 @@ def _analyze_landmarks(
             pass
     if eyes_closed:
         issues.append("Augen geschlossen")
+    if smiling is False:
+        issues.append("kein Lächeln")
+
+    # Blick grob: Nasenspitze vs. Augenmitte (Frontalität)
+    try:
+        left_eye = pts[list(_LEFT_EYE)].mean(axis=0)
+        right_eye = pts[list(_RIGHT_EYE)].mean(axis=0)
+        eye_mid = (left_eye + right_eye) / 2.0
+        nose = pts[1]  # MediaPipe Face Mesh: Nase
+        eye_span = float(np.linalg.norm(right_eye - left_eye)) + 1e-6
+        offset = abs(float(nose[0] - eye_mid[0])) / eye_span
+        looking = offset < 0.22
+        if not looking:
+            issues.append("schaut nicht in die Kamera")
+    except Exception:
+        looking = None
 
     x0, y0, x1, y1 = _bbox_from_points(pts)
     bw, bh = max(1.0, x1 - x0), max(1.0, y1 - y0)
@@ -125,7 +149,7 @@ def _analyze_landmarks(
     if face_cut_off:
         issues.append("Gesicht angeschnitten")
 
-    return eyes_closed, face_cut_off, face_too_small, issues
+    return eyes_closed, face_cut_off, face_too_small, smiling, looking, issues
 
 
 class FaceQualityAnalyzer:
@@ -189,24 +213,36 @@ class FaceQualityAnalyzer:
         any_closed = False
         any_cut = False
         any_small = False
+        smile_votes: list[bool] = []
+        look_votes: list[bool] = []
         issues: list[str] = []
         for i, lms in enumerate(result.face_landmarks):
             blends = None
             if result.face_blendshapes and i < len(result.face_blendshapes):
                 blends = result.face_blendshapes[i]
-            closed, cut, small, face_issues = _analyze_landmarks(lms, w, h, blends)
+            closed, cut, small, smile, look, face_issues = _analyze_landmarks(
+                lms, w, h, blends
+            )
             any_closed = any_closed or closed
             any_cut = any_cut or cut
             any_small = any_small or small
+            if smile is not None:
+                smile_votes.append(smile)
+            if look is not None:
+                look_votes.append(look)
             for issue in face_issues:
                 if issue not in issues:
                     issues.append(issue)
 
+        smiling = all(smile_votes) if smile_votes else None
+        looking = all(look_votes) if look_votes else None
         return FaceQualityResult(
             face_count=len(result.face_landmarks),
             eyes_closed=any_closed,
             face_cut_off=any_cut,
             face_too_small=any_small,
+            smiling=smiling,
+            looking_at_camera=looking,
             issues=issues,
         )
 
@@ -260,19 +296,22 @@ def apply_face_quality(photo: Photo, result: FaceQualityResult) -> None:
     photo.face_cut_off = result.face_cut_off
     photo.face_too_small = result.face_too_small
     photo.bad_face = result.bad_face
+    photo.smiling = result.smiling
+    photo.looking_at_camera = result.looking_at_camera
 
     for issue in result.issues:
         flag = {
             "Augen geschlossen": "eyes_closed",
             "Gesicht angeschnitten": "face_cut_off",
             "Gesicht zu klein": "face_too_small",
+            "kein Lächeln": "no_smile",
+            "schaut nicht in die Kamera": "looking_away",
         }.get(issue)
         if flag:
             photo.add_flag(flag)
 
     if result.bad_face:
         photo.add_flag("bad_face")
-        # quality_issue nur setzen, wenn KI nichts gesetzt hat
         if not photo.quality_issue:
             photo.quality_issue = "; ".join(result.issues)
 

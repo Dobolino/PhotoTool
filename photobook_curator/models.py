@@ -62,6 +62,9 @@ class Photo:
     finger_on_lens: bool = False
     is_accidental: bool = False  # Fehlauslösung / schlechte Komposition
     is_weak_night: bool = False  # schwummerige Nachtaufnahme
+    smiling: Optional[bool] = None
+    looking_at_camera: Optional[bool] = None
+    content_cluster_id: Optional[int] = None
     person_cluster_ids: list[int] = field(default_factory=list)
     technical_score: float = 0.0
     phash: Optional[str] = None
@@ -129,6 +132,13 @@ class Photo:
             "finger_on_lens": self.finger_on_lens,
             "is_accidental": self.is_accidental,
             "is_weak_night": self.is_weak_night,
+            "smiling": "" if self.smiling is None else self.smiling,
+            "looking_at_camera": (
+                "" if self.looking_at_camera is None else self.looking_at_camera
+            ),
+            "content_cluster_id": (
+                self.content_cluster_id if self.content_cluster_id is not None else ""
+            ),
             "person_cluster_ids": "|".join(str(x) for x in self.person_cluster_ids),
             "technical_score": round(self.technical_score, 2),
             "aesthetic_score": self.aesthetic_score if self.aesthetic_score is not None else "",

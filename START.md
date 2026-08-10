@@ -84,12 +84,19 @@ Fotobuch starten.bat
    - *Dokumente & Screenshots separat* (an) – Tickets/Screenshots kommen in einen Extra-Pool.
    - *Fehlaufnahmen aussortieren* (an) – Auslöser-Misses (viel Boden/Himmel, Motiv am Rand).
    - *Schwache Nachtaufnahmen entfernen* (an) – dunkle, schwummerige Nachtbilder raus.
+   - *Ähnliche Motive clustern* (an) – inhaltsgleiche Szenen, behält die besten.
+   - *Lokale Ästhetik* (an) – Qualitäts-Schätzung ohne Cloud-API.
+   - *Zeitzone korrigieren* – Stunden-Verschiebung, falls die Kamera falsch stand.
+   - *Video-/Live-Photo-Standbilder* (aus, unter Weitere Optionen) – Best-Frame
+     aus kurzen Videos ohne Schwester-JPG/HEIC.
    - *Finger vor der Linse* (aus) – sortiert typische Fehlaufnahmen aus.
    - *Tages-Abdeckung* – verhindert, dass fast alles vom ersten Tag stammt.
    - *Personen-Balance* – verhindert, dass eine Person das Album dominiert.
    - *Kapitel-/Karten-Vorschau* – Kapitelliste + Weltkarte (Reise-Ausschnitt
      oder ganze Welt); im Browser dunkle OpenStreetMap-Weltkarte.
    - *KI-Bewertung* – optional, braucht einen Anthropic-API-Key.
+   - Analyse-Ergebnisse landen im Ausgabeordner als `analysis_cache.sqlite`
+     (schnellerer Zweitlauf).
 5. **Auswahl starten** – der Fortschrittsbalken zeigt die Phasen.
 6. Bei „Fertig" die Frage **Auswahl prüfen?** → **Ja**:
    - **Raster:** immer **ein Ordner** (Kapitel) – mit ← / → oder der Liste

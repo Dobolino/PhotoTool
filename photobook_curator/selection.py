@@ -140,6 +140,13 @@ def compute_final_score(photo: Photo) -> float:
         score *= 0.45
     if photo.landmark and not getattr(photo, "bad_face", False):
         score += 5.0
+    if getattr(photo, "smiling", None) is True:
+        score += 1.5
+    if (
+        getattr(photo, "looking_at_camera", None) is False
+        and getattr(photo, "face_count", 0) > 0
+    ):
+        score *= 0.92
     photo.final_score = float(max(0.0, min(100.0, score)))
     return photo.final_score
 

@@ -2048,6 +2048,10 @@ class ReviewWindow(tk.Toplevel):
                 if getattr(photo, "eyes_closed", False) or "eyes_closed" in photo.flags
                 else "Gesicht?"
             )
+        elif "looking_away" in photo.flags or getattr(photo, "looking_at_camera", None) is False:
+            warn = "Blick weg"
+        elif getattr(photo, "smiling", None) is True or "smiling" in photo.flags:
+            warn = None  # positives Signal, kein Warn-Badge
         if warn:
             self.canvas.create_rectangle(
                 x + 8,
