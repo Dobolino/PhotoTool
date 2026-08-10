@@ -9,7 +9,8 @@ Das Tool scannt Fotos, bewertet sie technisch, clustert GPS-Orte zu Regionen (Ka
 ## Anforderungen
 
 - Python 3.11+
-- Optional: `ANTHROPIC_API_KEY` für `--ai-review`
+- Optional: `ANTHROPIC_API_KEY` für `--ai-review --ai-provider anthropic`
+- Optional: lokales [Ollama](https://ollama.com) mit Vision-Modell (z. B. `ollama pull llava`) für gratis KI
 - Netzwerk nur für Nominatim (Reverse Geocoding) und optional Anthropic
 
 ## Installation
@@ -37,9 +38,13 @@ python -m photobook_curator \
 # Mit Reverse Geocoding
 python -m photobook_curator -i sample_photos -o output_sample -n 20 --geocode
 
-# AI-Review Trockenlauf (Kostenschätzung)
+# AI-Review Trockenlauf (Kostenschätzung, Anthropic)
 python -m photobook_curator -i sample_photos -o output_sample -n 20 \
   --ai-review --dry-run --no-geocode
+
+# Gratis KI lokal (Ollama muss laufen, z. B. Modell llava)
+python -m photobook_curator -i sample_photos -o output_sample -n 20 \
+  --ai-review --ai-provider ollama --no-geocode
 ```
 
 ## Wichtige CLI-Parameter
@@ -51,8 +56,10 @@ python -m photobook_curator -i sample_photos -o output_sample -n 20 \
 | `-n/--target-count` | Zielanzahl Bilder | 80 |
 | `-k/--candidate-factor` | Kandidatenfaktor | 4 |
 | `--geocode` / `--no-geocode` | Nominatim Reverse Geocoding | an |
-| `--ai-review` | Claude Vision Bewertung | aus |
-| `--dry-run` | Nur Kostenschätzung bei AI | aus |
+| `--ai-review` | KI-Bewertung (Anthropic oder Ollama) | aus |
+| `--ai-provider` | `anthropic` oder `ollama` (gratis lokal) | anthropic |
+| `--ai-model` | Optionales Modell | Provider-Default |
+| `--dry-run` | Nur Kostenschätzung bei Anthropic | aus |
 | `--food-ratio` | Max. Essens-Anteil pro Region | 0.15 |
 | `--max-landmarks` | Max. Landmark-Bilder / Region | 3 |
 | `--min-transit-photos` | Min. Fotos für Transit-Abschnitt | 3 |
@@ -70,5 +77,5 @@ python -m photobook_curator -i sample_photos -o output_sample -n 20 \
 1. Scan, EXIF, Schärfe/Belichtung, Duplikate (pHash), Gesichter, technischer Score
 2. DBSCAN-GPS-Cluster, Reverse Geocoding, Regionen chronologisch
 3. Transit zwischen Regionen
-4. Optional: Anthropic Vision (`claude-sonnet-4-6`)
+4. Optional: Anthropic Vision oder lokale Ollama (`llava` o. ä.)
 5. Kontingente, Essens-Trennung, Vielfalt, Buchreihenfolge, Export

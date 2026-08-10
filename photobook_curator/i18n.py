@@ -79,8 +79,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "opt_coverage": "Tages-Abdeckung",
         "opt_people": "Personen-Balance",
         "opt_map": "Kapitel-/Karten-Vorschau vor Export",
-        "opt_ai": "KI-Bewertung (Anthropic API)",
-        "opt_dry": "Nur Kosten schätzen",
+        "opt_ai": "KI-Bewertung",
+        "opt_dry": "Nur Kosten schätzen (Anthropic)",
+        "ai_provider": "KI wählen",
+        "ai_provider_anthropic": "Anthropic (API, kostenpflichtig)",
+        "ai_provider_ollama": "Gratis KI (Ollama, lokal)",
+        "ai_api_key": "API-Key (nur Anthropic)",
+        "ai_ollama_hint": "Ollama muss laufen – vorher z. B. „ollama pull llava“.",
+        "ai_ollama_model": "Ollama-Modell",
         "review_title": "Auswahl prüfen",
         "review_hint_grid": "Ein Ordner nach dem anderen · Klick = raus/rein · Rechtsklick = verschieben.",
         "review_hint_slide": "Diashow: Filter/Kapitel · Vorschau · Alternative · Esc = Raster.",
@@ -217,12 +223,18 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Vor dem Kopieren Kapitel und Karte zeigen, dann bestätigen."
         ),
         "help_opt_ai": (
-            "Sendet Kandidatenbilder an die Anthropic-API zur Qualitäts-/Szenenbewertung. "
-            "Kostet Geld – siehe Kostenzeile unter der Zielanzahl. Optional."
+            "Optional: Kandidatenbilder von einer KI bewerten lassen. "
+            "Darunter Anbieter wählen: Anthropic (Cloud, API-Key, kostet) oder "
+            "Gratis KI über Ollama lokal (kein API-Key, $0)."
+        ),
+        "help_ai_provider": (
+            "Anthropic: Cloud-API mit Key (Kosten siehe Schätzung). "
+            "Gratis KI: lokales Ollama mit Vision-Modell (z. B. llava) – "
+            "Ollama installieren, starten und Modell laden."
         ),
         "help_opt_dry": (
-            "Kein echter KI-Aufruf: zählt nur Kandidaten und schätzt den Betrag. "
-            "Nur sinnvoll, wenn KI-Bewertung an ist."
+            "Kein echter Anthropic-Aufruf: zählt nur Kandidaten und schätzt den Betrag. "
+            "Nur sinnvoll bei Anthropic; bei Ollama ausgeblendet."
         ),
     },
     "en": {
@@ -297,8 +309,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "opt_coverage": "Day coverage",
         "opt_people": "People balance",
         "opt_map": "Chapter/map preview before export",
-        "opt_ai": "AI review (Anthropic API)",
-        "opt_dry": "Estimate cost only",
+        "opt_ai": "AI review",
+        "opt_dry": "Estimate cost only (Anthropic)",
+        "ai_provider": "Choose AI",
+        "ai_provider_anthropic": "Anthropic (API, paid)",
+        "ai_provider_ollama": "Free AI (Ollama, local)",
+        "ai_api_key": "API key (Anthropic only)",
+        "ai_ollama_hint": "Ollama must be running – e.g. run “ollama pull llava” first.",
+        "ai_ollama_model": "Ollama model",
         "review_title": "Review selection",
         "review_hint_grid": "One folder at a time · click = keep/remove · right-click = move.",
         "review_hint_slide": "Slideshow: filters/chapters · previews · alternative · Esc = grid.",
@@ -435,12 +453,18 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Show chapters and map before copying files, then confirm."
         ),
         "help_opt_ai": (
-            "Sends candidate photos to the Anthropic API for quality/scene review. "
-            "Costs money – see the estimate under the target count. Optional."
+            "Optional: let an AI score candidate photos. "
+            "Choose provider below: Anthropic (cloud, API key, costs money) or "
+            "free local AI via Ollama (no API key, $0)."
+        ),
+        "help_ai_provider": (
+            "Anthropic: cloud API with a key (see cost estimate). "
+            "Free AI: local Ollama with a vision model (e.g. llava) – "
+            "install Ollama, start it, and pull the model."
         ),
         "help_opt_dry": (
-            "No real AI call: counts candidates and estimates cost only. "
-            "Only useful when AI review is enabled."
+            "No real Anthropic call: counts candidates and estimates cost only. "
+            "Only useful with Anthropic; hidden for Ollama."
         ),
     },
 }

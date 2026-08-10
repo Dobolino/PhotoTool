@@ -1,4 +1,4 @@
-"""Phase 4: KI-gestützte Inhaltsbewertung via Anthropic Vision API."""
+"""Phase 4: KI-gestützte Inhaltsbewertung via Anthropic Vision oder lokale Ollama."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ import io
 import json
 import os
 import re
-import time
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
@@ -15,6 +16,10 @@ from tqdm import tqdm
 
 from .models import Photo
 from .utils import load_image, resize_max_edge
+
+PROVIDER_ANTHROPIC = "anthropic"
+PROVIDER_OLLAMA = "ollama"
+AI_PROVIDERS = (PROVIDER_ANTHROPIC, PROVIDER_OLLAMA)
 
 SYSTEM_PROMPT = (
     "Du bewertest ein Urlaubsfoto für ein gedrucktes Fotobuch. "
@@ -31,8 +36,19 @@ SYSTEM_PROMPT = (
 )
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
-# Grobe Kostenschätzung USD pro Bild (Input+Output Vision klein)
+DEFAULT_OLLAMA_MODEL = "llava"
+DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
+# Grobe Kostenschätzung USD pro Bild (Input+Output Vision klein) – nur Anthropic
 ESTIMATED_COST_PER_IMAGE_USD = 0.01
+
+
+def normalize_ai_provider(provider: str | None) -> str:
+    raw = str(provider or PROVIDER_ANTHROPIC).strip().lower()
+    if raw in ("gratis", "free", "local", "ollama"):
+        return PROVIDER_OLLAMA
+    if raw in ("claude", "anthropic", "api"):
+        return PROVIDER_ANTHROPIC
+    return PROVIDER_ANTHROPIC if raw not in AI_PROVIDERS else raw
 
 
 def image_to_jpeg_b64(photo: Photo, max_edge: int = 1024, quality: int = 85) -> Optional[str]:
@@ -93,13 +109,46 @@ def apply_ai_result(photo: Photo, data: dict[str, Any]) -> None:
         photo.add_flag("ai_reject")
 
 
-def estimate_cost(num_candidates: int) -> dict[str, float]:
-    total = num_candidates * ESTIMATED_COST_PER_IMAGE_USD
+def estimate_cost(
+    num_candidates: int,
+    *,
+    provider: str = PROVIDER_ANTHROPIC,
+) -> dict[str, float]:
+    prov = normalize_ai_provider(provider)
+    per = 0.0 if prov == PROVIDER_OLLAMA else ESTIMATED_COST_PER_IMAGE_USD
+    total = num_candidates * per
     return {
         "candidates": float(num_candidates),
-        "usd_per_image": ESTIMATED_COST_PER_IMAGE_USD,
+        "usd_per_image": per,
         "usd_total_estimate": round(total, 4),
+        "provider": prov,
     }
+
+
+def check_ollama_available(host: str | None = None) -> tuple[bool, str]:
+    """Prüft, ob der lokale Ollama-Server erreichbar ist."""
+    base = (host or os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST).rstrip("/")
+    url = f"{base}/api/tags"
+    try:
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(raw) if raw else {}
+        models = data.get("models") or []
+        names = [str(m.get("name", "")) for m in models if isinstance(m, dict)]
+        if not names:
+            return (
+                True,
+                f"Ollama läuft unter {base}, aber noch kein Modell geladen "
+                f"(z. B. ollama pull {DEFAULT_OLLAMA_MODEL}).",
+            )
+        return True, f"Ollama OK ({base}): {', '.join(names[:5])}"
+    except Exception as exc:  # noqa: BLE001
+        return False, (
+            f"Ollama nicht erreichbar unter {base}: {exc}\n"
+            f"Bitte Ollama installieren/starten und z. B. "
+            f"„ollama pull {DEFAULT_OLLAMA_MODEL}“ ausführen."
+        )
 
 
 def estimate_candidate_count(
@@ -116,7 +165,9 @@ def estimate_candidate_count(
     return max(0, n)
 
 
-def _review_one(client, model: str, photo: Photo) -> tuple[Photo, Optional[dict], Optional[str]]:
+def _review_one_anthropic(
+    client, model: str, photo: Photo
+) -> tuple[Photo, Optional[dict], Optional[str]]:
     b64 = image_to_jpeg_b64(photo)
     if b64 is None:
         return photo, None, "encode_failed"
@@ -158,39 +209,122 @@ def _review_one(client, model: str, photo: Photo) -> tuple[Photo, Optional[dict]
         return photo, None, f"api_error:{type(exc).__name__}"
 
 
+# Rückwärtskompatibler Alias
+_review_one = _review_one_anthropic
+
+
+def _review_one_ollama(
+    host: str, model: str, photo: Photo
+) -> tuple[Photo, Optional[dict], Optional[str]]:
+    b64 = image_to_jpeg_b64(photo)
+    if b64 is None:
+        return photo, None, "encode_failed"
+    payload = {
+        "model": model,
+        "stream": False,
+        "format": "json",
+        "messages": [
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT,
+            },
+            {
+                "role": "user",
+                "content": "Bewerte dieses Urlaubsfoto für das Fotobuch.",
+                "images": [b64],
+            },
+        ],
+    }
+    url = f"{host.rstrip('/')}/api/chat"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            raw_body = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:200]
+        return photo, None, f"ollama_http_{exc.code}:{detail}"
+    except Exception as exc:  # noqa: BLE001
+        return photo, None, f"ollama_error:{type(exc).__name__}"
+
+    try:
+        data_wrap = json.loads(raw_body) if raw_body else {}
+    except json.JSONDecodeError:
+        return photo, None, "parse_failed"
+    msg = data_wrap.get("message") or {}
+    raw = str(msg.get("content") or data_wrap.get("response") or "")
+    data = parse_ai_response(raw)
+    if data is None:
+        return photo, None, "parse_failed"
+    return photo, data, None
+
+
 def run_ai_review(
     photos: list[Photo],
     candidate_indices: list[int],
     *,
     dry_run: bool = False,
     concurrency: int = 5,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
+    provider: str = PROVIDER_ANTHROPIC,
+    api_key: str | None = None,
+    ollama_host: str | None = None,
 ) -> dict[str, Any]:
-    """Bewertet Kandidatenbilder. Bei dry_run nur Kostenschätzung."""
-    cost = estimate_cost(len(candidate_indices))
+    """Bewertet Kandidatenbilder (Anthropic oder lokale Ollama). Bei dry_run nur Kostenschätzung."""
+    prov = normalize_ai_provider(provider)
+    cost = estimate_cost(len(candidate_indices), provider=prov)
     if dry_run:
-        print(
-            f"[dry-run] AI-Review: {int(cost['candidates'])} Kandidaten, "
-            f"geschätzte Kosten ~ ${cost['usd_total_estimate']:.2f} "
-            f"(${cost['usd_per_image']:.3f}/Bild)"
-        )
+        if prov == PROVIDER_OLLAMA:
+            print(
+                f"[dry-run] AI-Review (Ollama/gratis): {int(cost['candidates'])} Kandidaten, "
+                f"geschätzte Kosten $0.00 (lokal)"
+            )
+        else:
+            print(
+                f"[dry-run] AI-Review (Anthropic): {int(cost['candidates'])} Kandidaten, "
+                f"geschätzte Kosten ~ ${cost['usd_total_estimate']:.2f} "
+                f"(${cost['usd_per_image']:.3f}/Bild)"
+            )
         return {"dry_run": True, **cost}
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "ANTHROPIC_API_KEY ist nicht gesetzt. Bitte Umgebungsvariable setzen oder --dry-run nutzen."
-        )
+    if prov == PROVIDER_OLLAMA:
+        host = (ollama_host or os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST).rstrip("/")
+        use_model = model or os.environ.get("OLLAMA_MODEL") or DEFAULT_OLLAMA_MODEL
+        ok_host, msg = check_ollama_available(host)
+        if not ok_host:
+            raise RuntimeError(msg)
+        print(f"  {msg}")
+        print(f"  Ollama-Modell: {use_model}")
+        # Lokal meist ein Modell → wenig Parallelität
+        workers = max(1, min(int(concurrency or 1), 2))
+        review_fn = _review_one_ollama
+        review_args = (host, use_model)
+    else:
+        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY ist nicht gesetzt. "
+                "Bitte Umgebungsvariable setzen, API-Key in der GUI eintragen "
+                "oder Gratis-KI (Ollama) wählen."
+            )
+        import anthropic
 
-    import anthropic
+        use_model = model or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
+        client = anthropic.Anthropic(api_key=key)
+        workers = max(1, int(concurrency or 5))
+        review_fn = _review_one_anthropic
+        review_args = (client, use_model)
 
-    client = anthropic.Anthropic(api_key=api_key)
     ok = 0
     failed = 0
 
-    with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
-            pool.submit(_review_one, client, model, photos[i]): i for i in candidate_indices
+            pool.submit(review_fn, *review_args, photos[i]): i for i in candidate_indices
         }
         for fut in tqdm(as_completed(futures), total=len(futures), desc="AI-Review", unit="img"):
             photo, data, err = fut.result()

@@ -42,6 +42,8 @@ class PipelineConfig:
     candidate_factor: float = 4.0
     geocode: bool = True
     ai_review: bool = False
+    ai_provider: str = "anthropic"  # anthropic | ollama (gratis, lokal)
+    ai_model: str | None = None  # None → Provider-Default
     dry_run: bool = False
     food_ratio: float = 0.15
     max_landmarks: int = 3
@@ -318,12 +320,14 @@ def run_pipeline(
     ai_stats: dict[str, Any] = {}
     report("Szenen / KI…", 0.86, "scenes")
     if cfg.ai_review:
-        print("=== Phase 4: AI-Review ===")
+        print(f"=== Phase 4: AI-Review ({cfg.ai_provider}) ===")
         ai_stats = run_ai_review(
             photos,
             candidates,
             dry_run=cfg.dry_run,
             concurrency=cfg.ai_concurrency,
+            provider=cfg.ai_provider,
+            model=cfg.ai_model,
         )
     else:
         print("=== Phase 4: AI-Review übersprungen ===")

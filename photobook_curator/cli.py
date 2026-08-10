@@ -53,7 +53,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--ai-review",
         action="store_true",
-        help="KI-gestützte Inhaltsbewertung via Anthropic API aktivieren",
+        help="KI-gestützte Inhaltsbewertung aktivieren (Anthropic oder Ollama)",
+    )
+    p.add_argument(
+        "--ai-provider",
+        choices=("anthropic", "ollama"),
+        default="anthropic",
+        help="KI-Anbieter: anthropic (API, kostenpflichtig) oder ollama (gratis, lokal)",
+    )
+    p.add_argument(
+        "--ai-model",
+        default=None,
+        help="Optionales Modell (z. B. claude-sonnet-4-6 oder llava)",
     )
     p.add_argument(
         "--dry-run",
@@ -243,6 +254,8 @@ def main(argv: list[str] | None = None) -> int:
         candidate_factor=args.candidate_factor,
         geocode=args.geocode,
         ai_review=args.ai_review,
+        ai_provider=args.ai_provider,
+        ai_model=args.ai_model,
         dry_run=args.dry_run,
         food_ratio=args.food_ratio,
         max_landmarks=args.max_landmarks,

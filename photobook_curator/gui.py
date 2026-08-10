@@ -97,8 +97,13 @@ except Exception:  # pragma: no cover - Notfallstart
             "opt_coverage": "Tages-Abdeckung",
             "opt_people": "Personen-Balance",
             "opt_map": "Kapitel-/Karten-Vorschau vor Export",
-            "opt_ai": "KI-Bewertung (Anthropic API)",
+            "opt_ai": "KI-Bewertung",
             "opt_dry": "Nur Kosten schätzen",
+            "ai_provider": "KI wählen",
+            "ai_provider_anthropic": "Anthropic (API, kostenpflichtig)",
+            "ai_provider_ollama": "Gratis KI (Ollama, lokal)",
+            "ai_api_key": "API-Key (nur Anthropic)",
+            "ai_ollama_hint": "Ollama muss laufen (z. B. ollama pull llava).",
             "help_title": "Hilfe – Fotobuch",
             "help_body": "Kurzanleitung – siehe START.md. Optionen: ? neben jeder Einstellung.",
         }.get(key, key)
@@ -278,7 +283,11 @@ class PhotobookApp(tk.Tk):
         self.map_preview_var = tk.BooleanVar(value=False)
         self.ai_var = tk.BooleanVar(value=False)
         self.dry_run_var = tk.BooleanVar(value=False)
+        self.ai_provider_var = tk.StringVar(value="anthropic")
         self.api_key_var = tk.StringVar(value=os.environ.get("ANTHROPIC_API_KEY", ""))
+        self.ollama_model_var = tk.StringVar(
+            value=os.environ.get("OLLAMA_MODEL", "llava")
+        )
         self._found_count = 0
         self._last_ai_cost: dict[str, Any] | None = None
         self._candidate_factor = 4.0
@@ -715,6 +724,7 @@ class PhotobookApp(tk.Tk):
         try:
             self.target_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
             self.ai_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
+            self.ai_provider_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
         except Exception:
             pass
         tk.Label(
@@ -865,11 +875,50 @@ class PhotobookApp(tk.Tk):
         self.people_scale.pack(fill=tk.X, pady=(4, 0))
 
         self.ai_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
-        ttk.Label(self.ai_block, text="API-Key", style="Field.TLabel").pack(
-            anchor=tk.W, pady=(8, 0)
+        prov_row = ttk.Frame(self.ai_block, style="Card.TFrame")
+        prov_row.pack(fill=tk.X, pady=(8, 0))
+        self._ai_provider_lbl = ttk.Label(
+            prov_row, text=t("ai_provider"), style="Field.TLabel"
         )
+        self._ai_provider_lbl.pack(side=tk.LEFT)
+        tip = HelpTip(prov_row, "help_ai_provider", c, get_text=t)
+        tip.pack(side=tk.LEFT, padx=(6, 8))
+        self._help_tips.append(tip)
+        self._ai_provider_values = [
+            ("anthropic", t("ai_provider_anthropic")),
+            ("ollama", t("ai_provider_ollama")),
+        ]
+        self.ai_provider_combo = ttk.Combobox(
+            prov_row,
+            state="readonly",
+            width=36,
+            values=[label for _, label in self._ai_provider_values],
+        )
+        self.ai_provider_combo.pack(side=tk.RIGHT)
+        self._sync_ai_provider_combo_display()
+        self.ai_provider_combo.bind("<<ComboboxSelected>>", self._on_ai_provider_selected)
+
+        self._api_key_lbl = ttk.Label(
+            self.ai_block, text=t("ai_api_key"), style="Field.TLabel"
+        )
+        self._api_key_lbl.pack(anchor=tk.W, pady=(8, 0))
         self.api_entry = ttk.Entry(self.ai_block, textvariable=self.api_key_var, show="•")
         self.api_entry.pack(fill=tk.X, pady=(4, 0))
+
+        self._ollama_hint_lbl = ttk.Label(
+            self.ai_block, text=t("ai_ollama_hint"), style="Field.TLabel"
+        )
+        ollama_row = ttk.Frame(self.ai_block, style="Card.TFrame")
+        self._ollama_model_lbl = ttk.Label(
+            ollama_row, text=t("ai_ollama_model"), style="Field.TLabel"
+        )
+        self._ollama_model_lbl.pack(side=tk.LEFT)
+        self.ollama_model_entry = ttk.Entry(
+            ollama_row, textvariable=self.ollama_model_var, width=18
+        )
+        self.ollama_model_entry.pack(side=tk.RIGHT)
+        self._ollama_row = ollama_row
+        # Hint/row werden in _sync_dependent_controls ein-/ausgeblendet
 
         # Status / Fortschritt
         self.next_step_var = tk.StringVar(value=t("next_pick_folders"))
@@ -994,6 +1043,37 @@ class PhotobookApp(tk.Tk):
         )
         return cfg
 
+    def _sync_ai_provider_combo_display(self) -> None:
+        """Combobox-Anzeige an ai_provider_var anpassen."""
+        if not hasattr(self, "ai_provider_combo"):
+            return
+        current = (self.ai_provider_var.get() or "anthropic").strip().lower()
+        labels = []
+        selected = None
+        for key, label in self._ai_provider_values:
+            labels.append(label)
+            if key == current:
+                selected = label
+        self.ai_provider_combo.configure(values=labels)
+        if selected:
+            self.ai_provider_combo.set(selected)
+        elif labels:
+            self.ai_provider_combo.set(labels[0])
+            self.ai_provider_var.set(self._ai_provider_values[0][0])
+
+    def _on_ai_provider_selected(self, _event=None) -> None:
+        label = self.ai_provider_combo.get()
+        for key, lbl in self._ai_provider_values:
+            if lbl == label:
+                self.ai_provider_var.set(key)
+                break
+        self._sync_dependent_controls()
+        self._refresh_cost_estimate()
+
+    def _selected_ai_provider(self) -> str:
+        raw = (self.ai_provider_var.get() or "anthropic").strip().lower()
+        return "ollama" if raw in ("ollama", "gratis", "free", "local") else "anthropic"
+
     def _sync_dependent_controls(self) -> None:
         """Regler nur zeigen, wenn die Option an ist; KI-Felder abhängig von KI-Haken."""
         # Während des UI-Aufbaus können Widgets noch fehlen
@@ -1022,9 +1102,26 @@ class PhotobookApp(tk.Tk):
                 self.ai_block.pack_forget()
 
         ai_on = bool(self.ai_var.get())
-        enable(self.api_entry, ai_on)
+        provider = self._selected_ai_provider()
+        use_ollama = provider == "ollama"
+        enable(self.ai_provider_combo, ai_on)
+        enable(self.api_entry, ai_on and not use_ollama)
+        if hasattr(self, "ollama_model_entry"):
+            enable(self.ollama_model_entry, ai_on and use_ollama)
         if hasattr(self, "dry_run_chk"):
-            enable(self.dry_run_chk, ai_on)
+            enable(self.dry_run_chk, ai_on and not use_ollama)
+        # Anthropic: API-Key; Ollama: Hinweis + Modell
+        if ai_on and hasattr(self, "_api_key_lbl"):
+            if use_ollama:
+                self._api_key_lbl.pack_forget()
+                self.api_entry.pack_forget()
+                self._ollama_hint_lbl.pack(anchor=tk.W, pady=(8, 0))
+                self._ollama_row.pack(fill=tk.X, pady=(6, 0))
+            else:
+                self._ollama_hint_lbl.pack_forget()
+                self._ollama_row.pack_forget()
+                self._api_key_lbl.pack(anchor=tk.W, pady=(8, 0))
+                self.api_entry.pack(fill=tk.X, pady=(4, 0))
         enable(self.coverage_scale, bool(self.coverage_var.get()))
         enable(self.people_scale, bool(self.people_var.get()))
         # Schritt-Tafel vor dem Start an Optionen anpassen
@@ -1140,6 +1237,21 @@ class PhotobookApp(tk.Tk):
                 self._coverage_strength_lbl.configure(text=t("coverage_strength"))
             if getattr(self, "_people_strength_lbl", None) is not None:
                 self._people_strength_lbl.configure(text=t("people_strength"))
+            if getattr(self, "_ai_provider_lbl", None) is not None:
+                self._ai_provider_lbl.configure(text=t("ai_provider"))
+                self._ai_provider_values = [
+                    ("anthropic", t("ai_provider_anthropic")),
+                    ("ollama", t("ai_provider_ollama")),
+                ]
+                self._sync_ai_provider_combo_display()
+            if getattr(self, "_api_key_lbl", None) is not None:
+                self._api_key_lbl.configure(text=t("ai_api_key"))
+            if getattr(self, "_ollama_hint_lbl", None) is not None:
+                self._ollama_hint_lbl.configure(text=t("ai_ollama_hint"))
+            if getattr(self, "_ollama_model_lbl", None) is not None:
+                self._ollama_model_lbl.configure(text=t("ai_ollama_model"))
+            self._sync_dependent_controls()
+            self._refresh_cost_estimate()
             # Hilfe-Popups nutzen get_text=t → nächster Klick auf ? ist in neuer Sprache
             for tip in getattr(self, "_help_tips", []):
                 try:
@@ -1257,6 +1369,7 @@ class PhotobookApp(tk.Tk):
             if not bool(self.ai_var.get()):
                 self.cost_var.set("KI-Kosten: aus (keine API-Kosten)")
                 return
+            provider = self._selected_ai_provider()
             try:
                 target = int(self.target_var.get())
             except (TypeError, ValueError, tk.TclError):
@@ -1264,12 +1377,18 @@ class PhotobookApp(tk.Tk):
             n_cand = estimate_candidate_count(
                 target, self._found_count, self._candidate_factor
             )
-            est = estimate_cost(n_cand)
-            line = (
-                f"KI-Schätzung: ~${est['usd_total_estimate']:.2f} "
-                f"(ca. {int(est['candidates'])} Kandidaten × "
-                f"${ESTIMATED_COST_PER_IMAGE_USD:.3f})"
-            )
+            est = estimate_cost(n_cand, provider=provider)
+            if provider == "ollama":
+                line = (
+                    f"KI-Schätzung: gratis (Ollama lokal, ca. {int(est['candidates'])} "
+                    f"Kandidaten · $0.00)"
+                )
+            else:
+                line = (
+                    f"KI-Schätzung: ~${est['usd_total_estimate']:.2f} "
+                    f"(ca. {int(est['candidates'])} Kandidaten × "
+                    f"${ESTIMATED_COST_PER_IMAGE_USD:.3f})"
+                )
             if self._last_ai_cost:
                 last_n = int(self._last_ai_cost.get("candidates") or 0)
                 last_usd = float(self._last_ai_cost.get("usd_total_estimate") or 0)
@@ -1521,11 +1640,23 @@ class PhotobookApp(tk.Tk):
         if api_key:
             os.environ["ANTHROPIC_API_KEY"] = api_key
 
-        if self.ai_var.get() and not os.environ.get("ANTHROPIC_API_KEY") and not self.dry_run_var.get():
+        ai_provider = self._selected_ai_provider()
+        ai_model = None
+        dry_run = bool(self.dry_run_var.get())
+        if self.ai_var.get() and ai_provider == "ollama":
+            ai_model = (self.ollama_model_var.get() or "").strip() or None
+            dry_run = False  # lokal gratis – echte Bewertung
+            from .ai_review import check_ollama_available
+
+            ok, msg = check_ollama_available()
+            if not ok:
+                messagebox.showerror("Ollama fehlt", msg)
+                return
+        elif self.ai_var.get() and not os.environ.get("ANTHROPIC_API_KEY") and not dry_run:
             messagebox.showerror(
                 "API-Key fehlt",
-                "Für die KI-Bewertung brauchst du einen Anthropic API-Key,\n"
-                "oder aktiviere „Nur Kosten schätzen“.",
+                "Für Anthropic brauchst du einen API-Key,\n"
+                "oder wähle „Gratis KI (Ollama)“ bzw. „Nur Kosten schätzen“.",
             )
             return
 
@@ -1549,7 +1680,9 @@ class PhotobookApp(tk.Tk):
             target_n=int(self.target_var.get()),
             geocode=bool(self.geocode_var.get()),
             ai_review=bool(self.ai_var.get()),
-            dry_run=bool(self.dry_run_var.get()),
+            ai_provider=ai_provider,
+            ai_model=ai_model,
+            dry_run=dry_run,
             enable_faces=bool(self.faces_var.get()),
             enable_bursts=bool(self.bursts_var.get()),
             enable_document_aside=bool(self.aside_var.get()),
