@@ -394,6 +394,66 @@ def chapter_sections(photos: list[Photo], include_indices: list[int]) -> list[tu
     return sections
 
 
+def duplicate_kind(photo: Photo) -> str | None:
+    """Kurzcode für Badge: content | burst | phash | None."""
+    if getattr(photo, "is_burst_reject", False) or "burst_reject" in (photo.flags or []):
+        return "burst"
+    if "content_duplicate" in (photo.flags or []):
+        return "content"
+    if photo.is_duplicate:
+        return "phash"
+    return None
+
+
+def related_duplicates(
+    photos: list[Photo],
+    idx: int,
+    *,
+    limit: int = 24,
+) -> list[int]:
+    """
+    Verworfene Duplikate/Serien-Varianten zum aktuellen Bild
+    (gleicher Burst, Content-Cluster oder duplicate_of-Dateiname).
+    """
+    if idx < 0 or idx >= len(photos):
+        return []
+    photo = photos[idx]
+    name = photo.filename
+    burst = getattr(photo, "burst_group_id", None)
+    cluster = getattr(photo, "content_cluster_id", None)
+    out: list[int] = []
+    for i, p in enumerate(photos):
+        if i == idx:
+            continue
+        if not (p.is_duplicate or getattr(p, "is_burst_reject", False)):
+            continue
+        related = False
+        if burst is not None and getattr(p, "burst_group_id", None) == burst:
+            related = True
+        elif cluster is not None and getattr(p, "content_cluster_id", None) == cluster:
+            related = True
+        elif (p.duplicate_of or "") == name:
+            related = True
+        elif photo.duplicate_of and p.filename == photo.duplicate_of:
+            related = True
+        if related:
+            out.append(i)
+    out.sort(
+        key=lambda i: photos[i].final_score or photos[i].technical_score,
+        reverse=True,
+    )
+    return out[:limit]
+
+
+def all_duplicate_indices(photos: list[Photo]) -> list[int]:
+    """Alle als Duplikat/Burst aussortierten Indizes."""
+    return [
+        i
+        for i, p in enumerate(photos)
+        if p.is_duplicate or getattr(p, "is_burst_reject", False)
+    ]
+
+
 def alternatives_for_index(
     photos: list[Photo],
     idx: int,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -62,7 +63,8 @@ class AnalysisCache:
             self.cache_path = cache_path
             self._legacy_json = cache_path.with_suffix(".json")
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.cache_path))
+        self._conn = sqlite3.connect(str(self.cache_path), check_same_thread=False)
+        self._lock = threading.Lock()
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._ensure_schema()
         self._migrate_legacy_json()
@@ -125,9 +127,10 @@ class AnalysisCache:
         key = _file_key(path)
         if key is None:
             return None
-        row = self._conn.execute(
-            "SELECT payload FROM features WHERE key = ?", (key,)
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT payload FROM features WHERE key = ?", (key,)
+            ).fetchone()
         if not row:
             return None
         try:
@@ -140,9 +143,10 @@ class AnalysisCache:
         key = _file_key(path)
         if key is None:
             return None
-        row = self._conn.execute(
-            "SELECT embedding FROM features WHERE key = ?", (key,)
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT embedding FROM features WHERE key = ?", (key,)
+            ).fetchone()
         if not row or row[0] is None:
             return None
         try:
@@ -163,36 +167,39 @@ class AnalysisCache:
         resolved, mtime_ns, size = meta
         key = f"{resolved}|{mtime_ns}|{size}"
         blob = None
-        if embedding is not None:
-            blob = np.asarray(embedding, dtype=np.float32).tobytes()
-        else:
-            row = self._conn.execute(
-                "SELECT embedding FROM features WHERE key = ?", (key,)
-            ).fetchone()
-            if row and row[0] is not None:
-                blob = row[0]
-        now = datetime.now(timezone.utc).isoformat()
-        self._conn.execute(
-            "INSERT OR REPLACE INTO features(key, path, mtime_ns, size, payload, embedding, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                key,
-                resolved,
-                mtime_ns,
-                size,
-                json.dumps(payload, ensure_ascii=False),
-                blob,
-                now,
-            ),
-        )
+        with self._lock:
+            if embedding is not None:
+                blob = np.asarray(embedding, dtype=np.float32).tobytes()
+            else:
+                row = self._conn.execute(
+                    "SELECT embedding FROM features WHERE key = ?", (key,)
+                ).fetchone()
+                if row and row[0] is not None:
+                    blob = row[0]
+            now = datetime.now(timezone.utc).isoformat()
+            self._conn.execute(
+                "INSERT OR REPLACE INTO features(key, path, mtime_ns, size, payload, embedding, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    key,
+                    resolved,
+                    mtime_ns,
+                    size,
+                    json.dumps(payload, ensure_ascii=False),
+                    blob,
+                    now,
+                ),
+            )
 
     def save(self) -> None:
-        self._conn.commit()
+        with self._lock:
+            self._conn.commit()
 
     def close(self) -> None:
         try:
-            self._conn.commit()
-            self._conn.close()
+            with self._lock:
+                self._conn.commit()
+                self._conn.close()
         except Exception:
             pass
 

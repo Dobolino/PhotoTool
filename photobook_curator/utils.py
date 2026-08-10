@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import socket
+import threading
 from collections import OrderedDict
 from pathlib import Path
 from typing import Callable, Iterable, Optional
@@ -201,23 +202,28 @@ class BgrImageCache:
         self.maxsize = max(1, maxsize)
         self.max_edge = max_edge
         self._cache: OrderedDict[tuple[str, int], np.ndarray] = OrderedDict()
+        self._lock = threading.Lock()
 
     def get(self, path: Path, max_edge: int | None = None) -> np.ndarray:
         edge = self.max_edge if max_edge is None else max_edge
         key = (str(path.resolve()), edge)
-        hit = self._cache.get(key)
-        if hit is not None:
-            self._cache.move_to_end(key)
-            return hit
+        with self._lock:
+            hit = self._cache.get(key)
+            if hit is not None:
+                self._cache.move_to_end(key)
+                return hit
+        # Decode außerhalb des Locks (I/O-lastig)
         img = resize_max_edge(load_image(path), edge)
         bgr = to_cv_bgr(img)
-        self._cache[key] = bgr
-        while len(self._cache) > self.maxsize:
-            self._cache.popitem(last=False)
-        return bgr
+        with self._lock:
+            self._cache[key] = bgr
+            while len(self._cache) > self.maxsize:
+                self._cache.popitem(last=False)
+            return self._cache[key]
 
     def clear(self) -> None:
-        self._cache.clear()
+        with self._lock:
+            self._cache.clear()
 
 
 _BGR_CACHE = BgrImageCache()

@@ -16,10 +16,13 @@ from PIL import Image, ImageTk
 from .i18n import sync_language_from_settings, t
 from .models import BookPlan, Photo
 from .review_export import (
+    all_duplicate_indices,
     alternatives_for_index,
     apply_manual_selection,
     candidate_alternatives,
     chapter_sections,
+    duplicate_kind,
+    related_duplicates,
 )
 from .selection_draft import (
     apply_selection_draft,
@@ -499,19 +502,23 @@ class ReviewWindow(tk.Toplevel):
         tools = ttk.Frame(host, style="Rev.TFrame")
         tools.pack(fill=tk.X, pady=(0, 8))
         self._filter_var = tk.StringVar(value=self._filter_mode)
+        self._filter_buttons: list[tuple[ttk.Radiobutton, str]] = []
         for mode, key in (
             ("all", "filter_all"),
             ("kept", "filter_kept"),
             ("removed", "filter_removed"),
+            ("duplicates", "filter_duplicates"),
         ):
-            ttk.Radiobutton(
+            btn = ttk.Radiobutton(
                 tools,
                 text=t(key),
                 value=mode,
                 variable=self._filter_var,
                 command=self._on_filter_changed,
                 style="Rev.TRadiobutton",
-            ).pack(side=tk.LEFT, padx=(0, 8))
+            )
+            btn.pack(side=tk.LEFT, padx=(0, 8))
+            self._filter_buttons.append((btn, key))
 
         self._chapter_var = tk.StringVar(value=t("chapter_all"))
         self._chapter_combo = ttk.Combobox(
@@ -794,7 +801,9 @@ class ReviewWindow(tk.Toplevel):
             self._refresh_slide_meta()
 
     def _display_indices(self) -> list[int]:
-        """Alle Bilder der Review-Menge (Baseline ∪ Kept)."""
+        """Review-Menge: Baseline ∪ Kept, bei Filter „Duplikate“ die aussortierten."""
+        if self._filter_mode == "duplicates":
+            return all_duplicate_indices(self.photos)
         return sorted(self.baseline | self.kept)
 
     def _chapter_list(self) -> list[str]:
@@ -963,6 +972,8 @@ class ReviewWindow(tk.Toplevel):
 
     def _filtered_slide_indices(self) -> list[int]:
         indices = self._display_indices()
+        if self._filter_mode == "duplicates":
+            return indices
         if self._chapter_filter:
             indices = [
                 i
@@ -991,7 +1002,11 @@ class ReviewWindow(tk.Toplevel):
 
     def _on_filter_changed(self) -> None:
         self._filter_mode = self._filter_var.get() or "all"
-        self._reapply_slide_filter(keep_photo=True)
+        if self._slideshow:
+            self._reapply_slide_filter(keep_photo=True)
+        else:
+            self._refresh_folder_nav()
+            self._render()
 
     def _on_chapter_changed(self, _event=None) -> None:
         val = self._chapter_var.get()
@@ -1288,9 +1303,17 @@ class ReviewWindow(tk.Toplevel):
         )
         meta = photo.scene_type or photo.chapter_type or ""
         score = photo.final_score or photo.technical_score
-        self._slide_caption.set(
-            f"{photo.filename}  ·  {folder}  ·  {meta}  ·  Score {score:.0f}"
-        )
+        parts = [photo.filename, folder, meta, f"Score {score:.0f}"]
+        kind = duplicate_kind(photo)
+        if kind == "burst":
+            parts.insert(1, t("dup_badge_burst"))
+        elif kind == "content":
+            parts.insert(1, t("dup_badge_content"))
+        elif kind == "phash":
+            parts.insert(1, t("dup_badge_phash"))
+        if photo.duplicate_of:
+            parts.append(t("dup_of", name=photo.duplicate_of))
+        self._slide_caption.set("  ·  ".join(p for p in parts if p))
         try:
             self._slide_toggle_btn.configure(
                 text=t("restore") if not kept else t("remove")
@@ -1617,12 +1640,34 @@ class ReviewWindow(tk.Toplevel):
             menu.grab_release()
 
     def _toggle_photo(self, idx: int, mode: str, folder: str) -> None:
-        if mode == "add":
+        if mode in ("add", "dup"):
             if idx in self.kept:
                 return
+            photo = self.photos[idx]
+            if mode == "dup":
+                photo.is_duplicate = False
+                photo.is_burst_reject = False
+                photo.duplicate_of = None
+                photo.flags = [
+                    f
+                    for f in photo.flags
+                    if f
+                    not in (
+                        "duplicate",
+                        "content_duplicate",
+                        "burst_reject",
+                    )
+                ]
             self.kept.add(idx)
             self.baseline.add(idx)
-            self._place_in_chapter(idx, folder)
+            target_folder = folder
+            if mode == "dup" and (not target_folder or target_folder.endswith("__dups") or target_folder == "__dups__"):
+                # In aktuellen Raster-Ordner legen
+                target_folder = self._grid_folder or folder
+            self._place_in_chapter(idx, target_folder)
+            self._update_count()
+            self._autosave_draft()
+            self._render()
             return
         if idx in self.kept:
             self.kept.remove(idx)
@@ -1707,6 +1752,35 @@ class ReviewWindow(tk.Toplevel):
             current = self._folder_labels[0][0]
             self._grid_folder = current
 
+        # Filter „Duplikate“: eigene Rasteransicht aller aussortierten
+        if self._filter_mode == "duplicates":
+            dups = all_duplicate_indices(self.photos)
+            self.canvas.create_text(
+                GRID_PAD,
+                y + 8,
+                anchor=tk.NW,
+                text=t("dup_section_title", n=len(dups)),
+                fill=COLORS["ink"],
+                font=("Segoe UI Semibold", 12),
+                tags=("grid",),
+            )
+            y += HEADER_H
+            if dups:
+                y = self._draw_photo_rows(dups[:80], "__dups__", "dup", y, cols)
+            else:
+                self.canvas.create_text(
+                    GRID_PAD,
+                    y + 8,
+                    anchor=tk.NW,
+                    text=t("dup_none"),
+                    fill=COLORS["muted"],
+                    font=("Segoe UI", 10),
+                    tags=("grid",),
+                )
+                y += 40
+            self.canvas.configure(scrollregion=(0, 0, width, y + GRID_PAD))
+            return
+
         active = [(title, folder, indices) for title, folder, indices in sections if folder == current]
         drew_photos = False
 
@@ -1720,6 +1794,24 @@ class ReviewWindow(tk.Toplevel):
                     cols,
                     show_alts=not folder.startswith("99_"),
                 )
+                # Verwandte Duplikate/Serien unter dem Kapitel
+                related: list[int] = []
+                seen: set[int] = set()
+                for idx in indices:
+                    for d in related_duplicates(self.photos, idx, limit=8):
+                        if d not in seen and d not in self.kept:
+                            seen.add(d)
+                            related.append(d)
+                if related:
+                    y = self._draw_alt_section(
+                        t("dup_related_title"),
+                        f"{folder}__dups",
+                        related[:24],
+                        y,
+                        cols,
+                        collapsed=f"{folder}__dups" not in self._expanded_alts,
+                        mode="dup",
+                    )
                 drew_photos = True
         elif current and current != ASIDE_FOLDER:
             # Leerer Ordner (z. B. alles verschoben) – Varianten trotzdem anbieten
@@ -1898,15 +1990,23 @@ class ReviewWindow(tk.Toplevel):
         cols: int,
         *,
         collapsed: bool,
+        mode: str = "add",
     ) -> int:
         indices = [i for i in indices if i not in self.kept]
         if not indices:
             return y
-        action = (
-            t("show_variants", n=len(indices))
-            if collapsed
-            else t("hide_variants")
-        )
+        if mode == "dup":
+            action = (
+                t("show_duplicates", n=len(indices))
+                if collapsed
+                else t("hide_duplicates")
+            )
+        else:
+            action = (
+                t("show_variants", n=len(indices))
+                if collapsed
+                else t("hide_variants")
+            )
         # Volle Breite der Rasterzeile, Text mittig
         row_w = max(CELL_W * max(cols, 1), self.canvas.winfo_width() - GRID_PAD * 2 - 18)
         btn_w = max(280, row_w)
@@ -1940,7 +2040,17 @@ class ReviewWindow(tk.Toplevel):
         )
         y += btn_h + 10
         if not collapsed:
-            y = self._draw_photo_rows(indices, key if key != "__suggestions__" else "", "add", y, cols)
+            tile_mode = mode if mode in ("add", "dup", "keep") else "add"
+            folder_key = "" if key in ("__suggestions__", "__dups__") else key.replace("__dups", "")
+            if key.endswith("__dups"):
+                folder_key = key[: -len("__dups")]
+            y = self._draw_photo_rows(
+                indices,
+                folder_key,
+                tile_mode,
+                y,
+                cols,
+            )
         return y
 
     def _draw_photo_rows(
@@ -1963,8 +2073,8 @@ class ReviewWindow(tk.Toplevel):
 
     def _draw_tile(self, x: int, y: int, idx: int, mode: str, folder: str) -> None:
         kept = idx in self.kept
-        border = COLORS["keep_border"] if (mode == "add" or kept) else COLORS["reject_border"]
-        if mode == "add":
+        border = COLORS["keep_border"] if (mode in ("add", "dup") or kept) else COLORS["reject_border"]
+        if mode in ("add", "dup"):
             border = COLORS["accent"] if idx not in self.kept else COLORS["keep_border"]
         tile_w = THUMB + 12
         tile_h = CELL_H - 8
@@ -2036,7 +2146,14 @@ class ReviewWindow(tk.Toplevel):
 
         # Badges / Overlays
         warn = None
-        if getattr(photo, "finger_on_lens", False) or "finger_on_lens" in photo.flags:
+        kind = duplicate_kind(photo)
+        if kind == "burst":
+            warn = t("dup_badge_burst")
+        elif kind == "content":
+            warn = t("dup_badge_content")
+        elif kind == "phash" or mode == "dup":
+            warn = t("dup_badge_phash")
+        elif getattr(photo, "finger_on_lens", False) or "finger_on_lens" in photo.flags:
             warn = "Finger"
         elif getattr(photo, "is_accidental", False) or "accidental" in photo.flags:
             warn = "Fehlausl."
@@ -2050,8 +2167,6 @@ class ReviewWindow(tk.Toplevel):
             )
         elif "looking_away" in photo.flags or getattr(photo, "looking_at_camera", None) is False:
             warn = "Blick weg"
-        elif getattr(photo, "smiling", None) is True or "smiling" in photo.flags:
-            warn = None  # positives Signal, kein Warn-Badge
         if warn:
             self.canvas.create_rectangle(
                 x + 8,
@@ -2104,7 +2219,7 @@ class ReviewWindow(tk.Toplevel):
                 anchor=tk.CENTER,
                 tags=("grid", tag),
             )
-        elif mode == "add" and idx not in self.kept:
+        elif mode in ("add", "dup") and idx not in self.kept:
             self.canvas.create_text(
                 img_cx,
                 img_cy,
