@@ -339,6 +339,11 @@ class PhotobookApp(tk.Tk):
         self._log_queue: queue.Queue = queue.Queue()
         self._progress_queue: queue.Queue = queue.Queue()
         self._cancel_event = threading.Event()
+        self._body_wheel_bound = False
+        self._body_canvas: tk.Canvas | None = None
+        self._body_host: ttk.Frame | None = None
+        self._body_scroll = None
+        self._log_scroll = None
         self._status_shown = False       # tqdm-Zwischenstand als eine ersetzbare Zeile
         self._status_mark = "log_status"
         self._pending_status: str | None = None
@@ -438,7 +443,83 @@ class PhotobookApp(tk.Tk):
                 self.status_var.set("Wird geschlossen…")
             except tk.TclError:
                 pass
+        self._unbind_body_wheel()
         self.destroy()
+
+    def _install_body_wheel(self) -> None:
+        """Mausrad scrollt den Hauptinhalt (wie im Review-Fenster)."""
+        if self._body_canvas is None:
+            return
+        # Immer neu binden: Review macht unbind_all und entfernt sonst unsere Handler
+        self.bind_all("<MouseWheel>", self._on_body_mousewheel)
+        self.bind_all("<Button-4>", self._on_body_linux_scroll_up)
+        self.bind_all("<Button-5>", self._on_body_linux_scroll_down)
+        self.bind("<FocusIn>", self._on_main_focus_in)
+        self._body_wheel_bound = True
+
+    def _unbind_body_wheel(self) -> None:
+        if not self._body_wheel_bound:
+            return
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            try:
+                self.unbind_all(seq)
+            except Exception:
+                pass
+        self._body_wheel_bound = False
+
+    def _on_main_focus_in(self, _event=None) -> None:
+        # Nach Review-Fenster (unbind_all) Wheel wiederherstellen
+        if self._body_canvas is not None:
+            self._install_body_wheel()
+
+    def _pointer_over_main_scroll_area(self) -> bool:
+        """True, wenn Maus über dem scrollbaren Formular liegt – nicht über dem Log."""
+        try:
+            if not self.winfo_exists() or self._body_canvas is None:
+                return False
+            widget = self.winfo_containing(*self.winfo_pointerxy())
+            w = widget
+            while w is not None:
+                if w is getattr(self, "log", None) or w is self._log_scroll:
+                    return False
+                if w in (self._body_canvas, self._body_host, self._body_scroll):
+                    return True
+                w = getattr(w, "master", None)
+            return False
+        except tk.TclError:
+            return False
+
+    def _scroll_body_units(self, units: int) -> None:
+        if self._body_canvas is None:
+            return
+        try:
+            self._body_canvas.yview_scroll(units, "units")
+        except tk.TclError:
+            pass
+
+    def _on_body_mousewheel(self, event) -> str | None:
+        if not self._pointer_over_main_scroll_area():
+            return None
+        delta = int(getattr(event, "delta", 0) or 0)
+        if delta == 0:
+            return None
+        steps = -1 if delta > 0 else 1
+        if abs(delta) >= 120:
+            steps = int(-1 * (delta / 120))
+        self._scroll_body_units(max(-8, min(8, steps * 3)))
+        return "break"
+
+    def _on_body_linux_scroll_up(self, _event=None) -> str | None:
+        if self._pointer_over_main_scroll_area():
+            self._scroll_body_units(-3)
+            return "break"
+        return None
+
+    def _on_body_linux_scroll_down(self, _event=None) -> str | None:
+        if self._pointer_over_main_scroll_area():
+            self._scroll_body_units(3)
+            return "break"
+        return None
 
     def _setup_style(self) -> None:
         style = ttk.Style(self)
@@ -608,11 +689,14 @@ class PhotobookApp(tk.Tk):
         )
         self._help_btn.pack(side=tk.RIGHT, padx=(0, 10))
 
-        # Scrollbarer Inhalt
+        # Scrollbarer Inhalt (Mausrad → _install_body_wheel)
         body_host = ttk.Frame(root, style="App.TFrame")
         body_host.pack(fill=tk.BOTH, expand=True)
+        self._body_host = body_host
         canvas = tk.Canvas(body_host, bg=c["bg"], highlightthickness=0)
+        self._body_canvas = canvas
         scroll = ttk.Scrollbar(body_host, orient=tk.VERTICAL, command=canvas.yview)
+        self._body_scroll = scroll
         body = ttk.Frame(canvas, style="App.TFrame", padding=(22, 4, 22, 12))
         body.bind(
             "<Configure>",
@@ -841,9 +925,9 @@ class PhotobookApp(tk.Tk):
             pady=8,
         )
         self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll_log = ttk.Scrollbar(log_row, command=self.log.yview)
-        scroll_log.pack(side=tk.RIGHT, fill=tk.Y)
-        self.log.configure(yscrollcommand=scroll_log.set)
+        self._log_scroll = ttk.Scrollbar(log_row, command=self.log.yview)
+        self._log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.log.configure(yscrollcommand=self._log_scroll.set)
 
         # Untere Aktionsleiste (immer sichtbar)
         actions = tk.Frame(root, bg=c["surface"], padx=18, pady=14)
@@ -875,6 +959,7 @@ class PhotobookApp(tk.Tk):
 
         self._sync_dependent_controls()
         self._refresh_cost_estimate()
+        self._install_body_wheel()
 
     def _set_icon(self) -> None:
         """Ersetzt das Standard-Tk-Icon (blaue Feder) durch ein eigenes."""
@@ -1816,13 +1901,25 @@ class PhotobookApp(tk.Tk):
                 parent=self,
             )
 
-        open_review(
+        win = open_review(
             self,
             photos,
             plan,
             Path(output_dir),
             on_saved=lambda: self.status_var.set("Auswahl gespeichert"),
         )
+
+        def _restore_wheel(event, w=win) -> None:
+            if event.widget is w:
+                try:
+                    self._install_body_wheel()
+                except Exception:
+                    pass
+
+        try:
+            win.bind("<Destroy>", _restore_wheel, add="+")
+        except tk.TclError:
+            pass
 
 
 def _report_startup_error() -> None:

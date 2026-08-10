@@ -69,6 +69,15 @@ def test_close_prompt_when_analysis_running() -> None:
     assert app._is_analysis_running() is False
 
 
+def test_main_window_has_body_mousewheel_scroll() -> None:
+    src = Path("photobook_curator/gui.py").read_text(encoding="utf-8")
+    assert "_install_body_wheel" in src
+    assert "_on_body_mousewheel" in src
+    assert "_pointer_over_main_scroll_area" in src
+    assert 'bind_all("<MouseWheel>"' in src
+    assert "_body_canvas" in src
+
+
 def test_gui_module_imports_without_cv2(monkeypatch) -> None:
     """Import von gui darf cv2/mediapipe nicht voraussetzen."""
     import importlib
