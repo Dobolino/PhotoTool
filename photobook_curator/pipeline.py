@@ -193,7 +193,7 @@ def run_pipeline(
 
     if cfg.enable_document_aside:
         report("Dokumente…", 0.54, "documents")
-        print(f"  {local.aside_count} Screenshots/Dokumente → Optional-Pool (nicht Auto-Kapitel)")
+        print(f"  {local.aside_count} Screenshots/Dokumente -> Optional-Pool (nicht Auto-Kapitel)")
     else:
         print("  Dokumente/Screenshots-Trennung übersprungen")
 
@@ -302,7 +302,7 @@ def run_pipeline(
     promoted = promote_unassigned_to_region(photos, plan)
     if promoted is not None:
         print(
-            f"  {len(promoted.photo_indices)} Fotos ohne Ortszuordnung → "
+            f"  {len(promoted.photo_indices)} Fotos ohne Ortszuordnung -> "
             f"Kapitel „{promoted.name}“ (Auswahl ohne GPS/KI möglich)"
         )
 

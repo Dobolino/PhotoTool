@@ -232,6 +232,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        from .utils import ensure_utf8_stdio
+
+        ensure_utf8_stdio()
+    except Exception:
+        pass
     parser = build_parser()
     # GUI braucht keine Pflicht-Args -i/-o
     if argv is None:

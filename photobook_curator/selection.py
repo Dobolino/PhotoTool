@@ -554,7 +554,7 @@ def build_book_order(
         tqdm(plan.regions, desc="Auswahl je Region", unit="region")
     ):
         folder = f"{r_idx + 1:02d}_{slugify(region.name)}"
-        print(f"  → Region {r_idx + 1}/{len(plan.regions)}: {region.name} (Quota {region.quota})")
+        print(f"  -> Region {r_idx + 1}/{len(plan.regions)}: {region.name} (Quota {region.quota})")
         main_sel, food_sel = select_for_region(
             photos,
             region.photo_indices,

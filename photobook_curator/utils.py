@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import socket
+import sys
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -19,6 +20,19 @@ DEFAULT_DOWNLOAD_TIMEOUT_S = 30.0
 MIN_MODEL_BYTES = 1000
 DEFAULT_BGR_CACHE_EDGE = 1024
 DEFAULT_BGR_CACHE_SIZE = 64
+
+
+def ensure_utf8_stdio() -> None:
+    """Windows-Konsolen oft cp1252 – Unicode in print() nicht crashen lassen."""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None:
+            continue
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 # Typische Screenshot-Auflösungen (Breite x Höhe, beide Orientierungen)
 SCREEN_RESOLUTIONS = {

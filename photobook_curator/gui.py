@@ -966,7 +966,6 @@ class PhotobookApp(tk.Tk):
         self._ai_blurb_lbl.pack(anchor=tk.W, fill=tk.X, pady=(8, 0))
 
         key_row = ttk.Frame(self.ai_block, style="Card.TFrame")
-        key_row.pack(fill=tk.X, pady=(10, 0))
         self._api_key_lbl = ttk.Label(key_row, text=t("ai_api_key"), style="Field.TLabel")
         self._api_key_lbl.pack(side=tk.LEFT)
         self._api_key_link = ttk.Label(
@@ -979,7 +978,6 @@ class PhotobookApp(tk.Tk):
         self._api_key_link.bind("<Button-1>", self._open_api_key_url)
         self._key_row = key_row
         self.api_entry = ttk.Entry(self.ai_block, show="•")
-        self.api_entry.pack(fill=tk.X, pady=(4, 0))
         self._bind_active_api_entry()
 
         self._ollama_hint_lbl = ttk.Label(
@@ -2310,6 +2308,12 @@ def _report_startup_error() -> None:
 
 
 def main() -> int:
+    try:
+        from .utils import ensure_utf8_stdio
+
+        ensure_utf8_stdio()
+    except Exception:
+        pass
     try:
         app = PhotobookApp()
     except Exception:
