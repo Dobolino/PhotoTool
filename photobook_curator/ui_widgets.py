@@ -233,7 +233,7 @@ def pill_badge(parent: tk.Misc, text: str, colors: dict[str, str]) -> tk.Label:
 
 
 class HelpTip(tk.Label):
-    """Kleines „?“ neben einer Option – Klick öffnet Erklärung (folgt der Sprache)."""
+    """Kleines „?“ neben einer Option – öffnet ein echtes Hilfefenster mit Schließen (X)."""
 
     _open_tip: Optional["HelpTip"] = None
 
@@ -244,9 +244,11 @@ class HelpTip(tk.Label):
         colors: dict[str, str],
         *,
         get_text: Optional[Callable[[str], str]] = None,
+        title_key: str = "help_tip_title",
         **kwargs,
     ) -> None:
         self.help_key = help_key
+        self.title_key = title_key
         self.colors = colors
         self._get_text = get_text
         self._popup: tk.Toplevel | None = None
@@ -273,9 +275,27 @@ class HelpTip(tk.Label):
             return self._get_text(self.help_key)
         return self.help_key
 
+    def _resolve_title(self) -> str:
+        if self._get_text is not None:
+            return self._get_text(self.title_key)
+        return "Hilfe"
+
+    def _root_window(self) -> tk.Misc:
+        w: tk.Misc = self
+        while True:
+            master = getattr(w, "master", None)
+            if master is None:
+                return w
+            w = master
+
     def _toggle(self, _event=None) -> None:
         if self._popup is not None and self._popup.winfo_exists():
-            self._close()
+            try:
+                self._popup.lift()
+                self._popup.focus_force()
+            except tk.TclError:
+                self._close()
+                self._show()
             return
         if HelpTip._open_tip is not None and HelpTip._open_tip is not self:
             try:
@@ -288,47 +308,91 @@ class HelpTip(tk.Label):
         text = (self._resolve_text() or "").strip()
         if not text:
             return
-        tip = tk.Toplevel(self)
-        tip.wm_overrideredirect(True)
+        c = self.colors
+        tip = tk.Toplevel(self._root_window())
+        tip.title(self._resolve_title())
+        tip.configure(bg=c.get("bg", "#111"))
         try:
-            tip.attributes("-topmost", True)
+            tip.transient(self._root_window())
         except tk.TclError:
             pass
-        c = self.colors
-        wrap = tk.Frame(tip, bg=c.get("line", "#333"), padx=1, pady=1)
-        wrap.pack(fill=tk.BOTH, expand=True)
-        inner = tk.Frame(wrap, bg=c.get("surface", "#1a1a22"), padx=12, pady=10)
-        inner.pack(fill=tk.BOTH, expand=True)
-        tk.Label(
-            inner,
-            text=text,
+        tip.resizable(True, True)
+
+        outer = tk.Frame(tip, bg=c.get("bg", "#111"), padx=16, pady=14)
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        body = tk.Frame(outer, bg=c.get("surface", "#1a1a22"), padx=14, pady=12)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        text_wrap = tk.Frame(body, bg=c.get("surface", "#1a1a22"))
+        text_wrap.pack(fill=tk.BOTH, expand=True)
+        scroll = tk.Scrollbar(text_wrap)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        txt = tk.Text(
+            text_wrap,
+            wrap=tk.WORD,
+            height=14,
+            width=52,
             bg=c.get("surface", "#1a1a22"),
             fg=c.get("ink", "#eee"),
-            font=("Segoe UI", 9),
-            justify=tk.LEFT,
-            wraplength=440,
-            anchor=tk.W,
-        ).pack(fill=tk.X)
+            relief=tk.FLAT,
+            font=("Segoe UI", 10),
+            padx=4,
+            pady=4,
+            yscrollcommand=scroll.set,
+            highlightthickness=0,
+        )
+        txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.configure(command=txt.yview)
+        txt.insert("1.0", text)
+        txt.configure(state=tk.DISABLED)
+
+        btn_row = tk.Frame(outer, bg=c.get("bg", "#111"))
+        btn_row.pack(fill=tk.X, pady=(12, 0))
+        close_lbl = "Schließen"
+        if self._get_text is not None:
+            close_lbl = self._get_text("help_tip_close")
+        close_btn = tk.Button(
+            btn_row,
+            text=f"✕  {close_lbl}",
+            command=self._close,
+            bg=c.get("chip_bg", c.get("surface", "#222")),
+            fg=c.get("ink", "#eee"),
+            activebackground=c.get("line", "#333"),
+            activeforeground=c.get("ink", "#eee"),
+            relief=tk.FLAT,
+            font=("Segoe UI Semibold", 10),
+            padx=14,
+            pady=8,
+            cursor="hand2",
+        )
+        close_btn.pack(side=tk.RIGHT)
+
+        tip.bind("<Escape>", lambda _e: self._close())
+        tip.protocol("WM_DELETE_WINDOW", self._close)
+
         tip.update_idletasks()
         try:
-            x = self.winfo_rootx() + 18
-            y = self.winfo_rooty() + self.winfo_height() + 4
-            sw = tip.winfo_screenwidth()
-            sh = tip.winfo_screenheight()
-            tw = tip.winfo_reqwidth()
-            th = tip.winfo_reqheight()
-            if x + tw > sw - 8:
-                x = max(8, sw - tw - 8)
-            if y + th > sh - 8:
-                y = max(8, self.winfo_rooty() - th - 4)
-            tip.geometry(f"+{x}+{y}")
+            tw = max(420, tip.winfo_reqwidth())
+            th = max(320, tip.winfo_reqheight())
+            root = self._root_window()
+            rx = int(root.winfo_rootx())
+            ry = int(root.winfo_rooty())
+            rw = int(root.winfo_width())
+            rh = int(root.winfo_height())
+            x = rx + max(24, (rw - tw) // 2)
+            y = ry + max(24, (rh - th) // 3)
+            tip.geometry(f"{tw}x{th}+{x}+{y}")
+            tip.minsize(360, 260)
         except tk.TclError:
-            pass
-        tip.bind("<Escape>", lambda _e: self._close())
-        # Autoclose nach ein paar Sekunden; erneuter Klick auf ? schließt sofort
-        tip.after(8000, self._close)
+            tip.geometry("480x360")
+
         self._popup = tip
         HelpTip._open_tip = self
+        try:
+            tip.focus_force()
+        except tk.TclError:
+            pass
 
     def _close(self) -> None:
         tip = self._popup

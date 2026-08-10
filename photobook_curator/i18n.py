@@ -82,6 +82,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "opt_ai": "KI-Bewertung",
         "opt_dry": "Nur Kosten / Kandidaten schätzen",
         "ai_provider": "KI wählen",
+        "ai_section": "KI-Bewertung",
         "ai_provider_none": "Keine KI (nur lokale Heuristik)",
         "ai_provider_gemini": "Google Gemini 1.5 Flash (Gratis / Free Tier)",
         "ai_provider_anthropic": "Anthropic Claude (kostenpflichtig)",
@@ -90,8 +91,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "ai_api_key_gemini": "Gemini API-Key",
         "ai_api_key_anthropic": "Anthropic API-Key",
         "ai_key_link": "API-Key erstellen…",
-        "ai_ollama_hint": "Ollama muss laufen – vorher z. B. „ollama pull llava“.",
+        "ai_ollama_hint": (
+            "Vision-Modell wählen (Liste aus Ollama, falls erreichbar). "
+            "Standard: llava – vorher „ollama pull llava“."
+        ),
         "ai_ollama_model": "Ollama-Modell",
+        "help_tip_title": "Erklärung",
+        "help_tip_close": "Schließen",
         "ai_blurb_none": "100 % lokal & schnell – nur OpenCV / MediaPipe / pHash (keine Cloud).",
         "ai_blurb_gemini": (
             "Gratis im Free Tier (ca. 1.500 Bilder/Tag) – stark bei Ästhetik, "
@@ -264,6 +270,12 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Kein echter API-Aufruf: zählt nur Kandidaten und schätzt Kosten/Limits. "
             "Sinnvoll bei Gemini/Anthropic; bei Ollama/Keine KI ausgeblendet."
         ),
+        "help_ai_ollama_model": (
+            "Name des Vision-Modells in Ollama (z. B. llava oder llama3.2-vision). "
+            "Aus der Liste wählen oder – falls nötig – exakt so eintippen, "
+            "wie „ollama list“ es zeigt. Ohne Vision-Modell funktioniert die "
+            "Bildbewertung nicht."
+        ),
     },
     "en": {
         "app_title": "Photobook curator",
@@ -340,6 +352,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "opt_ai": "AI review",
         "opt_dry": "Estimate cost / candidates only",
         "ai_provider": "Choose AI",
+        "ai_section": "AI review",
         "ai_provider_none": "No AI (local heuristics only)",
         "ai_provider_gemini": "Google Gemini 1.5 Flash (free tier)",
         "ai_provider_anthropic": "Anthropic Claude (paid)",
@@ -348,8 +361,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "ai_api_key_gemini": "Gemini API key",
         "ai_api_key_anthropic": "Anthropic API key",
         "ai_key_link": "Create API key…",
-        "ai_ollama_hint": "Ollama must be running – e.g. run “ollama pull llava” first.",
+        "ai_ollama_hint": (
+            "Pick a vision model (from Ollama if reachable). "
+            "Default: llava – run “ollama pull llava” first."
+        ),
         "ai_ollama_model": "Ollama model",
+        "help_tip_title": "Help",
+        "help_tip_close": "Close",
         "ai_blurb_none": "100% local & fast – OpenCV / MediaPipe / pHash only (no cloud).",
         "ai_blurb_gemini": (
             "Free tier (~1,500 images/day) – strong on aesthetics, subjects, "
@@ -520,6 +538,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "help_opt_dry": (
             "No real API call: counts candidates and estimates cost/limits only. "
             "Useful for Gemini/Anthropic; hidden for Ollama/No AI."
+        ),
+        "help_ai_ollama_model": (
+            "Vision model name in Ollama (e.g. llava or llama3.2-vision). "
+            "Pick from the list or type it exactly as shown by “ollama list”. "
+            "Without a vision model, image review will not work."
         ),
     },
 }

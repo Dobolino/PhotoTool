@@ -100,6 +100,7 @@ except Exception:  # pragma: no cover - Notfallstart
             "opt_ai": "KI-Bewertung",
             "opt_dry": "Nur Kosten schätzen",
             "ai_provider": "KI wählen",
+            "ai_section": "KI-Bewertung",
             "ai_provider_none": "Keine KI (nur lokal)",
             "ai_provider_gemini": "Google Gemini 1.5 Flash (Gratis)",
             "ai_provider_anthropic": "Anthropic Claude (kostenpflichtig)",
@@ -108,7 +109,10 @@ except Exception:  # pragma: no cover - Notfallstart
             "ai_api_key_gemini": "Gemini API-Key",
             "ai_api_key_anthropic": "Anthropic API-Key",
             "ai_key_link": "API-Key erstellen…",
-            "ai_ollama_hint": "Ollama muss laufen (z. B. ollama pull llava).",
+            "ai_ollama_hint": "Vision-Modell wählen (z. B. llava).",
+            "ai_ollama_model": "Ollama-Modell",
+            "help_tip_title": "Erklärung",
+            "help_tip_close": "Schließen",
             "ai_blurb_none": "100 % lokal & schnell – OpenCV / MediaPipe / pHash.",
             "ai_blurb_gemini": "Gratis (Free Tier, ~1500 Bilder/Tag) – gut für Ästhetik & Motive.",
             "ai_blurb_anthropic": "Pay-per-Use – höchste Präzision bei Komposition & Stimmung.",
@@ -589,6 +593,46 @@ class PhotobookApp(tk.Tk):
             bordercolor=c["line"],
         )
         style.configure(
+            "TCombobox",
+            fieldbackground=entry_bg,
+            background=entry_bg,
+            foreground=c["ink"],
+            insertcolor=c["ink"],
+            padding=10,
+            bordercolor=c["line"],
+            arrowsize=14,
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", entry_bg), ("disabled", c["line"])],
+            foreground=[("disabled", c["muted"])],
+            background=[("readonly", entry_bg), ("active", entry_bg)],
+        )
+        style.configure(
+            "AI.TCombobox",
+            fieldbackground=entry_bg,
+            background=entry_bg,
+            foreground=c["ink"],
+            insertcolor=c["ink"],
+            padding=(12, 11),
+            bordercolor=c["accent"],
+            arrowsize=16,
+        )
+        style.map(
+            "AI.TCombobox",
+            fieldbackground=[("readonly", entry_bg)],
+            foreground=[("readonly", c["ink"])],
+            background=[("readonly", entry_bg), ("active", c.get("accent_soft", entry_bg))],
+        )
+        try:
+            self.option_add("*TCombobox*Listbox.background", entry_bg)
+            self.option_add("*TCombobox*Listbox.foreground", c["ink"])
+            self.option_add("*TCombobox*Listbox.selectBackground", c["accent"])
+            self.option_add("*TCombobox*Listbox.selectForeground", c.get("hero_fg", "#FFFFFF"))
+            self.option_add("*TCombobox*Listbox.font", font_ui)
+        except tk.TclError:
+            pass
+        style.configure(
             "TSpinbox",
             fieldbackground=entry_bg,
             foreground=c["ink"],
@@ -885,23 +929,29 @@ class PhotobookApp(tk.Tk):
         self.people_scale.pack(fill=tk.X, pady=(4, 0))
 
         self.ai_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
+        self._ai_section_lbl = ttk.Label(
+            self.ai_block, text=t("ai_section"), style="Body.TLabel"
+        )
+        self._ai_section_lbl.pack(anchor=tk.W, pady=(12, 2))
+
         prov_row = ttk.Frame(self.ai_block, style="Card.TFrame")
-        prov_row.pack(fill=tk.X, pady=(10, 0))
+        prov_row.pack(fill=tk.X, pady=(4, 0))
         self._ai_provider_lbl = ttk.Label(
             prov_row, text=t("ai_provider"), style="Field.TLabel"
         )
         self._ai_provider_lbl.pack(side=tk.LEFT)
         tip = HelpTip(prov_row, "help_ai_provider", c, get_text=t)
-        tip.pack(side=tk.LEFT, padx=(6, 8))
+        tip.pack(side=tk.LEFT, padx=(6, 0))
         self._help_tips.append(tip)
+
         self._ai_provider_values = self._provider_label_pairs()
         self.ai_provider_combo = ttk.Combobox(
             self.ai_block,
             state="readonly",
-            width=44,
+            style="AI.TCombobox",
             values=[label for _, label in self._ai_provider_values],
         )
-        self.ai_provider_combo.pack(fill=tk.X, pady=(4, 0))
+        self.ai_provider_combo.pack(fill=tk.X, pady=(6, 0), ipady=2)
         self._sync_ai_provider_combo_display()
         self.ai_provider_combo.bind("<<ComboboxSelected>>", self._on_ai_provider_selected)
 
@@ -910,13 +960,13 @@ class PhotobookApp(tk.Tk):
             self.ai_block,
             textvariable=self.ai_blurb_var,
             style="Field.TLabel",
-            wraplength=420,
+            wraplength=440,
             justify=tk.LEFT,
         )
-        self._ai_blurb_lbl.pack(anchor=tk.W, pady=(6, 0))
+        self._ai_blurb_lbl.pack(anchor=tk.W, fill=tk.X, pady=(8, 0))
 
         key_row = ttk.Frame(self.ai_block, style="Card.TFrame")
-        key_row.pack(fill=tk.X, pady=(8, 0))
+        key_row.pack(fill=tk.X, pady=(10, 0))
         self._api_key_lbl = ttk.Label(key_row, text=t("ai_api_key"), style="Field.TLabel")
         self._api_key_lbl.pack(side=tk.LEFT)
         self._api_key_link = ttk.Label(
@@ -924,7 +974,6 @@ class PhotobookApp(tk.Tk):
             text=t("ai_key_link"),
             style="Field.TLabel",
             cursor="hand2",
-            foreground=c.get("accent", "#5B7CFF"),
         )
         self._api_key_link.pack(side=tk.RIGHT)
         self._api_key_link.bind("<Button-1>", self._open_api_key_url)
@@ -934,21 +983,26 @@ class PhotobookApp(tk.Tk):
         self._bind_active_api_entry()
 
         self._ollama_hint_lbl = ttk.Label(
-            self.ai_block, text=t("ai_ollama_hint"), style="Field.TLabel"
+            self.ai_block, text=t("ai_ollama_hint"), style="Field.TLabel", wraplength=440
         )
-        ollama_row = ttk.Frame(self.ai_block, style="Card.TFrame")
+        self._ollama_lbl_row = ttk.Frame(self.ai_block, style="Card.TFrame")
         self._ollama_model_lbl = ttk.Label(
-            ollama_row, text=t("ai_ollama_model"), style="Field.TLabel"
+            self._ollama_lbl_row, text=t("ai_ollama_model"), style="Field.TLabel"
         )
         self._ollama_model_lbl.pack(side=tk.LEFT)
-        self.ollama_model_entry = ttk.Entry(
-            ollama_row, textvariable=self.ollama_model_var, width=18
+        tip = HelpTip(self._ollama_lbl_row, "help_ai_ollama_model", c, get_text=t)
+        tip.pack(side=tk.LEFT, padx=(6, 0))
+        self._help_tips.append(tip)
+        self.ollama_model_combo = ttk.Combobox(
+            self.ai_block,
+            textvariable=self.ollama_model_var,
+            style="AI.TCombobox",
+            values=list(self._default_ollama_choices()),
         )
-        self.ollama_model_entry.pack(side=tk.RIGHT)
-        self._ollama_row = ollama_row
+        self.ollama_model_entry = self.ollama_model_combo
+        self._ollama_row = self._ollama_lbl_row
 
         dry_row = ttk.Frame(self.ai_block, style="Card.TFrame")
-        dry_row.pack(fill=tk.X, pady=(6, 0))
         self.dry_run_chk = ttk.Checkbutton(
             dry_row,
             text=t("opt_dry"),
@@ -960,7 +1014,7 @@ class PhotobookApp(tk.Tk):
         tip.pack(side=tk.LEFT, padx=(6, 0))
         self._help_tips.append(tip)
         self._dry_row = dry_row
-        # Hint/row werden in _sync_dependent_controls ein-/ausgeblendet
+        # Ollama-/Key-/Dry-Run-Zeilen werden in _sync_dependent_controls ein-/ausgeblendet
 
         # Status / Fortschritt
         self.next_step_var = tk.StringVar(value=t("next_pick_folders"))
@@ -1085,6 +1139,33 @@ class PhotobookApp(tk.Tk):
         )
         return cfg
 
+    def _default_ollama_choices(self) -> list[str]:
+        from .ai_review import DEFAULT_OLLAMA_MODEL_CHOICES
+
+        return list(DEFAULT_OLLAMA_MODEL_CHOICES)
+
+    def _refresh_ollama_model_choices(self) -> None:
+        """Combobox mit installierten Ollama-Modellen + Standard-Vision-Vorschlägen füllen."""
+        if not hasattr(self, "ollama_model_combo"):
+            return
+        from .ai_review import DEFAULT_OLLAMA_MODEL, list_ollama_models
+
+        installed = list_ollama_models()
+        choices: list[str] = []
+        for name in [*installed, *self._default_ollama_choices()]:
+            if name and name not in choices:
+                choices.append(name)
+        if not choices:
+            choices = [DEFAULT_OLLAMA_MODEL]
+        self.ollama_model_combo.configure(values=choices)
+        current = (self.ollama_model_var.get() or "").strip()
+        if current and current not in choices:
+            choices = [current, *choices]
+            self.ollama_model_combo.configure(values=choices)
+        if not current:
+            prefer = next((n for n in installed if "llava" in n or "vision" in n), None)
+            self.ollama_model_var.set(prefer or choices[0])
+
     def _provider_label_pairs(self) -> list[tuple[str, str]]:
         return [
             ("none", t("ai_provider_none")),
@@ -1207,18 +1288,21 @@ class PhotobookApp(tk.Tk):
 
         if hasattr(self, "_ollama_row"):
             if use_ollama:
-                self._ollama_hint_lbl.pack(anchor=tk.W, pady=(8, 0))
-                self._ollama_row.pack(fill=tk.X, pady=(6, 0))
-                enable(self.ollama_model_entry, True)
+                self._refresh_ollama_model_choices()
+                self._ollama_hint_lbl.pack(anchor=tk.W, fill=tk.X, pady=(10, 0))
+                self._ollama_lbl_row.pack(fill=tk.X, pady=(6, 0))
+                self.ollama_model_combo.pack(fill=tk.X, pady=(4, 0), ipady=2)
+                enable(self.ollama_model_combo, True)
             else:
                 self._ollama_hint_lbl.pack_forget()
-                self._ollama_row.pack_forget()
+                self._ollama_lbl_row.pack_forget()
+                self.ollama_model_combo.pack_forget()
 
         if hasattr(self, "dry_run_chk"):
             # Dry-Run vor allem für Anthropic sinnvoll; bei Gemini optional zum Testen
             show_dry = use_anthropic or use_gemini
             if show_dry:
-                self._dry_row.pack(fill=tk.X, pady=(6, 0))
+                self._dry_row.pack(fill=tk.X, pady=(8, 0))
                 enable(self.dry_run_chk, True)
             else:
                 self._dry_row.pack_forget()
@@ -1339,6 +1423,8 @@ class PhotobookApp(tk.Tk):
                 self._coverage_strength_lbl.configure(text=t("coverage_strength"))
             if getattr(self, "_people_strength_lbl", None) is not None:
                 self._people_strength_lbl.configure(text=t("people_strength"))
+            if getattr(self, "_ai_section_lbl", None) is not None:
+                self._ai_section_lbl.configure(text=t("ai_section"))
             if getattr(self, "_ai_provider_lbl", None) is not None:
                 self._ai_provider_lbl.configure(text=t("ai_provider"))
                 self._sync_ai_provider_combo_display()

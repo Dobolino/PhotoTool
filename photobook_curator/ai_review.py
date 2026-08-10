@@ -173,6 +173,38 @@ def check_ollama_available(host: str | None = None) -> tuple[bool, str]:
         )
 
 
+DEFAULT_OLLAMA_MODEL_CHOICES = (
+    "llava",
+    "llava:13b",
+    "llava:7b",
+    "llama3.2-vision",
+    "bakllava",
+    "moondream",
+)
+
+
+def list_ollama_models(host: str | None = None) -> list[str]:
+    """Installierte Ollama-Modelle (Namen), sonst leere Liste."""
+    base = (host or os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST).rstrip("/")
+    url = f"{base}/api/tags"
+    try:
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(raw) if raw else {}
+        models = data.get("models") or []
+        names = sorted(
+            {
+                str(m.get("name", "")).strip()
+                for m in models
+                if isinstance(m, dict) and str(m.get("name", "")).strip()
+            }
+        )
+        return names
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def estimate_candidate_count(
     target_n: int,
     found: int = 0,
