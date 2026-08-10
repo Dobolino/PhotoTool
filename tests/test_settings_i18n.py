@@ -55,14 +55,40 @@ def test_settings_roundtrip(tmp_path, monkeypatch) -> None:
     assert loaded.slideshow_show_alternative is False
 
 
-def test_i18n_switches() -> None:
+def test_option_help_tips_switch_language() -> None:
     set_language("de")
-    assert "Diashow" in t("slideshow") or "Diashow" in t("slideshow")
-    de_review = t("review")
+    de = t("help_opt_geocode")
+    assert "GPS" in de
+    assert "Städtenamen" in de or "Stadt" in de
     set_language("en")
-    en_review = t("review")
-    assert de_review != en_review
-    assert "Review" in en_review or "review" in en_review.lower()
+    en = t("help_opt_geocode")
+    assert "GPS" in en
+    assert "city" in en.lower()
+    assert de != en
+    assert "Quick start" in t("help_body")
+    set_language("de")
+    assert "Kurzanleitung" in t("help_body")
+    # alle Optionen haben Hilfe-Texte
+    for key in (
+        "help_target_count",
+        "help_opt_faces",
+        "help_opt_bursts",
+        "help_opt_aside",
+        "help_opt_accidental",
+        "help_opt_weak_night",
+        "help_opt_content",
+        "help_opt_aesthetic",
+        "help_opt_timezone",
+        "help_opt_video",
+        "help_opt_finger",
+        "help_opt_coverage",
+        "help_opt_people",
+        "help_opt_map",
+        "help_opt_ai",
+        "help_opt_dry",
+    ):
+        assert t(key) != key
+        assert len(t(key)) > 20
 
 
 def test_theme_choices_and_colors() -> None:

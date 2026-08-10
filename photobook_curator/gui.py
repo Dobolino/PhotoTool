@@ -74,7 +74,6 @@ except Exception:  # pragma: no cover - Notfallstart
             "target_count": "Zielanzahl Bilder",
             "more_options": "Weitere Optionen ▸",
             "more_options_open": "Weitere Optionen ▾",
-            "explain_options": "Optionen erklären",
             "start": "Auswahl starten",
             "cancel": "Abbrechen",
             "review": "Auswahl prüfen / fortsetzen",
@@ -100,6 +99,8 @@ except Exception:  # pragma: no cover - Notfallstart
             "opt_map": "Kapitel-/Karten-Vorschau vor Export",
             "opt_ai": "KI-Bewertung (Anthropic API)",
             "opt_dry": "Nur Kosten schätzen",
+            "help_title": "Hilfe – Fotobuch",
+            "help_body": "Kurzanleitung – siehe START.md. Optionen: ? neben jeder Einstellung.",
         }.get(key, key)
 
     def load_settings():  # type: ignore
@@ -128,89 +129,6 @@ _PROGRESS_LINE_RE = re.compile(
     r"(\d+%|\d+/\d+.*(img/s|it/s)|%\||\|█|Technische Analyse:|Dokumente/Screenshots:|"
     r"Gesichter|Gesichtsqualität|pHash|Duplikate|Serien/Bursts|Finger-Check|"
     r"Personen-Cluster|Reverse Geocoding|AI-Review|Scan & EXIF)"
-)
-
-HELP_TEXT = (
-    "Kurzanleitung\n"
-    "─────────────\n\n"
-    "1. Fotos-Ordner wählen (z. B. iCloud-/Urlaubsfotos).\n"
-    "2. Ausgabe-Ordner wählen (am besten leer / neu).\n"
-    "3. Zielanzahl einstellen (z. B. 80).\n"
-    "4. Optionen nach Bedarf lassen oder anpassen.\n"
-    "5. „Auswahl starten“ – Schritte werden farbig angezeigt.\n"
-    "6. Wenn fertig: „Auswahl prüfen / fortsetzen“, anpassen, speichern.\n\n"
-    "Auswahl prüfen\n"
-    "  Raster: Klick auf ein Bild = raus / wieder rein.\n"
-    "  Diashow: großes Bild, Nachbar-Vorschau, Filter (Alle/Dabei/Entfernt),\n"
-    "  Kapitel-Sprung, Alternative daneben (A = übernehmen),\n"
-    "  optional Auto-weiter nach Entfernen. Esc = Raster.\n"
-    "  Unten Alternativen / Dokumente zum Hinzufügen.\n\n"
-    "Darstellung\n"
-    "  Button oben rechts: Deutsch/English, Design-Varianten\n"
-    "  (Dunkelmodus / Wald / Schiefer / Tinte), Diashow-Optionen.\n\n"
-    "Pause / Absturz / Update\n"
-    "  In der Prüfung wird selection_draft.json automatisch gesichert.\n"
-    "  photos_analysis.csv enthält nach der KI den Zwischenstand –\n"
-    "  fortsetzen geht ohne neuen KI-Lauf (keine doppelten Kosten).\n"
-    "  Auch wenn die Analyse mit einer älteren Programmversion lief:\n"
-    "  denselben Ausgabe-Ordner wählen → „Auswahl prüfen / fortsetzen“.\n"
-    "  Nur wenn die CSV fehlt oder du einen neuen Ausgabe-Ordner nimmst,\n"
-    "  brauchst du einen neuen Lauf.\n\n"
-    "KI-Kosten siehst du unter der Zielanzahl. „Nur Kosten schätzen“\n"
-    "misst zuerst den Betrag zum Vergleichen.\n\n"
-    "Tipp: „Programm aktualisieren.bat“ für Updates. Details: START.md."
-)
-
-OPTIONS_HELP = (
-    "Was die Optionen steuern\n"
-    "────────────────────────\n\n"
-    "Zielanzahl Bilder\n"
-    "  Ungefähre Anzahl Fotos im fertigen Buch (z. B. 80 oder 400).\n\n"
-    "Ortsnamen per Internet\n"
-    "  GPS → Städtenamen (Englisch), z. B. Tokyo, Kyoto.\n"
-    "  Speichert Treffer in geocode_cache.json.\n\n"
-    "Gesichtserkennung / Augen zu\n"
-    "  Findet Gesichter, markiert geschlossene Augen / schlechte\n"
-    "  Ausschnitte – solche Fotos werden eher abgewertet.\n\n"
-    "Serien/Bursts\n"
-    "  Ähnliche Fotos kurz hintereinander → nur die besten 1–2 behalten.\n\n"
-    "Dokumente & Screenshots separat\n"
-    "  Tickets, Maps, Chats usw. nicht automatisch ins Buch, sondern\n"
-    "  in den Ordner optional_dokumente/ (später manuell reinnehmbar).\n\n"
-    "Fehlaufnahmen aussortieren\n"
-    "  Typische Auslöser-Misses: viel Boden/Himmel, Motiv am Rand,\n"
-    "  starke Schräglage – werden nicht ins Buch genommen.\n\n"
-    "Schwache Nachtaufnahmen entfernen\n"
-    "  Dunkle, weiche, „schwummerige“ Nachtbilder aussortieren.\n\n"
-    "Ähnliche Motive clustern\n"
-    "  Erkennt inhaltsgleiche Szenen (nicht nur pixelgleiche Duplikate)\n"
-    "  und behält die besten – nutzt Embeddings + SQLite-Cache.\n\n"
-    "Lokale Ästhetik (ohne API)\n"
-    "  Schätzt Bildqualität lokal (Schärfe, Belichtung, Komposition).\n"
-    "  Bei KI-Bewertung wird das übersprungen.\n\n"
-    "Video-/Live-Photo-Standbilder\n"
-    "  Extrahiert den schärfsten Frame aus kurzen Videos ohne\n"
-    "  Schwester-JPG/HEIC (typisch Live Photo ohne Standbild).\n\n"
-    "Zeitzone korrigieren\n"
-    "  Verschiebt alle EXIF-Zeiten um X Stunden (z. B. +9 wenn die\n"
-    "  Kamera noch auf Heimatzeit stand).\n\n"
-    "Finger vor der Linse\n"
-    "  Typische Fehlaufnahmen mit Finger/Hand vor der Kamera aussortieren.\n\n"
-    "Tages-Abdeckung (+ Stärke)\n"
-    "  Verhindert, dass fast alles vom ersten Tag kommt.\n"
-    "  Stärke: sanft bis stark gleichmäßig über die Tage.\n\n"
-    "Personen-Balance (+ Stärke)\n"
-    "  Verhindert, dass immer dieselbe Person das Album dominiert.\n\n"
-    "Kapitel-/Karten-Vorschau\n"
-    "  Vor dem Kopieren Kapitel und Karte zeigen, dann bestätigen.\n\n"
-    "KI-Bewertung (Anthropic API)\n"
-    "  Sendet Kandidatenbilder an die KI zur Qualitäts-/Szenenbewertung.\n"
-    "  Kostet Geld – siehe die Kostenzeile unter der Zielanzahl.\n\n"
-    "Nur Kosten schätzen\n"
-    "  Kein echter KI-Aufruf: zählt nur Kandidaten und schätzt den Betrag.\n"
-    "  Gut zum Vergleichen, bevor du den echten Lauf startest.\n\n"
-    "API-Key\n"
-    "  Dein Anthropic-Schlüssel (nur nötig bei echter KI-Bewertung)."
 )
 
 
@@ -684,6 +602,7 @@ class PhotobookApp(tk.Tk):
     def _build(self) -> None:
         from .ui_widgets import (
             AnAusToggle,
+            HelpTip,
             PaddedButton,
             card,
             pill_badge,
@@ -769,15 +688,21 @@ class PhotobookApp(tk.Tk):
         settings = settings_card._inner  # type: ignore[attr-defined]
         self._options_box = settings
 
+        target_row = tk.Frame(settings, bg=c["surface"])
+        target_row.pack(fill=tk.X)
         self._target_lbl = tk.Label(
-            settings,
+            target_row,
             text=t("target_count"),
             bg=c["surface"],
             fg=c["ink"],
             font=("Segoe UI", 10),
             anchor=tk.W,
         )
-        self._target_lbl.pack(anchor=tk.W)
+        self._target_lbl.pack(side=tk.LEFT)
+        self._help_tips: list[HelpTip] = []
+        tip = HelpTip(target_row, "help_target_count", c, get_text=t)
+        tip.pack(side=tk.LEFT, padx=(4, 0))
+        self._help_tips.append(tip)
         spin = ttk.Spinbox(
             settings,
             from_=10,
@@ -823,7 +748,12 @@ class PhotobookApp(tk.Tk):
                 font=("Segoe UI", 10),
                 anchor=tk.W,
             )
-            lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            lbl.pack(side=tk.LEFT)
+            tip = HelpTip(row, f"help_{key}", c, get_text=t)
+            tip.pack(side=tk.LEFT, padx=(4, 8))
+            self._help_tips.append(tip)
+            spacer = tk.Frame(row, bg=c["surface"])
+            spacer.pack(side=tk.LEFT, fill=tk.X, expand=True)
             tog = AnAusToggle(
                 row,
                 var,
@@ -846,7 +776,12 @@ class PhotobookApp(tk.Tk):
             font=("Segoe UI", 10),
             anchor=tk.W,
         )
-        self._tz_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._tz_lbl.pack(side=tk.LEFT)
+        tip = HelpTip(tz_row, "help_opt_timezone", c, get_text=t)
+        tip.pack(side=tk.LEFT, padx=(4, 8))
+        self._help_tips.append(tip)
+        spacer = tk.Frame(tz_row, bg=c["surface"])
+        spacer.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.timezone_spin = ttk.Spinbox(
             tz_row,
             from_=-14,
@@ -865,13 +800,6 @@ class PhotobookApp(tk.Tk):
             command=self._toggle_advanced,
         )
         self.advanced_toggle.pack(side=tk.LEFT)
-        self._explain_btn = ttk.Button(
-            opt_row,
-            text=t("explain_options"),
-            style="Help.TButton",
-            command=self._show_options_help,
-        )
-        self._explain_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         self.advanced_frame = ttk.Frame(settings, style="Card.TFrame")
         self._adv_checks: list[tuple[ttk.Checkbutton, str]] = []
@@ -884,13 +812,18 @@ class PhotobookApp(tk.Tk):
             ("opt_ai", self.ai_var),
             ("opt_dry", self.dry_run_var),
         ):
+            row = ttk.Frame(self.advanced_frame, style="Card.TFrame")
+            row.pack(fill=tk.X, pady=3)
             chk = ttk.Checkbutton(
-                self.advanced_frame,
+                row,
                 text=t(key),
                 variable=var,
                 command=self._sync_dependent_controls,
             )
-            chk.pack(anchor=tk.W, pady=3)
+            chk.pack(side=tk.LEFT)
+            tip = HelpTip(row, f"help_{key}", c, get_text=t)
+            tip.pack(side=tk.LEFT, padx=(6, 0))
+            self._help_tips.append(tip)
             self._adv_checks.append((chk, key))
             if var is self.dry_run_var:
                 self.dry_run_chk = chk
@@ -898,7 +831,10 @@ class PhotobookApp(tk.Tk):
         self.coverage_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
         cov_row = ttk.Frame(self.coverage_block, style="Card.TFrame")
         cov_row.pack(fill=tk.X, pady=(8, 0))
-        ttk.Label(cov_row, text="Abdeckung-Stärke", style="Field.TLabel").pack(side=tk.LEFT)
+        self._coverage_strength_lbl = ttk.Label(
+            cov_row, text=t("coverage_strength"), style="Field.TLabel"
+        )
+        self._coverage_strength_lbl.pack(side=tk.LEFT)
         self.coverage_label = ttk.Label(cov_row, text="50%", style="Field.TLabel")
         self.coverage_label.pack(side=tk.RIGHT)
         self.coverage_scale = ttk.Scale(
@@ -913,7 +849,10 @@ class PhotobookApp(tk.Tk):
         self.people_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
         people_row = ttk.Frame(self.people_block, style="Card.TFrame")
         people_row.pack(fill=tk.X, pady=(8, 0))
-        ttk.Label(people_row, text="Personen-Stärke", style="Field.TLabel").pack(side=tk.LEFT)
+        self._people_strength_lbl = ttk.Label(
+            people_row, text=t("people_strength"), style="Field.TLabel"
+        )
+        self._people_strength_lbl.pack(side=tk.LEFT)
         self.people_label = ttk.Label(people_row, text="50%", style="Field.TLabel")
         self.people_label.pack(side=tk.RIGHT)
         self.people_scale = ttk.Scale(
@@ -1179,7 +1118,6 @@ class PhotobookApp(tk.Tk):
             self.cancel_btn.configure(text=t("cancel"))
             self.review_btn.configure(text=t("review"))
             self.map_btn.configure(text=t("map"))
-            self._explain_btn.configure(text=t("explain_options"))
             self._settings_btn.configure(text=t("settings"))
             self._help_btn.configure(text=t("help"))
             self.advanced_toggle.configure(
@@ -1198,9 +1136,19 @@ class PhotobookApp(tk.Tk):
                 self._tz_lbl.configure(text=t("opt_timezone"))
             for chk, key in self._adv_checks:
                 chk.configure(text=t(key))
-            tip = getattr(self, "_tip_banner", None)
-            if tip is not None:
-                for child in tip.winfo_children():
+            if getattr(self, "_coverage_strength_lbl", None) is not None:
+                self._coverage_strength_lbl.configure(text=t("coverage_strength"))
+            if getattr(self, "_people_strength_lbl", None) is not None:
+                self._people_strength_lbl.configure(text=t("people_strength"))
+            # Hilfe-Popups nutzen get_text=t → nächster Klick auf ? ist in neuer Sprache
+            for tip in getattr(self, "_help_tips", []):
+                try:
+                    tip._close()
+                except Exception:
+                    pass
+            tip_banner = getattr(self, "_tip_banner", None)
+            if tip_banner is not None:
+                for child in tip_banner.winfo_children():
                     if isinstance(child, tk.Label):
                         child.configure(text=t("tip_resume"))
             if self._found_count:
@@ -1382,10 +1330,7 @@ class PhotobookApp(tk.Tk):
         ttk.Button(win, text=t("close"), command=win.destroy).pack(pady=(0, 10))
 
     def _show_help(self) -> None:
-        self._show_text_window("Hilfe – Fotobuch", HELP_TEXT + "\n\n" + OPTIONS_HELP)
-
-    def _show_options_help(self) -> None:
-        self._show_text_window("Optionen erklärt", OPTIONS_HELP)
+        self._show_text_window(t("help_title"), t("help_body"))
 
     def _set_next_step(self, text: str) -> None:
         self.next_step_var.set(text)

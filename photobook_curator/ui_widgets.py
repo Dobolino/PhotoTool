@@ -232,6 +232,116 @@ def pill_badge(parent: tk.Misc, text: str, colors: dict[str, str]) -> tk.Label:
     )
 
 
+class HelpTip(tk.Label):
+    """Kleines „?“ neben einer Option – Klick öffnet Erklärung (folgt der Sprache)."""
+
+    _open_tip: Optional["HelpTip"] = None
+
+    def __init__(
+        self,
+        parent: tk.Misc,
+        help_key: str,
+        colors: dict[str, str],
+        *,
+        get_text: Optional[Callable[[str], str]] = None,
+        **kwargs,
+    ) -> None:
+        self.help_key = help_key
+        self.colors = colors
+        self._get_text = get_text
+        self._popup: tk.Toplevel | None = None
+        super().__init__(
+            parent,
+            text=" ?",
+            bg=colors.get("surface", colors.get("bg", "#111")),
+            fg=colors.get("muted", "#888"),
+            font=("Segoe UI Semibold", 10),
+            cursor="question_arrow",
+            padx=4,
+            pady=0,
+            **kwargs,
+        )
+        self.bind("<Button-1>", self._toggle)
+        self.bind("<Enter>", lambda _e: self.configure(fg=colors.get("accent", "#7B6CFF")))
+        self.bind("<Leave>", lambda _e: self.configure(fg=colors.get("muted", "#888")))
+
+    def set_help_key(self, help_key: str) -> None:
+        self.help_key = help_key
+
+    def _resolve_text(self) -> str:
+        if self._get_text is not None:
+            return self._get_text(self.help_key)
+        return self.help_key
+
+    def _toggle(self, _event=None) -> None:
+        if self._popup is not None and self._popup.winfo_exists():
+            self._close()
+            return
+        if HelpTip._open_tip is not None and HelpTip._open_tip is not self:
+            try:
+                HelpTip._open_tip._close()
+            except Exception:
+                pass
+        self._show()
+
+    def _show(self) -> None:
+        text = (self._resolve_text() or "").strip()
+        if not text:
+            return
+        tip = tk.Toplevel(self)
+        tip.wm_overrideredirect(True)
+        try:
+            tip.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        c = self.colors
+        wrap = tk.Frame(tip, bg=c.get("line", "#333"), padx=1, pady=1)
+        wrap.pack(fill=tk.BOTH, expand=True)
+        inner = tk.Frame(wrap, bg=c.get("surface", "#1a1a22"), padx=12, pady=10)
+        inner.pack(fill=tk.BOTH, expand=True)
+        tk.Label(
+            inner,
+            text=text,
+            bg=c.get("surface", "#1a1a22"),
+            fg=c.get("ink", "#eee"),
+            font=("Segoe UI", 9),
+            justify=tk.LEFT,
+            wraplength=320,
+            anchor=tk.W,
+        ).pack(fill=tk.X)
+        tip.update_idletasks()
+        try:
+            x = self.winfo_rootx() + 18
+            y = self.winfo_rooty() + self.winfo_height() + 4
+            sw = tip.winfo_screenwidth()
+            sh = tip.winfo_screenheight()
+            tw = tip.winfo_reqwidth()
+            th = tip.winfo_reqheight()
+            if x + tw > sw - 8:
+                x = max(8, sw - tw - 8)
+            if y + th > sh - 8:
+                y = max(8, self.winfo_rooty() - th - 4)
+            tip.geometry(f"+{x}+{y}")
+        except tk.TclError:
+            pass
+        tip.bind("<Escape>", lambda _e: self._close())
+        # Autoclose nach ein paar Sekunden; erneuter Klick auf ? schließt sofort
+        tip.after(8000, self._close)
+        self._popup = tip
+        HelpTip._open_tip = self
+
+    def _close(self) -> None:
+        tip = self._popup
+        self._popup = None
+        if HelpTip._open_tip is self:
+            HelpTip._open_tip = None
+        if tip is not None:
+            try:
+                tip.destroy()
+            except tk.TclError:
+                pass
+
+
 def step_connector(parent: tk.Misc, colors: dict[str, str]) -> tk.Frame:
     """Kurze Verbindungslinie zwischen Workflow-Chips."""
     wrap = tk.Frame(parent, bg=colors["bg"])

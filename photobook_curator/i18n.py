@@ -125,6 +125,89 @@ _STRINGS: dict[str, dict[str, str]] = {
         "in_chapter_hint": "Grün = dabei · Klick = raus/rein · Varianten landen im Kapitel",
         "show_variants": "Varianten anzeigen ({n})",
         "hide_variants": "Varianten ausblenden",
+        "help_title": "Hilfe – Fotobuch",
+        "coverage_strength": "Abdeckung-Stärke",
+        "people_strength": "Personen-Stärke",
+        "help_body": (
+            "Kurzanleitung\n"
+            "─────────────\n\n"
+            "1. Fotos-Ordner wählen (z. B. iCloud-/Urlaubsfotos).\n"
+            "2. Ausgabe-Ordner wählen (am besten leer / neu).\n"
+            "3. Zielanzahl einstellen (z. B. 80).\n"
+            "4. Optionen nach Bedarf – Erklärungen über das ? neben jeder Option.\n"
+            "5. „Auswahl starten“ – Schritte werden farbig angezeigt.\n"
+            "6. Wenn fertig: „Auswahl prüfen“, anpassen, speichern.\n\n"
+            "Auswahl prüfen\n"
+            "  Raster: Klick = raus/rein · Rechtsklick = Ordner wechseln.\n"
+            "  Diashow: großes Bild, Alternative (A), Esc = Raster.\n\n"
+            "Darstellung\n"
+            "  Oben rechts: Sprache (DE/EN), Design, Diashow-Optionen.\n\n"
+            "Pause / Update\n"
+            "  selection_draft.json und photos_analysis.csv speichern den Stand.\n"
+            "  „Programm aktualisieren.bat“ für Updates. Details: START.md."
+        ),
+        "help_target_count": (
+            "Ungefähre Anzahl Fotos im fertigen Buch (z. B. 80 oder 400)."
+        ),
+        "help_opt_geocode": (
+            "GPS → Städtenamen (z. B. Tokyo, Kyoto). Treffer werden in "
+            "geocode_cache.json gespeichert. Ohne GPS entsteht ein Album-Kapitel."
+        ),
+        "help_opt_faces": (
+            "Findet Gesichter, markiert geschlossene Augen / schlechte Ausschnitte "
+            "sowie Lächeln und Blick zur Kamera. Solche Fotos werden eher abgewertet."
+        ),
+        "help_opt_bursts": (
+            "Ähnliche Fotos kurz hintereinander → nur die besten 1–2 behalten."
+        ),
+        "help_opt_aside": (
+            "Tickets, Maps, Chats usw. nicht automatisch ins Buch, sondern in den "
+            "Ordner optional_dokumente/ (später manuell reinnehmbar)."
+        ),
+        "help_opt_accidental": (
+            "Typische Auslöser-Misses: viel Boden/Himmel, Motiv am Rand, "
+            "starke Schräglage – werden nicht ins Buch genommen."
+        ),
+        "help_opt_weak_night": (
+            "Dunkle, weiche, „schwummerige“ Nachtbilder aussortieren."
+        ),
+        "help_opt_content": (
+            "Erkennt inhaltsgleiche Szenen (nicht nur pixelgleiche Duplikate) "
+            "und behält die besten – nutzt Embeddings und den Analyse-Cache."
+        ),
+        "help_opt_aesthetic": (
+            "Schätzt Bildqualität lokal (Schärfe, Belichtung, Komposition) ohne Cloud. "
+            "Bei KI-Bewertung wird das übersprungen."
+        ),
+        "help_opt_timezone": (
+            "Verschiebt alle EXIF-Zeiten um X Stunden (z. B. +9, wenn die Kamera "
+            "noch auf Heimatzeit stand)."
+        ),
+        "help_opt_video": (
+            "Extrahiert den schärfsten Frame aus kurzen Videos ohne Schwester-JPG/HEIC "
+            "(typisch Live Photo ohne Standbild)."
+        ),
+        "help_opt_finger": (
+            "Typische Fehlaufnahmen mit Finger/Hand vor der Kamera aussortieren."
+        ),
+        "help_opt_coverage": (
+            "Verhindert, dass fast alles vom ersten Tag kommt. "
+            "Stärke: sanft bis stark gleichmäßig über die Tage."
+        ),
+        "help_opt_people": (
+            "Verhindert, dass immer dieselbe Person das Album dominiert."
+        ),
+        "help_opt_map": (
+            "Vor dem Kopieren Kapitel und Karte zeigen, dann bestätigen."
+        ),
+        "help_opt_ai": (
+            "Sendet Kandidatenbilder an die Anthropic-API zur Qualitäts-/Szenenbewertung. "
+            "Kostet Geld – siehe Kostenzeile unter der Zielanzahl. Optional."
+        ),
+        "help_opt_dry": (
+            "Kein echter KI-Aufruf: zählt nur Kandidaten und schätzt den Betrag. "
+            "Nur sinnvoll, wenn KI-Bewertung an ist."
+        ),
     },
     "en": {
         "app_title": "Photobook curator",
@@ -244,6 +327,89 @@ _STRINGS: dict[str, dict[str, str]] = {
         "in_chapter_hint": "Green = kept · click = remove/keep · variants go into the chapter",
         "show_variants": "Show variants ({n})",
         "hide_variants": "Hide variants",
+        "help_title": "Help – Photobook",
+        "coverage_strength": "Coverage strength",
+        "people_strength": "People-balance strength",
+        "help_body": (
+            "Quick start\n"
+            "───────────\n\n"
+            "1. Choose the photos folder (e.g. iCloud / trip photos).\n"
+            "2. Choose an output folder (preferably empty / new).\n"
+            "3. Set the target count (e.g. 80).\n"
+            "4. Adjust options as needed – explanations via ? next to each option.\n"
+            "5. Start selection – steps are color-coded.\n"
+            "6. When done: review selection, adjust, save.\n\n"
+            "Review\n"
+            "  Grid: click = keep/remove · right-click = move folder.\n"
+            "  Slideshow: large image, alternative (A), Esc = grid.\n\n"
+            "Appearance\n"
+            "  Top right: language (DE/EN), theme, slideshow options.\n\n"
+            "Pause / update\n"
+            "  selection_draft.json and photos_analysis.csv keep progress.\n"
+            "  Use Programm aktualisieren.bat for updates. Details: START.md."
+        ),
+        "help_target_count": (
+            "Approximate number of photos in the finished book (e.g. 80 or 400)."
+        ),
+        "help_opt_geocode": (
+            "GPS → city names (e.g. Tokyo, Kyoto). Hits are stored in "
+            "geocode_cache.json. Without GPS an Album chapter is created."
+        ),
+        "help_opt_faces": (
+            "Finds faces, flags closed eyes / bad crops, plus smile and "
+            "looking-at-camera cues. Such photos are down-ranked."
+        ),
+        "help_opt_bursts": (
+            "Similar photos taken seconds apart → keep only the best 1–2."
+        ),
+        "help_opt_aside": (
+            "Tickets, maps, chats etc. stay out of auto chapters and go to "
+            "optional_dokumente/ (you can add them later)."
+        ),
+        "help_opt_accidental": (
+            "Typical trigger misses: mostly ground/sky, subject at the edge, "
+            "strong tilt – excluded from the book."
+        ),
+        "help_opt_weak_night": (
+            "Remove dark, soft, mushy night shots."
+        ),
+        "help_opt_content": (
+            "Finds near-duplicate scenes (not only pixel duplicates) and keeps "
+            "the best – uses embeddings and the analysis cache."
+        ),
+        "help_opt_aesthetic": (
+            "Local quality estimate (sharpness, exposure, composition) with no cloud. "
+            "Skipped when AI review is on."
+        ),
+        "help_opt_timezone": (
+            "Shift all EXIF times by X hours (e.g. +9 if the camera was still "
+            "on home time)."
+        ),
+        "help_opt_video": (
+            "Extract the sharpest frame from short videos without a sibling JPG/HEIC "
+            "(typical Live Photo without a still)."
+        ),
+        "help_opt_finger": (
+            "Filter typical finger/hand-over-lens shots."
+        ),
+        "help_opt_coverage": (
+            "Avoids almost everything coming from day one. "
+            "Strength: gentle to strongly even across days."
+        ),
+        "help_opt_people": (
+            "Avoids one person dominating the whole album."
+        ),
+        "help_opt_map": (
+            "Show chapters and map before copying files, then confirm."
+        ),
+        "help_opt_ai": (
+            "Sends candidate photos to the Anthropic API for quality/scene review. "
+            "Costs money – see the estimate under the target count. Optional."
+        ),
+        "help_opt_dry": (
+            "No real AI call: counts candidates and estimates cost only. "
+            "Only useful when AI review is enabled."
+        ),
     },
 }
 
