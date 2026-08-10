@@ -128,6 +128,7 @@ class ReviewWindow(tk.Toplevel):
         self._photo_images: list[ImageTk.PhotoImage] = []  # Referenzen halten
         self._thumb_cache: dict[int, ImageTk.PhotoImage] = {}
         self._slide_cache: dict[int, ImageTk.PhotoImage] = {}
+        self._slide_pil: dict[int, Image.Image] = {}
         self._pending_thumbs: set[int] = set()
         # Indizes die noch geladen werden sollen (nicht verwerfen bei Warteschlangen-Limit)
         self._wanted_thumbs: dict[int, int] = {}  # idx → beste (niedrigste) Priorität
@@ -553,29 +554,16 @@ class ReviewWindow(tk.Toplevel):
         )
         self._auto_btn.pack(side=tk.RIGHT)
 
-        stage_row = ttk.Frame(host, style="Rev.TFrame")
-        stage_row.pack(fill=tk.BOTH, expand=True)
+        # Fußbereich zuerst packen (unten), damit er bei Hochkantbildern nicht verschwindet
+        foot = ttk.Frame(host, style="Rev.TFrame", padding=(0, 8, 0, 0))
+        foot.pack(side=tk.BOTTOM, fill=tk.X)
+        ttk.Button(foot, text=t("back_grid"), command=self._exit_slideshow).pack(
+            side=tk.RIGHT
+        )
 
         stage_bg = COLORS.get("slide_stage", COLORS["ink"])
-        stage = tk.Frame(stage_row, bg=stage_bg, padx=8, pady=8)
-        stage.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._slide_image_lbl = tk.Label(
-            stage,
-            text=t("loading_image"),
-            bg=stage_bg,
-            fg=COLORS.get("slide_fg", "#E8E2D8"),
-            font=("Segoe UI", 12),
-            cursor="hand2",
-        )
-        self._slide_image_lbl.pack(fill=tk.BOTH, expand=True)
-        self._slide_image_lbl.bind("<Button-1>", self._slide_toggle_current)
-        self._slide_image_lbl.bind("<MouseWheel>", self._slide_mousewheel)
-        self._slide_image_lbl.bind("<Button-4>", lambda e: self._slide_prev())
-        self._slide_image_lbl.bind("<Button-5>", lambda e: self._slide_next())
-
-        # Umgebung + Meta + Bild-Navigation: direkt unter dem Bild, zentriert
-        below = tk.Frame(stage, bg=stage_bg)
-        below.pack(fill=tk.X, pady=(10, 0))
+        below = tk.Frame(host, bg=stage_bg, padx=8, pady=8)
+        below.pack(side=tk.BOTTOM, fill=tk.X)
         below_inner = tk.Frame(below, bg=stage_bg)
         below_inner.pack(anchor=tk.CENTER)
 
@@ -592,6 +580,7 @@ class ReviewWindow(tk.Toplevel):
 
         self._slide_status = tk.StringVar(value="")
         self._slide_caption = tk.StringVar(value="")
+        self._slide_notes = tk.StringVar(value="")
         tk.Label(
             below_inner,
             textvariable=self._slide_status,
@@ -608,6 +597,16 @@ class ReviewWindow(tk.Toplevel):
             font=("Segoe UI", 9),
             justify=tk.CENTER,
         ).pack(anchor=tk.CENTER, pady=(2, 0))
+        self._slide_notes_lbl = tk.Label(
+            below_inner,
+            textvariable=self._slide_notes,
+            bg=stage_bg,
+            fg=COLORS.get("phase_run_fg", "#F0D9B5"),
+            font=("Segoe UI Semibold", 9),
+            justify=tk.CENTER,
+            wraplength=720,
+        )
+        self._slide_notes_lbl.pack(anchor=tk.CENTER, pady=(4, 0))
 
         controls = tk.Frame(below_inner, bg=stage_bg)
         controls.pack(anchor=tk.CENTER, pady=(12, 4))
@@ -622,6 +621,27 @@ class ReviewWindow(tk.Toplevel):
             command=self._slide_toggle_current,
         )
         self._slide_toggle_btn.pack(side=tk.LEFT, padx=(16, 0))
+
+        stage_row = ttk.Frame(host, style="Rev.TFrame")
+        stage_row.pack(fill=tk.BOTH, expand=True)
+
+        self._slide_stage = tk.Frame(stage_row, bg=stage_bg, padx=8, pady=8)
+        self._slide_stage.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._slide_stage.pack_propagate(False)
+        self._slide_image_lbl = tk.Label(
+            self._slide_stage,
+            text=t("loading_image"),
+            bg=stage_bg,
+            fg=COLORS.get("slide_fg", "#E8E2D8"),
+            font=("Segoe UI", 12),
+            cursor="hand2",
+        )
+        self._slide_image_lbl.pack(fill=tk.BOTH, expand=True)
+        self._slide_image_lbl.bind("<Button-1>", self._slide_toggle_current)
+        self._slide_image_lbl.bind("<MouseWheel>", self._slide_mousewheel)
+        self._slide_image_lbl.bind("<Button-4>", lambda e: self._slide_prev())
+        self._slide_image_lbl.bind("<Button-5>", lambda e: self._slide_next())
+        self._slide_stage.bind("<Configure>", self._on_slide_stage_configure)
 
         self._alt_panel = tk.Frame(
             stage_row, bg=stage_bg, padx=8, pady=8, width=320
@@ -663,11 +683,18 @@ class ReviewWindow(tk.Toplevel):
         if not self._show_alt_panel:
             self._alt_panel.pack_forget()
 
-        foot = ttk.Frame(host, style="Rev.TFrame", padding=(0, 8, 0, 0))
-        foot.pack(fill=tk.X)
-        ttk.Button(foot, text=t("back_grid"), command=self._exit_slideshow).pack(
-            side=tk.RIGHT
-        )
+    def _on_slide_stage_configure(self, event=None) -> None:
+        if not self._slideshow or self._slide_showing_idx is None:
+            return
+        w = int(getattr(event, "width", 0) or 0)
+        h = int(getattr(event, "height", 0) or 0)
+        prev = getattr(self, "_slide_stage_size", (0, 0))
+        if abs(prev[0] - w) < 12 and abs(prev[1] - h) < 12:
+            return
+        self._slide_stage_size = (w, h)
+        idx = self._slide_showing_idx
+        if idx in self._slide_pil:
+            self.after_idle(lambda i=idx: self._show_slide_image(i) if self._slideshow else None)
 
     def _enqueue_job(self, kind: str, idx: int, priority: int) -> None:
         self._load_queue.put((priority, next(self._load_seq), (kind, idx)))
@@ -731,7 +758,7 @@ class ReviewWindow(tk.Toplevel):
             self._enqueue_job("thumb", idx, prio)
 
     def _request_slide(self, idx: int, priority: int = 10) -> None:
-        if idx in self._slide_cache or idx in self._pending_slides:
+        if idx in self._slide_pil or idx in self._pending_slides:
             return
         if len(self._pending_slides) > 12 and priority > 2:
             return
@@ -741,7 +768,7 @@ class ReviewWindow(tk.Toplevel):
 
     def _trim_slide_cache(self) -> None:
         """Alte Diashow-Bilder verwerfen, damit RAM/Tk nicht anschwellen."""
-        if len(self._slide_cache) <= _SLIDE_CACHE_MAX:
+        if len(self._slide_pil) <= _SLIDE_CACHE_MAX:
             return
         keep: set[int] = set()
         if self._slide_indices and 0 <= self._slide_pos < len(self._slide_indices):
@@ -751,8 +778,9 @@ class ReviewWindow(tk.Toplevel):
                     keep.add(self._slide_indices[n])
         if self._alt_idx is not None:
             keep.add(self._alt_idx)
-        for idx in list(self._slide_cache.keys()):
-            if idx not in keep and len(self._slide_cache) > _SLIDE_CACHE_MAX // 2:
+        for idx in list(self._slide_pil.keys()):
+            if idx not in keep and len(self._slide_pil) > _SLIDE_CACHE_MAX // 2:
+                self._slide_pil.pop(idx, None)
                 self._slide_cache.pop(idx, None)
 
     def _drain_thumbs(self) -> None:
@@ -797,17 +825,17 @@ class ReviewWindow(tk.Toplevel):
                 self._pending_slides.discard(idx)
                 if img is None:
                     continue
-                tk_img = ImageTk.PhotoImage(img)
+                self._slide_pil[idx] = img
+                # Grobes Preview für Cache/Alt; Anzeige skaliert zusätzlich auf Stage
+                preview = img.copy()
+                preview.thumbnail((_SLIDE_MAX, _SLIDE_MAX), Image.Resampling.BILINEAR)
+                tk_img = ImageTk.PhotoImage(preview)
                 self._slide_cache[idx] = tk_img
                 self._photo_images.append(tk_img)
                 if self._slideshow and self._slide_showing_idx == idx:
                     self._show_slide_image(idx)
                 if self._slideshow and self._alt_idx == idx:
-                    self._alt_img_ref = tk_img
-                    try:
-                        self._alt_image_lbl.configure(image=tk_img, text="")
-                    except tk.TclError:
-                        pass
+                    self._refresh_alt_panel()
                 self._trim_slide_cache()
         except queue.Empty:
             pass
@@ -1177,8 +1205,7 @@ class ReviewWindow(tk.Toplevel):
         self._refresh_slide_meta()
         self._rebuild_filmstrip()
         self._refresh_alt_panel()
-        cached = self._slide_cache.get(idx)
-        if cached is not None:
+        if idx in self._slide_pil or idx in self._slide_cache:
             self._show_slide_image(idx)
         else:
             if not self._show_slide_placeholder(idx):
@@ -1211,14 +1238,74 @@ class ReviewWindow(tk.Toplevel):
         return True
 
     def _show_slide_image(self, idx: int) -> None:
-        tk_img = self._slide_cache.get(idx)
-        if tk_img is None:
+        pil = self._slide_pil.get(idx)
+        if pil is None:
+            cached = self._slide_cache.get(idx)
+            if cached is None:
+                return
+            self._slide_img_ref = cached
+            try:
+                self._slide_image_lbl.configure(image=cached, text="")
+            except tk.TclError:
+                pass
             return
+        try:
+            max_w = max(160, int(self._slide_stage.winfo_width()) - 20)
+            max_h = max(160, int(self._slide_stage.winfo_height()) - 20)
+        except (tk.TclError, AttributeError, ValueError):
+            max_w = max_h = _SLIDE_MAX
+        fitted = pil.copy()
+        fitted.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+        tk_img = ImageTk.PhotoImage(fitted)
         self._slide_img_ref = tk_img
+        self._photo_images.append(tk_img)
         try:
             self._slide_image_lbl.configure(image=tk_img, text="")
         except tk.TclError:
             pass
+
+    def _photo_quality_notes(self, photo) -> list[str]:
+        """Kurzinfos wie Augen zu, Finger, KI-Hinweise für die Diashow."""
+        notes: list[str] = []
+        flags = set(photo.flags or [])
+        if getattr(photo, "eyes_closed", False) or "eyes_closed" in flags:
+            notes.append(t("note_eyes_closed"))
+        elif getattr(photo, "bad_face", False) or "bad_face" in flags:
+            notes.append(t("note_bad_face"))
+        if getattr(photo, "looking_at_camera", None) is False or "looking_away" in flags:
+            notes.append(t("note_looking_away"))
+        if getattr(photo, "smiling", None) is True:
+            notes.append(t("note_smiling"))
+        if getattr(photo, "finger_on_lens", False) or "finger_on_lens" in flags:
+            notes.append(t("note_finger"))
+        if getattr(photo, "is_accidental", False) or "accidental" in flags:
+            notes.append(t("note_accidental"))
+        if getattr(photo, "is_weak_night", False) or "weak_night" in flags:
+            notes.append(t("note_weak_night"))
+        if getattr(photo, "is_blurry", False) or "blurry" in flags:
+            notes.append(t("note_blurry"))
+        if getattr(photo, "is_too_dark", False) or "too_dark" in flags:
+            notes.append(t("note_dark"))
+        if getattr(photo, "is_overexposed", False) or "overexposed" in flags:
+            notes.append(t("note_bright"))
+        qi = getattr(photo, "quality_issue", None)
+        if qi:
+            notes.append(str(qi))
+        mood = getattr(photo, "mood", None)
+        if mood:
+            notes.append(f"{t('note_mood')}: {mood}")
+        landmark = getattr(photo, "landmark", None)
+        if landmark:
+            notes.append(str(landmark))
+        if getattr(photo, "keep_recommendation", None) is False:
+            notes.append(t("note_ai_reject"))
+        seen: set[str] = set()
+        out: list[str] = []
+        for n in notes:
+            if n and n not in seen:
+                seen.add(n)
+                out.append(n)
+        return out
 
     def _filmstrip_range(self) -> list[int]:
         if not self._slide_indices:
@@ -1342,6 +1429,8 @@ class ReviewWindow(tk.Toplevel):
         if not self._slide_indices:
             self._slide_status.set(t("no_slide_photos"))
             self._slide_caption.set("")
+            if hasattr(self, "_slide_notes"):
+                self._slide_notes.set("")
             return
         pos = max(0, min(self._slide_pos, len(self._slide_indices) - 1))
         idx = self._slide_indices[pos]
@@ -1356,6 +1445,8 @@ class ReviewWindow(tk.Toplevel):
         meta = photo.scene_type or photo.chapter_type or ""
         score = photo.final_score or photo.technical_score
         parts = [photo.filename, folder, meta, f"Score {score:.0f}"]
+        if photo.face_count:
+            parts.append(t("note_faces", n=photo.face_count))
         kind = duplicate_kind(photo)
         if kind == "burst":
             parts.insert(1, t("dup_badge_burst"))
@@ -1366,6 +1457,9 @@ class ReviewWindow(tk.Toplevel):
         if photo.duplicate_of:
             parts.append(t("dup_of", name=photo.duplicate_of))
         self._slide_caption.set("  ·  ".join(p for p in parts if p))
+        notes = self._photo_quality_notes(photo)
+        if hasattr(self, "_slide_notes"):
+            self._slide_notes.set("  ·  ".join(notes) if notes else "")
         try:
             self._slide_toggle_btn.configure(
                 text=t("restore") if not kept else t("remove")
