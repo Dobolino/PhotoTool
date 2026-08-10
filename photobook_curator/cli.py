@@ -53,23 +53,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--ai-review",
         action="store_true",
-        help="KI-gestützte Inhaltsbewertung aktivieren (Anthropic oder Ollama)",
+        help="KI-Bewertung aktivieren (siehe --ai-provider)",
     )
     p.add_argument(
         "--ai-provider",
-        choices=("anthropic", "ollama"),
-        default="anthropic",
-        help="KI-Anbieter: anthropic (API, kostenpflichtig) oder ollama (gratis, lokal)",
+        choices=("none", "gemini", "anthropic", "ollama"),
+        default="none",
+        help=(
+            "KI-Anbieter: none (nur Heuristik), gemini (Free Tier), "
+            "anthropic (kostenpflichtig), ollama (lokal)"
+        ),
     )
     p.add_argument(
         "--ai-model",
         default=None,
-        help="Optionales Modell (z. B. claude-sonnet-4-6 oder llava)",
+        help="Optionales Modell (z. B. gemini-1.5-flash, claude-sonnet-4-6, llava)",
     )
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Mit --ai-review: nur Kostenschätzung, kein API-Aufruf",
+        help="Mit KI: nur Kostenschätzung / Kandidaten zählen, kein API-Aufruf",
     )
     p.add_argument(
         "--food-ratio",
@@ -247,14 +250,19 @@ def main(argv: list[str] | None = None) -> int:
     if not args.input.is_dir():
         parser.error(f"Eingabeordner nicht gefunden: {args.input}")
 
+    ai_provider = args.ai_provider
+    if args.ai_review and ai_provider == "none":
+        ai_provider = "gemini"
+    ai_review = ai_provider != "none"
+
     cfg = PipelineConfig(
         input_dir=args.input.resolve(),
         output_dir=args.output.resolve(),
         target_n=args.target_count,
         candidate_factor=args.candidate_factor,
         geocode=args.geocode,
-        ai_review=args.ai_review,
-        ai_provider=args.ai_provider,
+        ai_review=ai_review,
+        ai_provider=ai_provider,
         ai_model=args.ai_model,
         dry_run=args.dry_run,
         food_ratio=args.food_ratio,

@@ -80,13 +80,30 @@ _STRINGS: dict[str, dict[str, str]] = {
         "opt_people": "Personen-Balance",
         "opt_map": "Kapitel-/Karten-Vorschau vor Export",
         "opt_ai": "KI-Bewertung",
-        "opt_dry": "Nur Kosten schätzen (Anthropic)",
+        "opt_dry": "Nur Kosten / Kandidaten schätzen",
         "ai_provider": "KI wählen",
-        "ai_provider_anthropic": "Anthropic (API, kostenpflichtig)",
-        "ai_provider_ollama": "Gratis KI (Ollama, lokal)",
-        "ai_api_key": "API-Key (nur Anthropic)",
+        "ai_provider_none": "Keine KI (nur lokale Heuristik)",
+        "ai_provider_gemini": "Google Gemini 1.5 Flash (Gratis / Free Tier)",
+        "ai_provider_anthropic": "Anthropic Claude (kostenpflichtig)",
+        "ai_provider_ollama": "Ollama lokal (Gratis, starke GPU)",
+        "ai_api_key": "API-Key",
+        "ai_api_key_gemini": "Gemini API-Key",
+        "ai_api_key_anthropic": "Anthropic API-Key",
+        "ai_key_link": "API-Key erstellen…",
         "ai_ollama_hint": "Ollama muss laufen – vorher z. B. „ollama pull llava“.",
         "ai_ollama_model": "Ollama-Modell",
+        "ai_blurb_none": "100 % lokal & schnell – nur OpenCV / MediaPipe / pHash (keine Cloud).",
+        "ai_blurb_gemini": (
+            "Gratis im Free Tier (ca. 1.500 Bilder/Tag) – stark bei Ästhetik, "
+            "Motiven und Text auf Schildern/Speisekarten. Braucht Internet + Key."
+        ),
+        "ai_blurb_anthropic": (
+            "Pay-per-Use – höchste Präzision bei Komposition, Stimmung und "
+            "feinen Bildnuancen. Braucht Internet + Key."
+        ),
+        "ai_blurb_ollama": (
+            "100 % lokal & offline – nutzt deine GPU; bei vielen Fotos oft langsam."
+        ),
         "review_title": "Auswahl prüfen",
         "review_hint_grid": "Ein Ordner nach dem anderen · Klick = raus/rein · Rechtsklick = verschieben.",
         "review_hint_slide": "Diashow: Filter/Kapitel · Vorschau · Alternative · Esc = Raster.",
@@ -226,40 +243,26 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "help_opt_ai": (
             "Optionaler Feinschliff nach der lokalen Vorfilterung "
-            "(Gesichter, Schärfe, Duplikate, Ästhetik decken schon ~90 % ab).\n\n"
-            "Nur die verbleibenden Top-Kandidaten werden von einer KI bewertet "
-            "(Szene, Emotion, Landmarken, Keep/Drop).\n\n"
-            "Ohne KI läuft alles rein lokal und kostenlos – oft schon sehr gut. "
-            "Welches Modell passt, steht im ? neben „KI wählen“."
+            "(Gesichter, Schärfe, Duplikate, Ästhetik decken schon ~90 % ab). "
+            "Anbieter wählst du unter „KI wählen“."
         ),
         "help_ai_provider": (
-            "Vergleich im Kontext des Fotobuch-Curators\n\n"
-            "Datenschutz & Offline\n"
-            "• Anthropic (Claude): braucht Internet; Bilder gehen an Cloud-Server\n"
-            "• Ollama (z. B. LLaVA / Llama 3): 100 % lokal & offline – "
-            "keine Daten verlassen den PC\n\n"
-            "Kosten\n"
-            "• Anthropic: Pay-per-Token (API-Kosten pro Bild, meist Cent-Beträge)\n"
-            "• Ollama: kostenlos (nutzt nur deine Hardware)\n\n"
-            "Bildverarbeitung (Vision)\n"
-            "• Anthropic: brillant – Ästhetik, Nuancen, Emotionen, Komposition "
-            "& Details extrem präzise\n"
-            "• Ollama: solide bis mäßig – Objekte gut, feine Bildästhetik schwerer\n\n"
-            "Hardware\n"
-            "• Anthropic: keine (läuft auf Anthropic-Servern)\n"
-            "• Ollama: sehr hoch – starke GPU (z. B. NVIDIA mit viel VRAM) "
-            "für sinnvolle Tempo\n\n"
-            "Geschwindigkeit\n"
-            "• Anthropic: abhängig von Internet/API-Latenz\n"
-            "• Ollama: abhängig von deiner Hardware "
-            "(bei Tausenden Fotos lokal oft sehr langsam)\n\n"
-            "Empfehlung: Anthropic für maximale Qualität; Ollama, wenn Cloud "
-            "tabu ist und eine starke GPU da ist. "
-            "Ollama: installieren, starten, z. B. „ollama pull llava“."
+            "Welche KI?\n\n"
+            "• Keine KI: 100 % lokal, schnell – nur OpenCV/MediaPipe/pHash. "
+            "Kein API-Key, kein Internet für die Bewertung.\n\n"
+            "• Google Gemini 1.5 Flash (Gratis/Free Tier): bis ca. 1.500 Bilder/Tag "
+            "kostenlos. Sehr gut für Bildästhetik, Motiverkennung und Text auf "
+            "Schildern/Speisekarten. Braucht Gemini-API-Key + Internet.\n\n"
+            "• Anthropic Claude (kostenpflichtig): Pay-per-Use, höchste Präzision "
+            "bei künstlerischer Komposition, Stimmungen und feinen Nuancen.\n\n"
+            "• Ollama (lokal): privat & offline, braucht starke GPU; Qualität "
+            "meist unter Cloud-Modellen, bei großen Mengen oft langsam.\n\n"
+            "Bereits bewertete Fotos (Cache/CSV) werden nicht erneut gesendet. "
+            "Bei API-Fehlern greift die lokale Heuristik."
         ),
         "help_opt_dry": (
-            "Kein echter Anthropic-Aufruf: zählt nur Kandidaten und schätzt den Betrag. "
-            "Nur sinnvoll bei Anthropic; bei Ollama ausgeblendet (dort immer $0)."
+            "Kein echter API-Aufruf: zählt nur Kandidaten und schätzt Kosten/Limits. "
+            "Sinnvoll bei Gemini/Anthropic; bei Ollama/Keine KI ausgeblendet."
         ),
     },
     "en": {
@@ -335,13 +338,30 @@ _STRINGS: dict[str, dict[str, str]] = {
         "opt_people": "People balance",
         "opt_map": "Chapter/map preview before export",
         "opt_ai": "AI review",
-        "opt_dry": "Estimate cost only (Anthropic)",
+        "opt_dry": "Estimate cost / candidates only",
         "ai_provider": "Choose AI",
-        "ai_provider_anthropic": "Anthropic (API, paid)",
-        "ai_provider_ollama": "Free AI (Ollama, local)",
-        "ai_api_key": "API key (Anthropic only)",
+        "ai_provider_none": "No AI (local heuristics only)",
+        "ai_provider_gemini": "Google Gemini 1.5 Flash (free tier)",
+        "ai_provider_anthropic": "Anthropic Claude (paid)",
+        "ai_provider_ollama": "Ollama local (free, strong GPU)",
+        "ai_api_key": "API key",
+        "ai_api_key_gemini": "Gemini API key",
+        "ai_api_key_anthropic": "Anthropic API key",
+        "ai_key_link": "Create API key…",
         "ai_ollama_hint": "Ollama must be running – e.g. run “ollama pull llava” first.",
         "ai_ollama_model": "Ollama model",
+        "ai_blurb_none": "100% local & fast – OpenCV / MediaPipe / pHash only (no cloud).",
+        "ai_blurb_gemini": (
+            "Free tier (~1,500 images/day) – strong on aesthetics, subjects, "
+            "and text on signs/menus. Needs internet + key."
+        ),
+        "ai_blurb_anthropic": (
+            "Pay-per-use – highest precision for composition, mood, and fine nuance. "
+            "Needs internet + key."
+        ),
+        "ai_blurb_ollama": (
+            "100% local & offline – uses your GPU; often slow with many photos."
+        ),
         "review_title": "Review selection",
         "review_hint_grid": "One folder at a time · click = keep/remove · right-click = move.",
         "review_hint_slide": "Slideshow: filters/chapters · previews · alternative · Esc = grid.",
@@ -480,40 +500,26 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "help_opt_ai": (
             "Optional fine-tuning after local prefiltering "
-            "(faces, sharpness, duplicates, aesthetic already cover ~90%).\n\n"
-            "Only remaining top candidates are scored by an AI "
-            "(scene, emotion, landmarks, keep/drop).\n\n"
-            "Without AI everything stays local and free – often already strong. "
-            "See the ? next to “Choose AI” for which model fits."
+            "(faces, sharpness, duplicates, aesthetic already cover ~90%). "
+            "Pick the provider under “Choose AI”."
         ),
         "help_ai_provider": (
-            "Comparison for the photobook curator\n\n"
-            "Privacy & offline\n"
-            "• Anthropic (Claude): needs internet; photos go to cloud servers\n"
-            "• Ollama (e.g. LLaVA / Llama 3): 100% local & offline – "
-            "no data leaves your PC\n\n"
-            "Cost\n"
-            "• Anthropic: pay-per-token (API cost per image, usually cents)\n"
-            "• Ollama: free (uses only your hardware)\n\n"
-            "Vision / image understanding\n"
-            "• Anthropic: excellent – aesthetics, nuance, emotion, composition "
-            "& detail very precise\n"
-            "• Ollama: solid to moderate – good at objects, weaker on fine aesthetics\n\n"
-            "Hardware\n"
-            "• Anthropic: none (runs on Anthropic servers)\n"
-            "• Ollama: very high – strong GPU (e.g. NVIDIA with lots of VRAM) "
-            "for usable speed\n\n"
-            "Speed\n"
-            "• Anthropic: depends on internet/API latency\n"
-            "• Ollama: depends on your hardware "
-            "(can be very slow locally with thousands of photos)\n\n"
-            "Recommendation: Anthropic for max quality; Ollama if cloud is off-limits "
-            "and you have a strong GPU. "
-            "Ollama: install, start, e.g. “ollama pull llava”."
+            "Which AI?\n\n"
+            "• No AI: 100% local, fast – OpenCV/MediaPipe/pHash only. "
+            "No API key, no internet for scoring.\n\n"
+            "• Google Gemini 1.5 Flash (free tier): ~1,500 images/day free. "
+            "Strong on aesthetics, subjects, and text on signs/menus. "
+            "Needs Gemini API key + internet.\n\n"
+            "• Anthropic Claude (paid): pay-per-use, highest precision for "
+            "artistic composition, mood, and fine nuance.\n\n"
+            "• Ollama (local): private & offline, needs a strong GPU; quality "
+            "usually below cloud models, often slow on large batches.\n\n"
+            "Already scored photos (cache/CSV) are not resent. "
+            "On API errors the local heuristic is used."
         ),
         "help_opt_dry": (
-            "No real Anthropic call: counts candidates and estimates cost only. "
-            "Only useful with Anthropic; hidden for Ollama (always $0 there)."
+            "No real API call: counts candidates and estimates cost/limits only. "
+            "Useful for Gemini/Anthropic; hidden for Ollama/No AI."
         ),
     },
 }

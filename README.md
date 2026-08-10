@@ -9,9 +9,10 @@ Das Tool scannt Fotos, bewertet sie technisch, clustert GPS-Orte zu Regionen (Ka
 ## Anforderungen
 
 - Python 3.11+
+- Optional: `GEMINI_API_KEY` für `--ai-review --ai-provider gemini` (Free Tier)
 - Optional: `ANTHROPIC_API_KEY` für `--ai-review --ai-provider anthropic`
-- Optional: lokales [Ollama](https://ollama.com) mit Vision-Modell (z. B. `ollama pull llava`) für gratis KI
-- Netzwerk nur für Nominatim (Reverse Geocoding) und optional Anthropic
+- Optional: lokales [Ollama](https://ollama.com) mit Vision-Modell (z. B. `ollama pull llava`)
+- Netzwerk nur für Nominatim (Reverse Geocoding) und optional Gemini/Anthropic
 
 ## Installation
 
@@ -40,11 +41,15 @@ python -m photobook_curator -i sample_photos -o output_sample -n 20 --geocode
 
 # AI-Review Trockenlauf (Kostenschätzung, Anthropic)
 python -m photobook_curator -i sample_photos -o output_sample -n 20 \
-  --ai-review --dry-run --no-geocode
+  --ai-review --ai-provider anthropic --dry-run --no-geocode
+
+# Gemini Free Tier (GEMINI_API_KEY setzen)
+python -m photobook_curator -i sample_photos -o output_sample -n 20 \
+  --ai-provider gemini --no-geocode
 
 # Gratis KI lokal (Ollama muss laufen, z. B. Modell llava)
 python -m photobook_curator -i sample_photos -o output_sample -n 20 \
-  --ai-review --ai-provider ollama --no-geocode
+  --ai-provider ollama --no-geocode
 ```
 
 ## Wichtige CLI-Parameter
@@ -56,10 +61,10 @@ python -m photobook_curator -i sample_photos -o output_sample -n 20 \
 | `-n/--target-count` | Zielanzahl Bilder | 80 |
 | `-k/--candidate-factor` | Kandidatenfaktor | 4 |
 | `--geocode` / `--no-geocode` | Nominatim Reverse Geocoding | an |
-| `--ai-review` | KI-Bewertung (Anthropic oder Ollama) | aus |
-| `--ai-provider` | `anthropic` oder `ollama` (gratis lokal) | anthropic |
+| `--ai-review` | KI an (ohne Provider → Gemini) | aus |
+| `--ai-provider` | `none` / `gemini` / `anthropic` / `ollama` | none |
 | `--ai-model` | Optionales Modell | Provider-Default |
-| `--dry-run` | Nur Kostenschätzung bei Anthropic | aus |
+| `--dry-run` | Nur Kostenschätzung / Kandidaten zählen | aus |
 | `--food-ratio` | Max. Essens-Anteil pro Region | 0.15 |
 | `--max-landmarks` | Max. Landmark-Bilder / Region | 3 |
 | `--min-transit-photos` | Min. Fotos für Transit-Abschnitt | 3 |
@@ -77,5 +82,5 @@ python -m photobook_curator -i sample_photos -o output_sample -n 20 \
 1. Scan, EXIF, Schärfe/Belichtung, Duplikate (pHash), Gesichter, technischer Score
 2. DBSCAN-GPS-Cluster, Reverse Geocoding, Regionen chronologisch
 3. Transit zwischen Regionen
-4. Optional: Anthropic Vision oder lokale Ollama (`llava` o. ä.)
+4. Optional: Gemini 1.5 Flash, Anthropic Vision oder lokale Ollama
 5. Kontingente, Essens-Trennung, Vielfalt, Buchreihenfolge, Export

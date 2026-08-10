@@ -1,4 +1,4 @@
-"""Phase 4: KI-gestützte Inhaltsbewertung via Anthropic Vision oder lokale Ollama."""
+"""Phase 4: KI-Bewertung via Anthropic, Google Gemini oder lokale Ollama."""
 
 from __future__ import annotations
 
@@ -17,9 +17,12 @@ from tqdm import tqdm
 from .models import Photo
 from .utils import load_image, resize_max_edge
 
+PROVIDER_NONE = "none"
 PROVIDER_ANTHROPIC = "anthropic"
+PROVIDER_GEMINI = "gemini"
 PROVIDER_OLLAMA = "ollama"
-AI_PROVIDERS = (PROVIDER_ANTHROPIC, PROVIDER_OLLAMA)
+AI_PROVIDERS = (PROVIDER_NONE, PROVIDER_GEMINI, PROVIDER_ANTHROPIC, PROVIDER_OLLAMA)
+CLOUD_AI_PROVIDERS = (PROVIDER_GEMINI, PROVIDER_ANTHROPIC, PROVIDER_OLLAMA)
 
 SYSTEM_PROMPT = (
     "Du bewertest ein Urlaubsfoto für ein gedrucktes Fotobuch. "
@@ -35,29 +38,48 @@ SYSTEM_PROMPT = (
     "- keep_recommendation: true oder false"
 )
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = DEFAULT_ANTHROPIC_MODEL  # Rückwärtskompatibilität
+DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
 DEFAULT_OLLAMA_MODEL = "llava"
 DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
-# Grobe Kostenschätzung USD pro Bild (Input+Output Vision klein) – nur Anthropic
+ANTHROPIC_KEY_URL = "https://console.anthropic.com/"
+GEMINI_KEY_URL = "https://aistudio.google.com/apikey"
+# Grobe Kostenschätzung USD pro Bild – nur Anthropic (Pay-per-Use)
 ESTIMATED_COST_PER_IMAGE_USD = 0.01
 
 
 def normalize_ai_provider(provider: str | None) -> str:
-    raw = str(provider or PROVIDER_ANTHROPIC).strip().lower()
-    if raw in ("gratis", "free", "local", "ollama"):
-        return PROVIDER_OLLAMA
-    if raw in ("claude", "anthropic", "api"):
+    raw = str(provider or PROVIDER_NONE).strip().lower()
+    if raw in ("", "none", "off", "local-only", "heuristik", "heuristic", "no", "false", "0"):
+        return PROVIDER_NONE
+    if raw in ("gemini", "google", "flash", "gemini-flash", "gratis", "free"):
+        return PROVIDER_GEMINI
+    if raw in ("claude", "anthropic", "api", "sonnet"):
         return PROVIDER_ANTHROPIC
-    return PROVIDER_ANTHROPIC if raw not in AI_PROVIDERS else raw
+    if raw in ("ollama", "llava", "local"):
+        return PROVIDER_OLLAMA
+    return raw if raw in AI_PROVIDERS else PROVIDER_NONE
+
+
+def is_ai_provider_enabled(provider: str | None) -> bool:
+    return normalize_ai_provider(provider) in CLOUD_AI_PROVIDERS
 
 
 def image_to_jpeg_b64(photo: Photo, max_edge: int = 1024, quality: int = 85) -> Optional[str]:
+    raw = image_to_jpeg_bytes(photo, max_edge=max_edge, quality=quality)
+    if raw is None:
+        return None
+    return base64.standard_b64encode(raw).decode("ascii")
+
+
+def image_to_jpeg_bytes(photo: Photo, max_edge: int = 1024, quality: int = 85) -> Optional[bytes]:
     try:
         img = load_image(photo.path)
         img = resize_max_edge(img, max_edge=max_edge)
         buf = io.BytesIO()
         img.convert("RGB").save(buf, format="JPEG", quality=quality)
-        return base64.standard_b64encode(buf.getvalue()).decode("ascii")
+        return buf.getvalue()
     except Exception:
         return None
 
@@ -113,9 +135,9 @@ def estimate_cost(
     num_candidates: int,
     *,
     provider: str = PROVIDER_ANTHROPIC,
-) -> dict[str, float]:
+) -> dict[str, float | str]:
     prov = normalize_ai_provider(provider)
-    per = 0.0 if prov == PROVIDER_OLLAMA else ESTIMATED_COST_PER_IMAGE_USD
+    per = ESTIMATED_COST_PER_IMAGE_USD if prov == PROVIDER_ANTHROPIC else 0.0
     total = num_candidates * per
     return {
         "candidates": float(num_candidates),
@@ -263,6 +285,43 @@ def _review_one_ollama(
     return photo, data, None
 
 
+def _review_one_gemini(
+    model: Any, photo: Photo
+) -> tuple[Photo, Optional[dict], Optional[str]]:
+    raw = image_to_jpeg_bytes(photo)
+    if raw is None:
+        return photo, None, "encode_failed"
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
+        response = model.generate_content(
+            [img, "Bewerte dieses Urlaubsfoto für das Fotobuch."]
+        )
+        text = getattr(response, "text", None) or ""
+        if not text and getattr(response, "candidates", None):
+            # Fallback bei blockierten/leeren Antworten
+            parts = []
+            for cand in response.candidates:
+                content = getattr(cand, "content", None)
+                for part in getattr(content, "parts", []) or []:
+                    if getattr(part, "text", None):
+                        parts.append(part.text)
+            text = "\n".join(parts)
+        data = parse_ai_response(text)
+        if data is None:
+            return photo, None, "parse_failed"
+        return photo, data, None
+    except Exception as exc:  # noqa: BLE001
+        name = type(exc).__name__
+        msg = str(exc).lower()
+        if "quota" in msg or "429" in msg or "resource exhausted" in msg:
+            return photo, None, f"gemini_quota:{name}"
+        if "api key" in msg or "permission" in msg or "401" in msg or "403" in msg:
+            return photo, None, f"gemini_auth:{name}"
+        return photo, None, f"gemini_error:{name}"
+
+
 def run_ai_review(
     photos: list[Photo],
     candidate_indices: list[int],
@@ -274,22 +333,60 @@ def run_ai_review(
     api_key: str | None = None,
     ollama_host: str | None = None,
 ) -> dict[str, Any]:
-    """Bewertet Kandidatenbilder (Anthropic oder lokale Ollama). Bei dry_run nur Kostenschätzung."""
+    """Bewertet Kandidaten (Gemini / Anthropic / Ollama). Bei dry_run nur Schätzung."""
     prov = normalize_ai_provider(provider)
-    cost = estimate_cost(len(candidate_indices), provider=prov)
+    if prov == PROVIDER_NONE:
+        ensure_scene_types(photos, candidate_indices)
+        return {
+            "dry_run": False,
+            "ok": 0,
+            "failed": 0,
+            "skipped_cached": 0,
+            "provider": prov,
+            "candidates": float(len(candidate_indices)),
+            "usd_per_image": 0.0,
+            "usd_total_estimate": 0.0,
+        }
+
+    # Bereits bewertete Fotos (CSV/Cache) nicht erneut an die API schicken
+    todo: list[int] = []
+    skipped_cached = 0
+    for i in candidate_indices:
+        if i < 0 or i >= len(photos):
+            continue
+        if photos[i].ai_reviewed:
+            skipped_cached += 1
+            continue
+        todo.append(i)
+
+    cost = estimate_cost(len(todo), provider=prov)
     if dry_run:
-        if prov == PROVIDER_OLLAMA:
-            print(
-                f"[dry-run] AI-Review (Ollama/gratis): {int(cost['candidates'])} Kandidaten, "
-                f"geschätzte Kosten $0.00 (lokal)"
+        label = {
+            PROVIDER_GEMINI: "Gemini Free Tier",
+            PROVIDER_OLLAMA: "Ollama/lokal",
+            PROVIDER_ANTHROPIC: "Anthropic",
+        }.get(prov, prov)
+        print(
+            f"[dry-run] AI-Review ({label}): {int(cost['candidates'])} Kandidaten"
+            + (
+                f", geschätzt ~ ${cost['usd_total_estimate']:.2f}"
+                if prov == PROVIDER_ANTHROPIC
+                else ", geschätzt $0.00"
             )
-        else:
-            print(
-                f"[dry-run] AI-Review (Anthropic): {int(cost['candidates'])} Kandidaten, "
-                f"geschätzte Kosten ~ ${cost['usd_total_estimate']:.2f} "
-                f"(${cost['usd_per_image']:.3f}/Bild)"
-            )
-        return {"dry_run": True, **cost}
+            + (f" · {skipped_cached} bereits im Cache" if skipped_cached else "")
+        )
+        return {"dry_run": True, "skipped_cached": skipped_cached, **cost}
+
+    if not todo:
+        print(f"  AI-Review: alle {skipped_cached} Kandidaten bereits bewertet (Cache) – übersprungen")
+        ensure_scene_types(photos, candidate_indices)
+        return {
+            "dry_run": False,
+            "ok": 0,
+            "failed": 0,
+            "skipped_cached": skipped_cached,
+            **cost,
+        }
 
     if prov == PROVIDER_OLLAMA:
         host = (ollama_host or os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST).rstrip("/")
@@ -299,21 +396,48 @@ def run_ai_review(
             raise RuntimeError(msg)
         print(f"  {msg}")
         print(f"  Ollama-Modell: {use_model}")
-        # Lokal meist ein Modell → wenig Parallelität
         workers = max(1, min(int(concurrency or 1), 2))
         review_fn = _review_one_ollama
-        review_args = (host, use_model)
+        review_args: tuple[Any, ...] = (host, use_model)
+    elif prov == PROVIDER_GEMINI:
+        key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not key:
+            raise RuntimeError(
+                "GEMINI_API_KEY fehlt. Key unter "
+                f"{GEMINI_KEY_URL} erstellen und in der GUI eintragen."
+            )
+        try:
+            import google.generativeai as genai
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "google-generativeai ist nicht installiert. "
+                "Bitte: pip install google-generativeai"
+            ) from exc
+        use_model = model or os.environ.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL
+        genai.configure(api_key=key)
+        gemini_model = genai.GenerativeModel(
+            model_name=use_model,
+            system_instruction=SYSTEM_PROMPT,
+            generation_config={
+                "temperature": 0.2,
+                "response_mime_type": "application/json",
+            },
+        )
+        print(f"  Gemini-Modell: {use_model} (Free Tier – Rate-Limits beachten)")
+        workers = max(1, min(int(concurrency or 3), 3))
+        review_fn = _review_one_gemini
+        review_args = (gemini_model,)
     else:
         key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not key:
             raise RuntimeError(
                 "ANTHROPIC_API_KEY ist nicht gesetzt. "
                 "Bitte Umgebungsvariable setzen, API-Key in der GUI eintragen "
-                "oder Gratis-KI (Ollama) wählen."
+                "oder Gemini / Ollama wählen."
             )
         import anthropic
 
-        use_model = model or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
+        use_model = model or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_ANTHROPIC_MODEL
         client = anthropic.Anthropic(api_key=key)
         workers = max(1, int(concurrency or 5))
         review_fn = _review_one_anthropic
@@ -323,9 +447,7 @@ def run_ai_review(
     failed = 0
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {
-            pool.submit(review_fn, *review_args, photos[i]): i for i in candidate_indices
-        }
+        futures = {pool.submit(review_fn, *review_args, photos[i]): i for i in todo}
         for fut in tqdm(as_completed(futures), total=len(futures), desc="AI-Review", unit="img"):
             photo, data, err = fut.result()
             if data is not None:
@@ -334,9 +456,18 @@ def run_ai_review(
             else:
                 failed += 1
                 photo.add_flag(err or "ai_failed")
-                # technischer Score bleibt, Lauf geht weiter
+                # Stabil: lokale Heuristik statt leerem scene_type
+                if not photo.scene_type:
+                    photo.scene_type = heuristic_scene_type(photo)
 
-    return {"dry_run": False, "ok": ok, "failed": failed, **cost}
+    ensure_scene_types(photos, candidate_indices)
+    return {
+        "dry_run": False,
+        "ok": ok,
+        "failed": failed,
+        "skipped_cached": skipped_cached,
+        **cost,
+    }
 
 
 def _visual_scene_hint(photo: Photo) -> Optional[str]:

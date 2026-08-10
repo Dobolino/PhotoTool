@@ -42,7 +42,7 @@ class PipelineConfig:
     candidate_factor: float = 4.0
     geocode: bool = True
     ai_review: bool = False
-    ai_provider: str = "anthropic"  # anthropic | ollama (gratis, lokal)
+    ai_provider: str = "none"  # none | gemini | anthropic | ollama
     ai_model: str | None = None  # None → Provider-Default
     dry_run: bool = False
     food_ratio: float = 0.15
@@ -319,7 +319,11 @@ def run_pipeline(
 
     ai_stats: dict[str, Any] = {}
     report("Szenen / KI…", 0.86, "scenes")
-    if cfg.ai_review:
+    if cfg.ai_review and cfg.ai_provider and str(cfg.ai_provider).lower() not in (
+        "none",
+        "off",
+        "",
+    ):
         print(f"=== Phase 4: AI-Review ({cfg.ai_provider}) ===")
         ai_stats = run_ai_review(
             photos,
@@ -330,7 +334,7 @@ def run_pipeline(
             model=cfg.ai_model,
         )
     else:
-        print("=== Phase 4: AI-Review übersprungen ===")
+        print("=== Phase 4: AI-Review übersprungen (lokale Heuristik) ===")
         ensure_scene_types(photos, candidates)
 
     # Checkpoint: Analyse/KI sichern, bevor Auswahl/Export – Absturz kostet dann keine KI erneut
