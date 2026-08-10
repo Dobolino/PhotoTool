@@ -201,3 +201,64 @@ def build_location_plan(
     regions = build_regions(photos, clusters)
     unassigned = assign_photos_without_gps(photos, regions, max_hours=gps_time_hours)
     return BookPlan(regions=regions, unassigned_indices=unassigned)
+
+
+def promote_unassigned_to_region(photos: list[Photo], plan: BookPlan) -> Region | None:
+    """
+    Macht GPS-lose / unbestimmte Fotos auswählbar.
+    Ohne diese Region würden Alben ohne GPS 0 Bilder bekommen.
+    Nach Transit-Erkennung aufrufen (Transit hat Vorrang).
+    """
+    remaining: list[int] = []
+    seen: set[int] = set()
+    for i in plan.unassigned_indices:
+        if i in seen:
+            continue
+        p = photos[i]
+        if getattr(p, "is_aside", False):
+            continue
+        if p.is_duplicate or getattr(p, "is_burst_reject", False):
+            continue
+        remaining.append(i)
+        seen.add(i)
+    # Auch Fotos mit Region „Unbestimmt“, die nicht in der Liste stehen
+    for i, p in enumerate(photos):
+        if i in seen:
+            continue
+        if getattr(p, "is_aside", False):
+            continue
+        if p.region == "Unbestimmt":
+            remaining.append(i)
+            seen.add(i)
+
+    if not remaining:
+        return None
+
+    name = "Album" if not plan.regions else "Unbestimmt"
+    times = [photos[i].datetime_taken for i in remaining if photos[i].datetime_taken]
+    start = min(times) if times else None
+    end = max(times) if times else None
+    day_count = 1
+    if start and end:
+        day_count = max(1, (end.date() - start.date()).days + 1)
+
+    region = Region(
+        name=name,
+        photo_indices=sorted(
+            remaining,
+            key=lambda i: photos[i].datetime_taken or datetime.min,
+        ),
+        start_time=start,
+        end_time=end,
+        day_count=day_count,
+        chapter_index=len(plan.regions),
+    )
+    for i in remaining:
+        photos[i].region = name
+        if "unbestimmt" in photos[i].flags and name == "Album":
+            photos[i].flags = [f for f in photos[i].flags if f != "unbestimmt"]
+    plan.regions.append(region)
+    plan.unassigned_indices = [
+        i for i in plan.unassigned_indices if i not in seen
+    ]
+    return region

@@ -1443,13 +1443,15 @@ class PhotobookApp(tk.Tk):
         if not sid:
             return
         if sid == "done" or (label or "").lower().startswith("fertig"):
+            is_dry = "dry" in (label or "").lower()
             for step in PHASE_STEPS:
                 st = self._phase_status.get(step.id)
                 if st == "running":
                     self._phase_status[step.id] = "done"
                 elif st == "pending":
-                    # z. B. Dry-Run: nicht gelaufene Reste als übersprungen
-                    self._phase_status[step.id] = "skipped"
+                    # Dry-Run: Rest übersprungen. Normaler Lauf: fehlende
+                    # Fortschritts-Events trotzdem als erledigt zählen.
+                    self._phase_status[step.id] = "skipped" if is_dry else "done"
                 self._paint_phase_chip(step.id)
             return
 
@@ -1905,14 +1907,22 @@ class PhotobookApp(tk.Tk):
         has_draft = draft_exists(output_dir)
         has_ai = analysis_has_ai_scores(photos)
         has_candidates = any(p.is_candidate for p in photos)
+        has_analysis = len(photos) > 0
 
         if not has_selected and not has_draft:
-            if has_ai or has_candidates:
+            if has_analysis:
                 msg = (
                     "Es gibt eine Analyse-CSV, aber noch keine finale Auswahl.\n\n"
                 )
                 if has_ai:
                     msg += "KI-Bewertungen sind bereits gespeichert – keine neue KI nötig.\n\n"
+                elif has_candidates:
+                    msg += "Technische Analyse ist vorhanden – Auswahl ohne KI möglich.\n\n"
+                else:
+                    msg += (
+                        "Technische Analyse ist vorhanden (auch ohne GPS/KI).\n"
+                        "Es wird ein Album-Kapitel erzeugt.\n\n"
+                    )
                 msg += (
                     "Auswahl jetzt aus der Analyse erzeugen (ohne KI-Kosten) "
                     "und danach prüfen?"
@@ -1956,7 +1966,8 @@ class PhotobookApp(tk.Tk):
                     "Keine Auswahl",
                     "In diesem Ordner sind weder ausgewählte Bilder noch ein "
                     "Auswahl-Entwurf vorhanden.\n\n"
-                    "Bitte zuerst „Auswahl starten“ (ohne „Nur Kosten schätzen“).",
+                    "Bitte zuerst „Auswahl starten“ (KI ist optional – "
+                    "ohne GPS wird ein Album-Kapitel gebaut).",
                 )
                 return
         elif has_draft and not has_selected:

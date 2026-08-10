@@ -113,3 +113,30 @@ def test_assign_without_gps():
     assert photos[1].region == "Paris"
     assert photos[1].assigned_by_time is True
     assert 2 in unassigned
+
+
+def test_promote_unassigned_makes_album_without_gps():
+    """Alben ohne GPS dürfen nicht bei 0 Auswahl landen."""
+    from photobook_curator.models import BookPlan
+    from photobook_curator.regions import promote_unassigned_to_region
+    from photobook_curator.selection import build_book_order, mark_candidates
+
+    base = datetime(2024, 6, 1, 10, 0, 0)
+    photos = [
+        _photo("a.jpg", base),
+        _photo("b.jpg", base + timedelta(minutes=5)),
+        _photo("c.jpg", base + timedelta(minutes=10)),
+    ]
+    for p in photos:
+        p.technical_score = 70.0
+        p.region = "Unbestimmt"
+        p.add_flag("unbestimmt")
+    plan = BookPlan(regions=[], unassigned_indices=[0, 1, 2])
+    promoted = promote_unassigned_to_region(photos, plan)
+    assert promoted is not None
+    assert promoted.name == "Album"
+    assert len(plan.regions) == 1
+    mark_candidates(photos, plan, target_n=2, candidate_factor=2.0)
+    order = build_book_order(photos, plan, similarity_threshold=1.1)
+    assert len(order) >= 1
+    assert any(p.is_selected for p in photos)

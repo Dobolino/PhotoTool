@@ -17,7 +17,7 @@ from .map_preview import write_chapter_map
 from .models import BookPlan, Photo
 from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
 from .people_balance import analyze_people_clusters
-from .regions import build_location_plan
+from .regions import build_location_plan, promote_unassigned_to_region
 from .scan import scan_photos
 from .selection import build_book_order, mark_candidates
 from .transit import detect_transits
@@ -295,6 +295,14 @@ def run_pipeline(
     print(f"  {len(plan.transits)} Transit-Abschnitte")
     for t in plan.transits:
         print(f"    - {t.name} ({len(t.photo_indices)} Fotos, Quota {t.quota})")
+
+    # Ohne GPS (oder nach Transit übrig): sonst 0 Auswahl trotz analysierter Fotos
+    promoted = promote_unassigned_to_region(photos, plan)
+    if promoted is not None:
+        print(
+            f"  {len(promoted.photo_indices)} Fotos ohne Ortszuordnung → "
+            f"Kapitel „{promoted.name}“ (Auswahl ohne GPS/KI möglich)"
+        )
 
     report("Kandidaten…", 0.82, "candidates")
     print("=== Kandidatenauswahl ===")

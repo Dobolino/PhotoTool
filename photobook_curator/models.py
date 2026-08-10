@@ -147,6 +147,7 @@ class Photo:
             "keep_recommendation": (
                 self.keep_recommendation if self.keep_recommendation is not None else ""
             ),
+            "ai_reviewed": self.ai_reviewed,
             "final_score": round(self.final_score, 2),
             "flags": "|".join(self.flags),
             "is_candidate": self.is_candidate,

@@ -115,11 +115,20 @@ def plan_from_photos(photos: list[Photo]) -> BookPlan:
     region_names: list[str] = []
     region_indices: dict[str, list[int]] = defaultdict(list)
     for i, p in enumerate(photos):
-        if not p.region or p.region.startswith("Transit:") or p.region == "Unbestimmt":
+        if getattr(p, "is_aside", False):
             continue
+        if not p.region or p.region.startswith("Transit:"):
+            continue
+        # Unbestimmt/Album mitnehmen – sonst leere Auswahl beim erneuten Laden
         if p.region not in region_indices:
             region_names.append(p.region)
         region_indices[p.region].append(i)
+
+    orphan = [
+        i
+        for i, p in enumerate(photos)
+        if not getattr(p, "is_aside", False) and not p.region
+    ]
 
     def region_start(name: str) -> datetime:
         times = [
@@ -169,7 +178,12 @@ def plan_from_photos(photos: list[Photo]) -> BookPlan:
             )
         )
     transits.sort(key=lambda t: t.chapter_index)
-    return BookPlan(regions=regions, transits=transits)
+    plan = BookPlan(regions=regions, transits=transits, unassigned_indices=orphan)
+    if orphan:
+        from .regions import promote_unassigned_to_region
+
+        promote_unassigned_to_region(photos, plan)
+    return plan
 
 
 def rebuild_selection_from_analysis(
@@ -230,7 +244,11 @@ def rebuild_selection_from_analysis(
 
 
 def analysis_has_ai_scores(photos: list[Photo]) -> bool:
-    return any(p.aesthetic_score is not None for p in photos)
+    """Echte KI-Bewertung (nicht nur lokale Ästhetik-Heuristik)."""
+    return any(
+        bool(getattr(p, "ai_reviewed", False)) or p.keep_recommendation is not None
+        for p in photos
+    )
 
 
 def load_photos_from_csv(csv_path: Path) -> list[Photo]:
@@ -338,6 +356,7 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 ],
                 flags=[f for f in (row.get("flags") or "").split("|") if f],
                 region=(row.get("region") or None) or None,
+                ai_reviewed=_bool("ai_reviewed"),
             )
             kr = (row.get("keep_recommendation") or "").strip().lower()
             if kr in ("true", "1", "yes"):

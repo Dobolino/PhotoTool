@@ -45,6 +45,7 @@ CSV_FIELDS = [
     "landmark",
     "quality_issue",
     "keep_recommendation",
+    "ai_reviewed",
     "final_score",
     "flags",
     "is_candidate",
