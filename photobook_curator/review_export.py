@@ -331,6 +331,12 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 book_position=_int("book_position") if bp_raw else None,
                 chapter_folder=(row.get("chapter_folder") or None) or None,
                 is_duplicate=_bool("is_duplicate"),
+                duplicate_of=(row.get("duplicate_of") or None),
+                fine_cluster_id=_int("fine_cluster_id")
+                if (row.get("fine_cluster_id") or "").strip()
+                else None,
+                country=(row.get("country") or None),
+                place_label=(row.get("place_label") or None),
                 is_burst_reject=_bool("is_burst_reject"),
                 burst_group_id=_int("burst_group_id") if (row.get("burst_group_id") or "").strip() else None,
                 is_screenshot=_bool("is_screenshot"),
@@ -514,6 +520,7 @@ def alternatives_for_index(
             and i not in out
             and p.is_candidate
             and not p.is_duplicate
+            and not getattr(p, "is_burst_reject", False)
             and not getattr(p, "is_aside", False)
             and (p.region == region or (p.chapter_folder or "") == folder)
         ]

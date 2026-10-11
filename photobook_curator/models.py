@@ -155,6 +155,7 @@ class Photo:
             "book_position": self.book_position if self.book_position is not None else "",
             "chapter_folder": self.chapter_folder or "",
             "is_duplicate": self.is_duplicate,
+            "duplicate_of": self.duplicate_of or "",
             "is_burst_reject": self.is_burst_reject,
             "burst_group_id": self.burst_group_id if self.burst_group_id is not None else "",
             "is_screenshot": self.is_screenshot,
@@ -164,6 +165,8 @@ class Photo:
             "fine_cluster_id": (
                 self.fine_cluster_id if self.fine_cluster_id is not None else ""
             ),
+            "country": self.country or "",
+            "place_label": self.place_label or "",
         }
 
 

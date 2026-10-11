@@ -9,7 +9,52 @@ from photobook_curator.review_export import (
     chapter_sections,
     plan_from_photos,
     rebuild_order_from_kept,
+    load_photos_from_csv,
+    related_duplicates,
+    alternatives_for_index,
 )
+
+
+def test_csv_preserves_duplicate_relationship_and_location(tmp_path):
+    from photobook_curator.output import write_csv
+
+    photos = [
+        Photo(path=Path("best.jpg"), filename="best.jpg"),
+        Photo(path=Path("copy.jpg"), filename="copy.jpg", is_duplicate=True,
+              duplicate_of="best.jpg", fine_cluster_id=0,
+              country="Schweiz", place_label="Zürich"),
+    ]
+    path = tmp_path / "analysis.csv"
+    write_csv(photos, path)
+    loaded = load_photos_from_csv(path)
+    assert loaded[1].duplicate_of == "best.jpg"
+    assert loaded[1].fine_cluster_id == 0
+    assert loaded[0].fine_cluster_id is None
+    assert loaded[1].country == "Schweiz"
+    assert loaded[1].place_label == "Zürich"
+    assert related_duplicates(loaded, 0) == [1]
+
+
+def test_legacy_csv_without_new_metadata_columns(tmp_path):
+    path = tmp_path / "legacy.csv"
+    path.write_text("filename,path,is_duplicate\nold.jpg,old.jpg,True\n", encoding="utf-8")
+    photo = load_photos_from_csv(path)[0]
+    assert photo.is_duplicate
+    assert photo.duplicate_of is None
+    assert photo.fine_cluster_id is None
+    assert photo.country is None
+    assert photo.place_label is None
+
+
+def test_alternative_fallback_excludes_rejected_bursts():
+    photos = [
+        _photo("chosen.jpg"),
+        _photo("burst.jpg", selected=False, folder="", pos=2),
+        _photo("good.jpg", selected=False, folder="", pos=3),
+    ]
+    photos[1].is_burst_reject = True
+    photos[1].final_score = 99
+    assert alternatives_for_index(photos, 0, {0}) == [2]
 
 
 def _photo(name, selected=True, folder="01_Paris/hauptteil", pos=1, region="Paris"):
