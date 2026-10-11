@@ -33,6 +33,7 @@ SCENE_TYPES = (
 class Photo:
     path: Path
     filename: str
+    review_added: bool = False  # Manuell hinzugefügt; im Review getrennt anzeigen
     datetime_taken: Optional[datetime] = None
     camera_model: Optional[str] = None
     gps_lat: Optional[float] = None
@@ -89,6 +90,7 @@ class Photo:
     final_score: float = 0.0
     is_candidate: bool = False
     is_selected: bool = False
+    is_favorite: bool = False
     chapter_type: Optional[str] = None
     book_position: Optional[int] = None
     chapter_folder: Optional[str] = None
@@ -152,9 +154,12 @@ class Photo:
             "flags": "|".join(self.flags),
             "is_candidate": self.is_candidate,
             "is_selected": self.is_selected,
+            "is_favorite": self.is_favorite,
+            "review_added": self.review_added,
             "book_position": self.book_position if self.book_position is not None else "",
             "chapter_folder": self.chapter_folder or "",
             "is_duplicate": self.is_duplicate,
+            "duplicate_of": self.duplicate_of or "",
             "is_burst_reject": self.is_burst_reject,
             "burst_group_id": self.burst_group_id if self.burst_group_id is not None else "",
             "is_screenshot": self.is_screenshot,
@@ -164,6 +169,8 @@ class Photo:
             "fine_cluster_id": (
                 self.fine_cluster_id if self.fine_cluster_id is not None else ""
             ),
+            "country": self.country or "",
+            "place_label": self.place_label or "",
         }
 
 

@@ -13,6 +13,16 @@ import traceback
 
 def main() -> int:
     try:
+        if "--smoke-test" in sys.argv:
+            import tkinter as tk
+            from photobook_curator import gui, review_gui, updater
+            from photobook_curator.geocoding import offline_reverse
+            root = tk.Tk()
+            root.withdraw()
+            root.update()
+            root.destroy()
+            assert offline_reverse(35.6762, 139.6503)["city"] == "Tokyo"
+            return 0
         from photobook_curator.gui import main as gui_main
 
         return gui_main()

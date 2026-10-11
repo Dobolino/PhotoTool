@@ -19,6 +19,33 @@ starten können – ein Ordner mit `Fotobuch.exe`, fertig.
 
 ## Distribution an Endnutzer
 
+### GitHub-Build und Releases
+
+`.github/workflows/windows-build.yml` testet und baut unter Windows bei Pull Requests,
+manuellem Workflow-Start und Tags `v*`. Der Build erzeugt den Installer mit Inno Setup
+6.7.3, ein portables ZIP und SHA256SUMS. Python-Abhängigkeiten sind für diesen Build
+in `constraints-windows.txt` auf die getesteten Versionen begrenzt.
+
+Für eine Veröffentlichung zuerst `photobook_curator/__init__.py`, `pyproject.toml`
+und den Default in `installer.iss` auf dieselbe Version setzen. Nach Prüfung und Merge
+einen Tag wie `v0.2.0` auf diesen Commit pushen. Tag und App-Version müssen übereinstimmen.
+Erst nach erfolgreichem Test, EXE-Smoke-Test und Installer-Build wird ein GitHub Release
+mit den Dateien veröffentlicht. PR-/manuelle Builds bleiben herunterladbare Actions-Artefakte.
+
+Solange `main` nur die ursprüngliche README enthält, zuerst den Entwicklungsstand
+einschliesslich dieses Workflows übernehmen. Ein manueller Workflow-Start wird in
+GitHub erst angeboten, wenn die Workflow-Datei auf dem Standardbranch vorhanden ist.
+
+### Update im Programm
+
+Die Schaltfläche **Updates** fragt ausschliesslich das neueste stabile GitHub Release
+von `Dobolino/PhotoTool` ab. Erwartet wird `PhotoTool-Setup-X.Y.Z.exe` mit einem
+SHA256-`digest` in GitHubs Asset-Metadaten. Ohne passenden Installer/Prüfsumme wird
+keine Installation gestartet. Download-Grösse und SHA256 müssen vor dem Start passen.
+SHA256 stellt die Übereinstimmung mit dem GitHub-Asset sicher; es ersetzt keine
+Windows-Codesignatur. Der Installer aktualisiert die Installation im Benutzerprofil;
+Fotoquellen, Ausgabeordner und Benutzereinstellungen sind nicht Teil des Installers.
+
 - **Einfach:** Ordner `dist\Fotobuch` als **ZIP** weitergeben → entpacken →
   `Fotobuch.exe` doppelklicken. Kein Python nötig.
 - **Komfortabel:** Mit [Inno Setup](https://jrsoftware.org/isinfo.php) einen

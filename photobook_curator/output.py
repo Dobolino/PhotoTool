@@ -50,9 +50,12 @@ CSV_FIELDS = [
     "flags",
     "is_candidate",
     "is_selected",
+    "is_favorite",
+    "review_added",
     "book_position",
     "chapter_folder",
     "is_duplicate",
+    "duplicate_of",
     "is_burst_reject",
     "burst_group_id",
     "is_screenshot",
@@ -60,6 +63,8 @@ CSV_FIELDS = [
     "aside_type",
     "assigned_by_time",
     "fine_cluster_id",
+    "country",
+    "place_label",
 ]
 
 
