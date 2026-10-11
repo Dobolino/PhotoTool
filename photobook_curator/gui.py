@@ -703,6 +703,11 @@ class PhotobookApp(tk.Tk):
             header, t("help"), c, command=self._show_help, padx=14, pady=9
         )
         self._help_btn.pack(side=tk.RIGHT, padx=(0, 10))
+        from .update_dialog import open_update_dialog
+        self._update_btn = PaddedButton(
+            header, t("update_title"), c, command=lambda: open_update_dialog(self), padx=14, pady=9
+        )
+        self._update_btn.pack(side=tk.RIGHT, padx=(0, 10))
 
         # Scrollbarer Inhalt (Mausrad → _install_body_wheel)
         body_host = ttk.Frame(root, style="App.TFrame")

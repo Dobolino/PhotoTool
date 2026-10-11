@@ -89,6 +89,7 @@ class Photo:
     final_score: float = 0.0
     is_candidate: bool = False
     is_selected: bool = False
+    is_favorite: bool = False
     chapter_type: Optional[str] = None
     book_position: Optional[int] = None
     chapter_folder: Optional[str] = None
@@ -152,6 +153,7 @@ class Photo:
             "flags": "|".join(self.flags),
             "is_candidate": self.is_candidate,
             "is_selected": self.is_selected,
+            "is_favorite": self.is_favorite,
             "book_position": self.book_position if self.book_position is not None else "",
             "chapter_folder": self.chapter_folder or "",
             "is_duplicate": self.is_duplicate,

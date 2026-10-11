@@ -26,6 +26,9 @@ from .review_export import (
     related_duplicates,
 )
 from .review_warnings import collect_review_warnings
+from .review_history import ReviewHistory
+from .selection_reasons import selection_reasons
+from .print_quality import effective_dpi, print_status, write_print_report
 from .selection_draft import (
     apply_selection_draft,
     load_selection_draft,
@@ -116,15 +119,16 @@ class ReviewWindow(tk.Toplevel):
         self.kept: set[int] = {i for i, p in enumerate(photos) if p.is_selected}
         self._draft_note = ""
         draft = load_selection_draft(self.output_dir)
-        if draft and draft.get("kept"):
+        if draft and isinstance(draft.get("kept"), list):
             applied = apply_selection_draft(photos, draft)
-            if applied:
+            if applied or not draft["kept"]:
                 self.kept = set(applied)
                 self._draft_note = (
                     f"Entwurf geladen ({len(self.kept)} Bilder) – "
                     f"zuletzt {str(draft.get('updated_at') or '')[:19]}"
                 )
         self.baseline: set[int] = set(self.kept)
+        self._history = ReviewHistory(photos)
         self._photo_images: list[ImageTk.PhotoImage] = []  # Referenzen halten
         self._thumb_cache: dict[int, ImageTk.PhotoImage] = {}
         self._slide_cache: dict[int, ImageTk.PhotoImage] = {}
@@ -181,6 +185,9 @@ class ReviewWindow(tk.Toplevel):
         self.bind("<A>", self._slide_key_take_alt)
         self.bind("<Prior>", self._slide_key_chapter_prev)  # PageUp
         self.bind("<Next>", self._slide_key_chapter_next)  # PageDown
+        self.bind("<Control-z>", self._undo)
+        self.bind("<Control-y>", self._redo)
+        self.bind("<Control-Shift-Z>", self._redo)
 
     def _open_large(self) -> None:
         """Groß öffnen (möglichst maximiert), frei skalierbar."""
@@ -335,6 +342,11 @@ class ReviewWindow(tk.Toplevel):
             pady=8,
         )
         self.mode_btn.pack(side=tk.LEFT, padx=(16, 0))
+        self._undo_btn = ttk.Button(bar, text=t("undo"), command=self._undo)
+        self._undo_btn.pack(side=tk.LEFT, padx=(12, 0))
+        self._redo_btn = ttk.Button(bar, text=t("redo"), command=self._redo)
+        self._redo_btn.pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text=t("print_check"), command=self._print_check).pack(side=tk.LEFT, padx=4)
 
         # Warn-Leiste (Tageslücken, Personen, Auflösung)
         self._warn_host = tk.Frame(self, bg=COLORS["bg"], padx=20)
@@ -621,6 +633,9 @@ class ReviewWindow(tk.Toplevel):
             command=self._slide_toggle_current,
         )
         self._slide_toggle_btn.pack(side=tk.LEFT, padx=(16, 0))
+        self._favorite_btn = ttk.Button(controls, text=t("favorite"), command=self._favorite_current)
+        self._favorite_btn.pack(side=tk.LEFT, padx=8)
+        ttk.Button(controls, text=t("reason_title"), command=self._explain_current).pack(side=tk.LEFT)
 
         stage_row = ttk.Frame(host, style="Rev.TFrame")
         stage_row.pack(fill=tk.BOTH, expand=True)
@@ -1458,6 +1473,9 @@ class ReviewWindow(tk.Toplevel):
             parts.append(t("dup_of", name=photo.duplicate_of))
         self._slide_caption.set("  ·  ".join(p for p in parts if p))
         notes = self._photo_quality_notes(photo)
+        self._favorite_btn.configure(text=t("unfavorite" if photo.is_favorite else "favorite"))
+        if photo.is_favorite:
+            notes.insert(0, t("reason_favorite"))
         if hasattr(self, "_slide_notes"):
             self._slide_notes.set("  ·  ".join(notes) if notes else "")
         try:
@@ -1517,6 +1535,8 @@ class ReviewWindow(tk.Toplevel):
         alt = self._alt_idx
         folder = self.photos[cur].chapter_folder or ""
         if cur in self.kept:
+            if self._protected(cur):
+                return
             self.kept.remove(cur)
             self.photos[cur].is_selected = False
         self.kept.add(alt)
@@ -1584,6 +1604,8 @@ class ReviewWindow(tk.Toplevel):
         idx = self._slide_indices[self._slide_pos]
         removed = False
         if idx in self.kept:
+            if self._protected(idx):
+                return
             self.kept.remove(idx)
             removed = True
         else:
@@ -1630,6 +1652,8 @@ class ReviewWindow(tk.Toplevel):
             return
         idx = self._slide_indices[self._slide_pos]
         if idx in self.kept:
+            if self._protected(idx):
+                return "break"
             self.kept.remove(idx)
             self._update_count()
             self._autosave_draft()
@@ -1666,7 +1690,130 @@ class ReviewWindow(tk.Toplevel):
             self._exit_slideshow()
             return "break"
 
+    def _protected(self, idx: int) -> bool:
+        if self.photos[idx].is_favorite:
+            self._flash_status(t("favorite_blocked"))
+            return True
+        return False
+
+    def _favorite_current(self) -> None:
+        if self._slide_indices:
+            self._toggle_favorite(self._slide_indices[self._slide_pos])
+
+    def _toggle_favorite(self, idx: int) -> None:
+        photo = self.photos[idx]
+        photo.is_favorite = not photo.is_favorite
+        if photo.is_favorite:
+            self.kept.add(idx)
+            self.baseline.add(idx)
+        self._autosave_draft()
+        self._refresh_review_edit()
+
+    def _explain_current(self) -> None:
+        if self._slide_indices:
+            self._explain(self._slide_indices[self._slide_pos])
+
+    def _explain(self, idx: int) -> None:
+        messagebox.showinfo(t("reason_title"), self.photos[idx].filename + "\n\n" +
+                            "\n".join(selection_reasons(self.photos[idx], idx in self.kept)), parent=self)
+
+    def _refresh_review_edit(self) -> None:
+        self._update_count()
+        self._refresh_folder_nav()
+        self._render()
+        if self._slideshow:
+            self._reapply_slide_filter(keep_photo=True)
+
+    def _undo(self, _event=None) -> str:
+        if self._history.undo(self.photos):
+            self.kept = {i for i, p in enumerate(self.photos) if p.is_selected}
+            self._session_added.intersection_update(self.kept)
+            self._autosave_draft()
+            self._refresh_review_edit()
+        return "break"
+
+    def _redo(self, _event=None) -> str:
+        if self._history.redo(self.photos):
+            self.kept = {i for i, p in enumerate(self.photos) if p.is_selected}
+            self.baseline.update(self.kept)
+            self._autosave_draft()
+            self._refresh_review_edit()
+        return "break"
+
+    def _print_check(self) -> None:
+        win = tk.Toplevel(self)
+        win.title(t("print_check"))
+        win.geometry("760x500")
+        win.transient(self)
+        width = tk.StringVar(value="15")
+        height = tk.StringVar(value="10")
+        target = tk.StringVar(value="300")
+        options = ttk.Frame(win, padding=12)
+        options.pack(fill=tk.X)
+        ttk.Label(options, text=t("print_size")).pack(side=tk.LEFT)
+        for var in (width, height):
+            ttk.Entry(options, textvariable=var, width=7).pack(side=tk.LEFT, padx=4)
+        ttk.Label(options, text=t("print_target")).pack(side=tk.LEFT, padx=8)
+        ttk.Entry(options, textvariable=target, width=7).pack(side=tk.LEFT)
+        ttk.Label(win, text=t("print_hint"), wraplength=720).pack(fill=tk.X, padx=12)
+        summary = tk.StringVar()
+        ttk.Label(win, textvariable=summary).pack(fill=tk.X, padx=12, pady=8)
+        table = ttk.Treeview(win, columns=("name", "dpi", "status"), show="headings")
+        for col, label in (("name", "Foto"), ("dpi", "DPI"), ("status", t("print_check"))):
+            table.heading(col, text=label)
+        scroll = ttk.Scrollbar(win, orient=tk.VERTICAL, command=table.yview)
+        table.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        table.pack(fill=tk.BOTH, expand=True, padx=12)
+
+        def check(save: bool = False) -> None:
+            try:
+                w, h, dpi_target = (float(v.get().replace(",", ".")) for v in (width, height, target))
+                effective_dpi(Photo(path=Path(), filename=""), w, h)
+                print_status(None, dpi_target)
+            except ValueError:
+                messagebox.showerror(t("print_check"), t("print_invalid"), parent=win)
+                return
+            table.delete(*table.get_children())
+            low = unknown = 0
+            for i in sorted(self.kept):
+                dpi = effective_dpi(self.photos[i], w, h)
+                status = print_status(dpi, dpi_target)
+                low += status == "print_low"
+                unknown += dpi is None
+                table.insert("", tk.END, values=(self.photos[i].filename,
+                             f"{dpi:.0f}" if dpi is not None else "?", t(status)))
+            summary.set(t("print_summary", n=len(self.kept), low=low, unknown=unknown))
+            if save:
+                from tkinter import filedialog
+                filename = filedialog.asksaveasfilename(parent=win, defaultextension=".csv",
+                            initialfile="print_quality.csv", filetypes=[("CSV", "*.csv")])
+                if filename:
+                    try:
+                        write_print_report(self.photos, self.kept, Path(filename), w, h, dpi_target)
+                    except OSError as exc:
+                        messagebox.showerror(t("print_check"), str(exc), parent=win)
+
+        buttons = ttk.Frame(win, padding=12)
+        buttons.pack(fill=tk.X)
+        ttk.Button(buttons, text=t("print_run"), command=check).pack(side=tk.LEFT)
+        ttk.Button(buttons, text=t("print_report"), command=lambda: check(True)).pack(side=tk.LEFT, padx=8)
+        check()
+
     def _autosave_draft(self) -> None:
+        for i, photo in enumerate(self.photos):
+            was_selected = self._history.current[i][0]
+            if was_selected != (i in self.kept):
+                if i in self.kept:
+                    photo.flags = [f for f in photo.flags if f != "manual_reject"]
+                    photo.add_flag("manual_add")
+                else:
+                    photo.add_flag("manual_reject")
+            photo.is_selected = i in self.kept
+        self._history.record(self.photos)
+        if hasattr(self, "_undo_btn"):
+            self._undo_btn.configure(state=tk.NORMAL if self._history.undo_stack else tk.DISABLED)
+            self._redo_btn.configure(state=tk.NORMAL if self._history.redo_stack else tk.DISABLED)
         try:
             save_selection_draft(self.output_dir, self.photos, self.kept)
         except Exception:
@@ -1759,6 +1906,8 @@ class ReviewWindow(tk.Toplevel):
         """1-Klick: behaltenes Bild gegen beste Burst-/Kapitel-Alternative tauschen."""
         if idx not in self.kept:
             return
+        if self._protected(idx):
+            return
         alt = best_swap_candidate(self.photos, idx, self.kept)
         if alt is None:
             self._flash_status(t("alt_none"))
@@ -1803,9 +1952,11 @@ class ReviewWindow(tk.Toplevel):
         # Alle bekannten Ordner inkl. aktueller Liste
         if not folders:
             folders = [f for f, _t in self._folder_entries() if f != self._grid_folder]
-        if not folders:
-            return
         menu = tk.Menu(self, tearoff=0, bg=COLORS["surface"], fg=COLORS["ink"])
+        menu.add_command(label=t("unfavorite" if self.photos[idx].is_favorite else "favorite"),
+                         command=lambda: self._toggle_favorite(idx))
+        menu.add_command(label=t("reason_title"), command=lambda: self._explain(idx))
+        menu.add_separator()
         menu.add_command(label=t("move_to"), state=tk.DISABLED)
         for folder in folders:
             label = self._folder_title(folder)
@@ -1849,6 +2000,8 @@ class ReviewWindow(tk.Toplevel):
             self._render()
             return
         if idx in self.kept:
+            if self._protected(idx):
+                return
             self.kept.remove(idx)
             self.photos[idx].is_selected = False
         else:
@@ -2302,6 +2455,8 @@ class ReviewWindow(tk.Toplevel):
 
         photo = self.photos[idx]
         caption = short_tile_label(photo.filename)
+        if photo.is_favorite:
+            caption = "★ " + caption
         fg = COLORS["muted"] if (mode == "keep" and not kept) else COLORS["ink"]
         # Beschriftungsband: Text horizontal + vertikal mittig
         self.canvas.create_rectangle(

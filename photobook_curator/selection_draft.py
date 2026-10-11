@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -36,6 +38,8 @@ def save_selection_draft(
                 "filename": p.filename,
                 "chapter_folder": p.chapter_folder or "",
                 "chapter_type": p.chapter_type or "",
+                "region": p.region,
+                "is_favorite": p.is_favorite,
             }
         )
     payload = {
@@ -45,7 +49,17 @@ def save_selection_draft(
         "kept": entries,
     }
     path = draft_path(output_dir)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Replace atomically so an interrupted save cannot truncate the previous draft.
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output_dir,
+                                         suffix=".tmp", delete=False) as handle:
+            temp_path = Path(handle.name)
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
     return path
 
 
@@ -101,6 +115,10 @@ def apply_selection_draft(
                 photos[idx].is_aside = False
         if ctype:
             photos[idx].chapter_type = ctype
+        if "region" in entry:
+            photos[idx].region = entry["region"]
+        if "is_favorite" in entry:
+            photos[idx].is_favorite = entry["is_favorite"] is True
 
     for i, p in enumerate(photos):
         p.is_selected = i in kept
@@ -111,3 +129,21 @@ def apply_selection_draft(
 
 def draft_exists(output_dir: Path) -> bool:
     return draft_path(output_dir).is_file()
+
+
+def restore_favorites(photos: list[Photo], output_dir: Path) -> int:
+    """Carry protection into a new analysis of the same paths/output directory."""
+    from .review_export import load_photos_from_csv
+
+    csv_path = output_dir / "photos_analysis.csv"
+    previous = load_photos_from_csv(csv_path) if csv_path.is_file() else []
+    draft = load_selection_draft(output_dir)
+    if draft and isinstance(draft.get("kept"), list):
+        # A draft may exist before the first export, so apply to fresh photos too.
+        if not previous:
+            previous = [Photo(path=p.path, filename=p.filename) for p in photos]
+        apply_selection_draft(previous, draft)
+    protected = {os.path.normcase(str(p.path.resolve())) for p in previous if p.is_favorite}
+    for p in photos:
+        p.is_favorite = os.path.normcase(str(p.path.resolve())) in protected
+    return sum(p.is_favorite for p in photos)

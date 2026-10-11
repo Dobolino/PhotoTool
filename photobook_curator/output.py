@@ -50,6 +50,7 @@ CSV_FIELDS = [
     "flags",
     "is_candidate",
     "is_selected",
+    "is_favorite",
     "book_position",
     "chapter_folder",
     "is_duplicate",

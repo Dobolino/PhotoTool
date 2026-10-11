@@ -4,6 +4,35 @@ Lokales Python-CLI-Tool zur Kuratierung eines Urlaubs-Fotobuchs aus einer große
 
 **Einstieg:** siehe [ANLEITUNG.md](ANLEITUNG.md). Unter Windows am einfachsten: `Fotobuch starten.bat` doppelklicken (Fenster-Oberfläche).
 
+## Windows-Programm und Updates
+
+GitHub Actions baut einen Installer `PhotoTool-Setup-<Version>.exe` und ein
+portables ZIP. Veröffentlichte Versionen stehen unter
+[Releases](https://github.com/Dobolino/PhotoTool/releases). Der Installer richtet
+PhotoTool ohne Python-Installation im Benutzerprofil ein (Startmenü und Deinstallation).
+Im Hauptfenster prüft **Updates** auf neue stabile Releases. Download und Installation
+starten nach Bestätigung; der Download wird gegen den SHA256-Wert von GitHub geprüft.
+Während einer Analyse wird keine Installation gestartet. Beim Update werden offene
+Review-Entwürfe gesichert und PhotoTool anschliessend neu gestartet.
+In Python-Entwicklungsstarts öffnet die Schaltfläche die Release-Seite.
+
+## Nachkontrolle
+
+- **Favoriten schützen:** Rechtsklick auf ein Bild → ★ Favorit schützen; in der
+  Diashow über die Schaltfläche. Geschützte Bilder können erst nach Aufheben des
+  Schutzes entfernt oder ersetzt werden. Sie bleiben beim Neuerstellen der Auswahl
+  und bei erneuter Analyse derselben Dateipfade im selben Ausgabeordner erhalten.
+  Übersteigt die Anzahl geschützter Bilder das Kontingent, hat der Schutz Vorrang.
+- **Rückgängig / Wiederholen:** Schaltflächen oder Strg+Z / Strg+Y. Bis zu 100
+  Änderungen dieser Sitzung, inklusive Kapitelwechsel, Ersatzbilder und Favoriten.
+  Entwürfe speichern den aktuellen Zustand; die Undo-Historie gilt für die Sitzung.
+- **Druckqualität:** gewünschte Bildgrösse in cm und Ziel-DPI eingeben (Standard
+  15 × 10 cm / 300 DPI). Die Prüfung berücksichtigt Beschnitt und Drehung; unbekannte
+  Bildmasse werden separat angezeigt. Ein CSV-Bericht kann gespeichert werden.
+- **Auswahlgründe:** Rechtsklick oder Diashow-Schaltfläche. Zeigt vorhandene Scores,
+  manuelle Entscheidungen, Schutz und Qualitäts-/Duplikathinweise. Der genaue
+  automatische Rankingentscheid wird bisher nicht protokolliert.
+
 Das Tool scannt Fotos, bewertet sie technisch, clustert GPS-Orte zu Regionen (Kapiteln), erkennt Transit-Abschnitte zwischen Städten, trennt Essens-Fotos ans Kapitelende und wählt eine diverse, chronologische Bildauswahl.
 
 ## Anforderungen

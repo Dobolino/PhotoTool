@@ -164,6 +164,10 @@ def run_pipeline(
         extra_paths=extra_stills,
     )
     print(f"  {len(photos)} Bilder gefunden")
+    from .selection_draft import restore_favorites
+    favorite_count = restore_favorites(photos, cfg.output_dir)
+    if favorite_count:
+        print(f"  Geschützte Favoriten übernommen: {favorite_count}")
     if cfg.timezone_offset_hours:
         print(f"  Zeitzone: +{cfg.timezone_offset_hours:g} h Korrektur")
 
