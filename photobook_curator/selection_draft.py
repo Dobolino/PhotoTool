@@ -22,6 +22,7 @@ def save_selection_draft(
     output_dir: Path,
     photos: list[Photo],
     kept_indices: set[int] | list[int],
+    *, review_state: dict[str, Any] | None = None,
 ) -> Path:
     """Speichert behaltene Bilder per Pfad (+ Kapitelordner)."""
     output_dir = Path(output_dir)
@@ -43,7 +44,12 @@ def save_selection_draft(
             }
         )
     payload = {
-        "version": 1,
+        "version": 2,
+        "review_state": review_state or {},
+        "photo_states": [dict(path=str(p.path), filename=p.filename,
+            **{key: getattr(p, key) for key in ("chapter_folder", "chapter_type",
+                "region", "is_aside", "is_duplicate", "is_burst_reject",
+                "duplicate_of", "flags", "review_added")}) for p in photos],
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "kept_count": len(entries),
         "kept": entries,
@@ -72,7 +78,7 @@ def load_selection_draft(output_dir: Path) -> Optional[dict[str, Any]]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
-    if not isinstance(data, dict) or "kept" not in data:
+    if not isinstance(data, dict) or not isinstance(data.get("kept"), list):
         return None
     return data
 
@@ -89,6 +95,27 @@ def apply_selection_draft(
     by_name: dict[str, list[int]] = {}
     for i, p in enumerate(photos):
         by_name.setdefault(p.filename.lower(), []).append(i)
+
+    states = draft.get("photo_states", [])
+    for entry in states if isinstance(states, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        idx = by_path.get(str(entry.get("path", "")).replace("\\", "/").lower())
+        if idx is None:
+            matches = by_name.get(str(entry.get("filename", "")).lower(), [])
+            idx = matches[0] if len(matches) == 1 else None
+        if idx is None:
+            continue
+        for key in ("chapter_folder", "chapter_type", "region", "duplicate_of"):
+            value = entry.get(key)
+            if key in entry and (value is None or isinstance(value, str)):
+                setattr(photos[idx], key, value)
+        for key in ("is_aside", "is_duplicate", "is_burst_reject", "review_added"):
+            if isinstance(entry.get(key), bool):
+                setattr(photos[idx], key, entry[key])
+        flags = entry.get("flags")
+        if isinstance(flags, list) and all(isinstance(f, str) for f in flags):
+            photos[idx].flags = list(flags)
 
     kept: set[int] = set()
     if isinstance(draft.get("favorites"), list):

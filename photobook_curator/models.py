@@ -33,6 +33,7 @@ SCENE_TYPES = (
 class Photo:
     path: Path
     filename: str
+    review_added: bool = False  # Manuell hinzugefügt; im Review getrennt anzeigen
     datetime_taken: Optional[datetime] = None
     camera_model: Optional[str] = None
     gps_lat: Optional[float] = None
@@ -154,6 +155,7 @@ class Photo:
             "is_candidate": self.is_candidate,
             "is_selected": self.is_selected,
             "is_favorite": self.is_favorite,
+            "review_added": self.review_added,
             "book_position": self.book_position if self.book_position is not None else "",
             "chapter_folder": self.chapter_folder or "",
             "is_duplicate": self.is_duplicate,

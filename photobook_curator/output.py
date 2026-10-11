@@ -51,6 +51,7 @@ CSV_FIELDS = [
     "is_candidate",
     "is_selected",
     "is_favorite",
+    "review_added",
     "book_position",
     "chapter_folder",
     "is_duplicate",

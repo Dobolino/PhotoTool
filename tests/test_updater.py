@@ -6,7 +6,7 @@ import pytest
 from photobook_curator import updater
 
 
-def release(version="0.3.0", **overrides):
+def release(version="0.4.0", **overrides):
     data = {"tag_name": "v" + version, "assets": [{
         "name": f"PhotoTool-Setup-{version}.exe", "size": 4,
         "browser_download_url": f"https://github.com/Dobolino/PhotoTool/releases/download/v{version}/PhotoTool-Setup-{version}.exe",
@@ -17,8 +17,8 @@ def release(version="0.3.0", **overrides):
 
 
 def test_only_new_stable_releases_are_offered():
-    assert updater.parse_release(release()).version == "0.3.0"
-    assert updater.parse_release(release("0.2.0")) is None
+    assert updater.parse_release(release()).version == "0.4.0"
+    assert updater.parse_release(release("0.3.0")) is None
     assert updater.parse_release(release("0.1.0")) is None
     assert updater.parse_release(release(prerelease=True)) is None
     assert updater.parse_release(release(draft=True)) is None

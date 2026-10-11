@@ -113,3 +113,12 @@ python -m photobook_curator -i sample_photos -o output_sample -n 20 \
 3. Transit zwischen Regionen
 4. Optional: Gemini 1.5 Flash, Anthropic Vision oder lokale Ollama
 5. Kontingente, Essens-Trennung, Vielfalt, Buchreihenfolge, Export
+
+
+### Auswahl prüfen: Vorschau und Wiederaufnehmen (0.3.0)
+
+- **Ausgabeordner öffnen…** öffnet einen vorhandenen Ordner mit `photos_analysis.csv` direkt. Die gespeicherte Analyse wird geladen; es startet keine neue Bild- oder KI-Analyse.
+- Im Raster sind **Album-Auswahl**, **Hinzugefügt**, **Entfernt** und aufklappbare **Varianten** getrennt. Hinzugefügte Bilder bleiben ihrem Kapitel zugeordnet und behalten diese Kennzeichnung auch nach einem Neustart oder Export.
+- Ein Klick auf ein Bild öffnet die grosse Vorschau. Die separate Schaltfläche **Hinzufügen/Entfernen** ändert die Auswahl. Varianten lassen sich mit den Pfeiltasten oder dem Filmstreifen durchsehen und einzeln ins Album übernehmen.
+- **Pause & speichern** sichert den Zwischenstand und schliesst die Prüfung. Beim erneuten Öffnen werden Auswahl, Kapitelzuordnung, Favoriten, Variantenherkunft und zuletzt geöffnete Vorschau wiederhergestellt. Änderungen werden zusätzlich automatisch und atomar in `selection_draft.json` gesichert. Bei einem Speicherfehler bleibt das Fenster geöffnet.
+- **Album exportieren** schreibt die fertige Auswahl neu. Vorschau und Zwischenstand benötigen weiterhin die Originalbilder an ihren gespeicherten Pfaden. Rückgängig/Wiederholen gilt innerhalb der aktuellen Sitzung.

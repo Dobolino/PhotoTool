@@ -328,6 +328,7 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 is_candidate=_bool("is_candidate"),
                 is_selected=_bool("is_selected"),
                 is_favorite=_bool("is_favorite"),
+                review_added=_bool("review_added"),
                 chapter_type=(row.get("chapter_type") or None) or None,
                 book_position=_int("book_position") if bp_raw else None,
                 chapter_folder=(row.get("chapter_folder") or None) or None,
