@@ -119,3 +119,24 @@ def test_open_output_folder_uses_stored_analysis_without_pipeline(tmp_path,monke
     monkeypatch.setattr('photobook_curator.gui.filedialog.askdirectory',lambda **_:str(folder))
     PhotobookApp._open_existing_review(fake)
     assert chosen==[str(folder),'review']
+
+
+def test_return_from_variants_restores_album_photo_after_adding_and_restart(review,tmp_path):
+    win,root=review
+    win._open_photo_preview(1,win._grid_folder)
+    win._alt_idx=2
+    win._preview_alternatives()
+    assert win._preview_kind=='variants'
+    win._slide_toggle_current()
+    win._close()
+    resumed=ReviewWindow(root,make_photos(tmp_path),BookPlan(regions=[Region(name='Kyoto',photo_indices=list(range(5)))]),tmp_path)
+    resumed.withdraw()
+    try:
+        assert resumed._preview_kind=='variants' and resumed._album_return
+        resumed._return_to_album_slideshow()
+        assert resumed._slideshow and resumed._preview_kind=='album'
+        assert resumed._slide_indices[resumed._slide_pos]==1
+        assert resumed._slide_indices==[0,1]
+        assert 2 in resumed.kept
+    finally:
+        resumed._close()

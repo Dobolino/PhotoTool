@@ -149,6 +149,7 @@ class ReviewWindow(tk.Toplevel):
         self._session_added: set[int] = {i for i, p in enumerate(photos) if p.review_added}
         self._preview_pool: list[int] | None = None
         self._preview_kind = "album"
+        self._album_return: dict | None = None
         self._resume_state = (draft or {}).get("review_state", {})
         if not isinstance(self._resume_state, dict):
             self._resume_state = {}
@@ -479,6 +480,7 @@ class ReviewWindow(tk.Toplevel):
         current = (str(self.photos[self._slide_indices[self._slide_pos]].path)
                    if self._slideshow and self._slide_indices else "")
         return dict(folder=self._grid_folder, slideshow=self._slideshow, preview_kind=self._preview_kind,
+            album_return=self._album_return,
             current_photo=current, filter=self._filter_mode,
             expanded=list(self._expanded_alts), baseline=[str(self.photos[i].path)
                 for i in sorted(self.baseline)],
@@ -488,6 +490,7 @@ class ReviewWindow(tk.Toplevel):
 
     def _restore_review_view(self) -> None:
         state = self._resume_state
+        self._album_return = state.get("album_return") if isinstance(state.get("album_return"), dict) else None
         by_path = {str(p.path): i for i, p in enumerate(self.photos)}
         self.baseline.update(by_path[p] for p in state.get("baseline", []) if p in by_path)
         self._expanded_alts = {p for p in state.get("expanded", []) if isinstance(p, str)}
@@ -521,6 +524,7 @@ class ReviewWindow(tk.Toplevel):
                     and (hit["mode"] in ("add", "dup")) == (idx not in self.baseline)))
         if idx not in pool:
             pool = [idx]
+        self._album_return = None
         self._preview_kind = "variants" if idx not in self.baseline else "album"
         self._preview_pool = pool
         if folder:
@@ -710,6 +714,8 @@ class ReviewWindow(tk.Toplevel):
         ttk.Button(controls, text=t("next"), command=self._slide_next).pack(
             side=tk.LEFT, padx=(8, 0)
         )
+        self._album_back_btn = ttk.Button(controls, text="← Zurück zur Album-Diashow",
+            style="Rev.TButton", command=self._return_to_album_slideshow)
         self._slide_toggle_btn = ttk.Button(
             controls,
             text=t("remove"),
@@ -1288,6 +1294,8 @@ class ReviewWindow(tk.Toplevel):
 
     def _exit_slideshow(self) -> None:
         self._preview_pool = None
+        self._preview_kind = "album"
+        self._album_return = None
         if not self._slideshow:
             return
         self._slideshow = False
@@ -1307,6 +1315,11 @@ class ReviewWindow(tk.Toplevel):
         self._slide_pos = max(0, min(self._slide_pos, len(self._slide_indices) - 1))
         idx = self._slide_indices[self._slide_pos]
         self._slide_showing_idx = idx
+        if self._preview_kind == "variants":
+            self._album_back_btn.pack(side=tk.LEFT, padx=(12, 0))
+            self._hero_hint.configure(text="Varianten ansehen · Pfeiltasten: blättern · Esc: zurück zur Album-Diashow")
+        else:
+            self._album_back_btn.pack_forget()
         self._refresh_slide_meta()
         self._rebuild_filmstrip()
         self._refresh_alt_panel()
@@ -1634,6 +1647,9 @@ class ReviewWindow(tk.Toplevel):
         if self._alt_idx is None or not self._slide_indices:
             return
         idx = self._slide_indices[self._slide_pos]
+        self._album_return = dict(photo=str(self.photos[idx].path),
+            indices=[str(self.photos[i].path) for i in self._slide_indices],
+            folder=self._grid_folder, filter=self._filter_mode)
         self._preview_kind = "variants"
         self._preview_pool = alternatives_for_index(self.photos, idx, self.kept,
                                                     limit=len(self.photos))
@@ -1641,6 +1657,31 @@ class ReviewWindow(tk.Toplevel):
             return
         self._slide_indices = list(self._preview_pool)
         self._slide_pos = 0
+        self._show_current_slide()
+
+    def _return_to_album_slideshow(self) -> None:
+        if self._preview_kind != "variants":
+            return
+        context = self._album_return or {}
+        by_path = {str(p.path): i for i, p in enumerate(self.photos)}
+        self._grid_folder = context.get("folder", self._grid_folder)
+        pool = [by_path[p] for p in context.get("indices", [])
+                if isinstance(p, str) and p in by_path]
+        if not pool:
+            pool = [i for i in sorted(self.kept) if
+                    self.photos[i].chapter_folder == self._grid_folder]
+        if not pool:
+            self._exit_slideshow()
+            return
+        current = by_path.get(context.get("photo", ""))
+        self._preview_kind = "album"
+        self._preview_pool = pool
+        self._album_return = None
+        self._filter_mode = context.get("filter", "all")
+        self._filter_var.set(self._filter_mode)
+        self._slide_indices = pool
+        self._slide_pos = pool.index(current) if current in pool else 0
+        self._refresh_folder_nav()
         self._show_current_slide()
 
     def _slide_take_alternative(self, _event=None) -> None:
@@ -1813,7 +1854,10 @@ class ReviewWindow(tk.Toplevel):
 
     def _slide_key_escape(self, _event=None) -> None:
         if self._slideshow:
-            self._exit_slideshow()
+            if self._preview_kind == "variants":
+                self._return_to_album_slideshow()
+            else:
+                self._exit_slideshow()
             return "break"
 
     def _protected(self, idx: int) -> bool:
