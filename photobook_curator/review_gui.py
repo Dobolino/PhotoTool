@@ -117,6 +117,7 @@ class ReviewWindow(tk.Toplevel):
 
         # Startzustand: Auswahl aus CSV, ggf. Entwurf überschreibt/ergänzt
         self.kept: set[int] = {i for i, p in enumerate(photos) if p.is_selected}
+        initial_selection = set(self.kept)
         self._draft_note = ""
         draft = load_selection_draft(self.output_dir)
         if draft and isinstance(draft.get("kept"), list):
@@ -127,7 +128,7 @@ class ReviewWindow(tk.Toplevel):
                     f"Entwurf geladen ({len(self.kept)} Bilder) – "
                     f"zuletzt {str(draft.get('updated_at') or '')[:19]}"
                 )
-        self.baseline: set[int] = set(self.kept)
+        self.baseline: set[int] = initial_selection | self.kept
         self._history = ReviewHistory(photos)
         self._photo_images: list[ImageTk.PhotoImage] = []  # Referenzen halten
         self._thumb_cache: dict[int, ImageTk.PhotoImage] = {}

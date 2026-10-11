@@ -69,3 +69,21 @@ def test_print_dialog_constructs_and_reports_without_network(window):
     dialog = [w for w in window.winfo_children() if isinstance(w, tk.Toplevel)][0]
     dialog.update_idletasks()
     dialog.destroy()
+
+
+def test_empty_draft_restores_empty_selection_and_keeps_removed_images_visible(tmp_path, monkeypatch):
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("Tk display unavailable")
+    root.withdraw()
+    monkeypatch.setattr(ReviewWindow, "_open_large", lambda self: None)
+    photos = [Photo(path=tmp_path / "a.jpg", filename="a.jpg", is_selected=True,
+                    region="Tokyo", chapter_folder="01_Tokyo/hauptteil")]
+    save_selection_draft(tmp_path, photos, set())
+    win = ReviewWindow(root, photos, BookPlan(), tmp_path)
+    win.withdraw()
+    assert win.kept == set()
+    assert win.baseline == {0}
+    win._close()
+    root.destroy()

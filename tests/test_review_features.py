@@ -55,6 +55,14 @@ def test_reanalysis_uses_unexported_draft_favorites(tmp_path):
     assert restore_favorites(fresh, tmp_path) == 1
 
 
+def test_unprotected_and_removed_favorite_stays_unprotected_after_restart(tmp_path):
+    photos = [photo(is_favorite=True, is_selected=True)]
+    write_csv(photos, tmp_path / "photos_analysis.csv")
+    photos[0].is_favorite = False
+    save_selection_draft(tmp_path, photos, set())
+    assert restore_favorites([photo()], tmp_path) == 0
+
+
 def test_favorites_override_filters_and_survive_zero_quota():
     photos = [photo(is_favorite=True, is_duplicate=True, is_burst_reject=True, region="Tokyo"),
               Photo(path=Path("ticket.jpg"), filename="ticket.jpg", is_aside=True, is_favorite=True)]

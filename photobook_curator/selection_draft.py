@@ -47,6 +47,7 @@ def save_selection_draft(
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "kept_count": len(entries),
         "kept": entries,
+        "favorites": [str(p.path) for p in photos if p.is_favorite],
     }
     path = draft_path(output_dir)
     # Replace atomically so an interrupted save cannot truncate the previous draft.
@@ -90,6 +91,10 @@ def apply_selection_draft(
         by_name.setdefault(p.filename.lower(), []).append(i)
 
     kept: set[int] = set()
+    if isinstance(draft.get("favorites"), list):
+        favorite_paths = {str(path).replace("\\", "/").lower() for path in draft["favorites"]}
+        for p in photos:
+            p.is_favorite = str(p.path).replace("\\", "/").lower() in favorite_paths
     for entry in draft.get("kept") or []:
         if not isinstance(entry, dict):
             continue
