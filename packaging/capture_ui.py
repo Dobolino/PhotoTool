@@ -15,6 +15,7 @@ import platform
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 from unittest.mock import patch
 
@@ -164,6 +165,13 @@ not a claim that an algorithm measured the generated drawings.
             technical_score=[91, 82, 79, 86, 84][index],
             final_score=[91, 82, 79, 86, 84][index], is_selected=index in {0, 3, 4},
             book_position={0: 1, 3: 2, 4: 3}.get(index))
+        if index in (0, 4):
+            # Public city-centre coordinates, explicitly synthetic metadata;
+            # the offline location preview never reads private EXIF or a service.
+            photo.gps_lat, photo.gps_lon = ((35.0116, 135.7681) if index == 0
+                                            else (35.6895, 139.6917))
+        if index == 4:
+            photo.datetime_taken += timedelta(days=2)
         photos.append(photo)
     begin_selection_audit(photos, {"demo_fixture": True, "target": 3})
     record_selection_event(photos[0], "diversity_selected", "diversity", quota=2, score=91)
@@ -192,12 +200,14 @@ def main() -> int:
     metadata = {"platform": platform.platform(), "python": platform.python_version(),
                 "native_windows": sys.platform == "win32", "captures": [],
                 "source_fields_empty": True, "network_and_analysis_disabled": True,
+                "analysis_disabled_scope": "No pixel/model/AI analysis; offline synthetic GPS metadata preview only",
                 "demo_states": ["Anthropic estimate for 2000 synthetic input count",
                                 "Simulated analysis progress; no pipeline run",
                                 "Review over five generated drawings, not holiday photos",
                                 "Hand-authored synthetic report evidence, not measured analysis"],
                 "review_fixture": {"generated_image_count": 5, "selected_count": 3,
                                    "legacy_unknown_trace_count": 1,
+                                   "public_city_centre_gps_seed_count": 2,
                                    "real_photo_or_user_project_loaded": False}}
     try:
         metadata["commit"] = subprocess.check_output(
@@ -232,6 +242,7 @@ def main() -> int:
                     })
                     review = None
                     report = None
+                    location = None
                     capture_target = None
 
                     def fail(error):
@@ -314,6 +325,30 @@ def main() -> int:
                         report.lift()
                         return report
 
+                    def report_minimum_demo():
+                        report.geometry("920x580+40+40")
+                        report._render_page(initial_index=2)
+                        report.lift()
+                        return report
+
+                    def location_demo():
+                        nonlocal location
+                        from photobook_curator.review_location_dialog import open_location_repair
+                        report.destroy()
+                        location = open_location_repair(review)
+                        location.title("DEMO · Ortskorrekturen · Offline-Vorschau")
+                        location.geometry("1040x740+40+40")
+                        if location.online_var.get():
+                            raise RuntimeError("Location fixture must remain offline")
+                        location._start_preview()
+                        location.lift()
+                        return location
+
+                    def location_minimum_demo():
+                        location.geometry("800x600+40+40")
+                        location.lift()
+                        return location
+
                     steps = [("main-regular", regular), ("main-maximized", maximized),
                              ("settings-grouped", processing_settings),
                              ("settings-anthropic-dry-run-demo", anthropic_settings),
@@ -321,7 +356,10 @@ def main() -> int:
                              ("analysis-progress-demo", progress_demo),
                              ("review-focused-album-demo", review_demo),
                              ("review-focused-comparison-demo", comparison_demo),
-                             ("review-audit-report-demo", report_demo)]
+                             ("review-audit-report-demo", report_demo),
+                             ("review-audit-report-minimum-demo", report_minimum_demo),
+                             ("review-location-repair-demo", location_demo),
+                             ("review-location-repair-minimum-demo", location_minimum_demo)]
 
                     def capture(name):
                         import tkinter as tk
@@ -365,13 +403,36 @@ def main() -> int:
                                     "anchor_panel_visible": bool(review._anchor_panel.winfo_ismapped()),
                                     "candidate_panel_visible": bool(review._current_panel.winfo_ismapped()),
                                 }
-                            elif name == "review-audit-report-demo":
+                            elif name.startswith("review-audit-report"):
+                                rows = {row: list(report.table.item(row, "values"))
+                                        for row in report.table.get_children()}
+                                for row, values in rows.items():
+                                    expected = "Im Album" if report.audits[int(row)].selected else "Ausgelassen"
+                                    if values[0] != expected:
+                                        raise RuntimeError("Report row disagrees with its recorded audit status")
                                 item["audit_report"] = {
                                     "visible_rows": len(report.table.get_children()),
                                     "selected_row": list(report.table.selection()),
                                     "detail_title": report.detail.title_var.get(),
                                     "detail_status": report.detail.status_var.get(),
+                                    "detail_text_height": report.detail.text.winfo_height(),
+                                    "table_height": report.table.winfo_height(),
+                                    "row_values": rows,
+                                    "audit_selected": {str(audit.photo_index): audit.selected for audit in report.audits},
                                 }
+                                if "minimum" in name:
+                                    item["requested_client_size"] = [920, 580]
+                            elif name.startswith("review-location-repair"):
+                                item["location_repair"] = {
+                                    "online_enabled": bool(location.online_var.get()),
+                                    "preview_complete": location.preview is not None and not location._busy,
+                                    "visible_rows": len(location.table.get_children()),
+                                    "table_height": location.table.winfo_height(),
+                                    "summary": location.summary_var.get(),
+                                    "apply_button_geometry": window_geometry(location.apply_btn, native_window=False),
+                                }
+                                if "minimum" in name:
+                                    item["requested_client_size"] = [800, 600]
                         for attribute in ("_content", "_content_frame", "_workspace", "_cards_host"):
                             widget = getattr(app, attribute, None)
                             if widget is not None and hasattr(widget, "winfo_width"):
@@ -385,9 +446,18 @@ def main() -> int:
                             app.destroy()
                             return
                         name, prepare = steps[index]
+                        step_started = time.monotonic()
 
                         def finish_step():
                             try:
+                                if name.startswith("review-location-repair"):
+                                    if location._busy:
+                                        if time.monotonic() - step_started > 8:
+                                            raise TimeoutError("Offline location preview exceeded eight seconds")
+                                        app.after(50, finish_step)
+                                        return
+                                    if location.preview is None:
+                                        raise RuntimeError("Offline location preview failed: " + location.status_var.get())
                                 capture(name)
                                 app.after(150, lambda: advance(index + 1))
                             except Exception as error:

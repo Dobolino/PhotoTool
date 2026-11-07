@@ -137,7 +137,18 @@ def test_explanation_uses_only_the_recorded_comparison_peer(review):
     dialog.destroy()
 
 
-def test_report_actions_visible_at_minimum_window_size(review):
+@pytest.mark.parametrize("scaling", [None, 2.0, 2.5])
+def test_report_actions_visible_at_minimum_window_size(review, monkeypatch, request, scaling):
+    if scaling is not None:
+        import tkinter.font as tkfont
+        previous_scaling = review.tk.call("tk", "scaling")
+        request.addfinalizer(lambda: review.tk.call("tk", "scaling", previous_scaling))
+        review.tk.call("tk", "scaling", scaling)
+        available = {name.casefold(): name for name in tkfont.families(review)}
+        for candidate in ("Segoe UI", "DejaVu Sans", "Nimbus Sans L", "Helvetica"):
+            if candidate.casefold() in available:
+                monkeypatch.setattr("photobook_curator.review_gui.FONT_UI", available[candidate.casefold()])
+                break
     report = AuditReportWindow(review)
     report.geometry("920x580+80+80")
     report.update()

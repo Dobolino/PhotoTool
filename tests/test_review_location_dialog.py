@@ -228,7 +228,7 @@ def test_close_cancels_worker_without_late_ui_or_photo_changes(owner, monkeypatc
     assert owner.grab_current() is None
 
 
-@pytest.mark.parametrize("scaling", [None, 2.0])
+@pytest.mark.parametrize("scaling", [None, 2.0, 2.5])
 def test_actions_remain_visible_at_minimum_size(owner, monkeypatch, request, scaling):
     if scaling is not None:
         import tkinter.font as tkfont
@@ -256,7 +256,14 @@ def test_actions_remain_visible_at_minimum_size(owner, monkeypatch, request, sca
             assert widget.winfo_height() >= 26
             assert widget.winfo_rooty()+widget.winfo_height() <= dialog.winfo_rooty()+dialog.winfo_height()
             assert widget.winfo_rootx()+widget.winfo_width() <= dialog.winfo_rootx()+dialog.winfo_width()
-    assert dialog.table.winfo_height() >= 60
+    assert dialog.table.winfo_height() >= 100
+    assert dialog._detail_text.winfo_height() >= 65
+    assert dialog.notebook.select() == str(dialog.results_page)
+    dialog.notebook.select(0)
+    dialog.update()
+    assert dialog.online_check.winfo_viewable()
+    assert dialog.hours_combo.winfo_viewable()
+    assert dialog.apply_btn.winfo_rooty()+dialog.apply_btn.winfo_height() <= dialog.winfo_rooty()+dialog.winfo_height()
     dialog.destroy()
 
 

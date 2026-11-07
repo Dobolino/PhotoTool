@@ -59,6 +59,12 @@ def _style(win):
     from .review_gui import COLORS, FONT_UI
     style = ttk.Style(win)
     style.configure("Location.TFrame", background=COLORS["bg"])
+    style.configure("Location.TNotebook", background=COLORS["bg"], borderwidth=0,
+                    bordercolor=COLORS["line"], lightcolor=COLORS["line"], darkcolor=COLORS["line"])
+    style.configure("Location.TNotebook.Tab", padding=(12, 8), background=COLORS["surface"],
+                    foreground=COLORS["muted"], font=(FONT_UI, 10))
+    style.map("Location.TNotebook.Tab", background=[("selected", COLORS["accent_soft"])],
+              foreground=[("selected", COLORS["ink"])])
     style.configure("Location.TLabel", background=COLORS["bg"], foreground=COLORS["muted"], font=(FONT_UI, 10))
     style.configure("Location.TButton", background=COLORS["chip_bg"], foreground=COLORS["ink"],
                     font=(FONT_UI, 10), padding=(10, 7), borderwidth=0)
@@ -106,54 +112,74 @@ class LocationRepairDialog(tk.Toplevel):
         self.transient(owner)
         self.grab_set()
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(3, weight=1)
+        self.rowconfigure(1, weight=1)
 
-        head = ttk.Frame(self, padding=(22, 12, 22, 6), style="Location.TFrame")
+        head = ttk.Frame(self, padding=(20, 12, 20, 8), style="Location.TFrame")
         head.grid(row=0, column=0, sticky="ew")
-        tk.Label(head, text="Orte nachvollziehbar korrigieren", bg=colors["bg"], fg=colors["ink"],
+        tk.Label(head, text="Ortszuordnung prüfen", bg=colors["bg"], fg=colors["ink"],
                  font=(font, 18, "bold")).pack(anchor=tk.W)
-        intro = ttk.Label(head, text="Ohne GPS: nur nahe, eindeutige Zeitanker. Wechselnde Orte bleiben ungeklärt.",
-            style="Location.TLabel", wraplength=980, justify=tk.LEFT)
-        intro.pack(anchor=tk.W, fill=tk.X, pady=(6, 0))
-        head.bind("<Configure>", lambda event: intro.configure(wraplength=max(400, event.width-44)))
+        self.notebook = ttk.Notebook(self, style="Location.TNotebook")
+        self.notebook.grid(row=1, column=0, sticky="nsew", padx=20)
+        settings = ttk.Frame(self.notebook, padding=14, style="Location.TFrame")
+        settings.columnconfigure(0, weight=1)
+        settings.rowconfigure(4, weight=1)
+        self.notebook.add(settings, text="1. Einstellungen")
+        self.results_page = ttk.Frame(self.notebook, padding=12, style="Location.TFrame")
+        self.notebook.add(self.results_page, text="2. Vorschau")
+        self.results_page.columnconfigure(0, weight=1)
+        self.results_page.rowconfigure(1, weight=3, minsize=120)
+        self.results_page.rowconfigure(2, weight=1, minsize=80)
 
-        options = ttk.Frame(self, padding=(22, 0, 22, 6), style="Location.TFrame")
-        options.grid(row=1, column=0, sticky="ew")
         self.online_var = tk.BooleanVar(value=False)
-        self.online_check = ttk.Checkbutton(options, text="Online-Ortsnamen (optional)",
+        self.online_check = ttk.Checkbutton(settings, text="Online-Ortsnamen (optional)",
             variable=self.online_var, style="Location.TCheckbutton")
         self.online_check.grid(row=0, column=0, sticky="w")
         self.hours_var = tk.StringVar(value="6")
-        time_options = ttk.Frame(options, style="Location.TFrame")
-        time_options.grid(row=0, column=1, sticky="e")
+        time_options = ttk.Frame(settings, style="Location.TFrame")
+        time_options.grid(row=1, column=0, sticky="w", pady=10)
         ttk.Label(time_options, text="Zeitnähe bis", style="Location.TLabel").pack(side=tk.LEFT, padx=(0, 7))
         self.hours_combo = ttk.Combobox(time_options, textvariable=self.hours_var, values=("1", "3", "6", "12", "24"),
             state="readonly", width=4, style="Location.TCombobox")
         self.hours_combo.pack(side=tk.LEFT)
         ttk.Label(time_options, text="Stunden", style="Location.TLabel").pack(side=tk.LEFT, padx=(7, 0))
-        options.columnconfigure(0, weight=1)
         self.mode_var = tk.StringVar()
-        mode = ttk.Label(options, textvariable=self.mode_var, style="Location.TLabel", wraplength=980, justify=tk.LEFT)
-        mode.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(5, 2))
-        privacy = ttk.Label(options, text="Online: GPS-Koordinaten an Nominatim / OpenStreetMap, keine Fotos.",
-            style="Location.TLabel", wraplength=980, justify=tk.LEFT)
-        privacy.grid(row=2, column=0, columnspan=2, sticky="ew")
-        options.bind("<Configure>", lambda event: (mode.configure(wraplength=max(400, event.width-44)),
-                                                   privacy.configure(wraplength=max(400, event.width-44))))
+        mode = ttk.Label(settings, textvariable=self.mode_var, style="Location.TLabel", wraplength=960, justify=tk.LEFT)
+        mode.grid(row=2, column=0, sticky="ew", pady=(0, 6))
+        privacy = ttk.Label(settings, text="Online: GPS-Koordinaten an Nominatim / OpenStreetMap, keine Fotos.",
+            style="Location.TLabel", wraplength=960, justify=tk.LEFT)
+        privacy.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        settings.bind("<Configure>", lambda event: (mode.configure(wraplength=max(300, event.width-28)),
+                                                    privacy.configure(wraplength=max(300, event.width-28))))
+        help_host = ttk.Frame(settings, style="Location.TFrame")
+        help_host.grid(row=4, column=0, sticky="nsew")
+        help_text = tk.Text(help_host, height=4, width=1, wrap=tk.WORD, bg=colors["surface"], fg=colors["ink"],
+            font=(font, 10), padx=10, pady=8, relief=tk.FLAT, borderwidth=0, takefocus=True)
+        help_text.insert("1.0", "So entsteht die Vorschau\n\n"
+            "GPS liefert die Ortsbasis. Ohne GPS werden nur nahe, eindeutige Zeitanker verwendet. "
+            "Bei wechselnden Orten oder fehlender Grundlage bleibt die Zuordnung ungeklärt.\n\n"
+            "Offline werden bekannte Städte im Umkreis von 25 km angenähert. Außerhalb des Katalogs "
+            "können Online-Ortsnamen helfen.\n\n"
+            "Gespeichert werden nur Ortsmetadaten und Kapitelzuordnungen. Bildauswahl, Favoriten, "
+            "manuelle Entscheidungen und Buchpositionen bleiben erhalten.")
+        help_text.configure(state=tk.DISABLED)
+        help_scroll = ttk.Scrollbar(help_host, command=help_text.yview, style="Location.Vertical.TScrollbar")
+        help_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        help_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        help_text.configure(yscrollcommand=help_scroll.set)
 
-        toolbar = ttk.Frame(self, padding=(22, 0, 22, 10), style="Location.TFrame")
-        toolbar.grid(row=2, column=0, sticky="ew")
-        self.preview_btn = ttk.Button(toolbar, text="Vorschau berechnen", command=self._start_preview, style="Location.TButton")
-        self.preview_btn.pack(side=tk.LEFT)
+        result_tools = ttk.Frame(self.results_page, style="Location.TFrame")
+        result_tools.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        result_tools.columnconfigure(0, weight=1)
+        self.summary_var = tk.StringVar(value=f"{len(owner.photos)} Bilder. Noch keine Vorschau berechnet.")
+        ttk.Label(result_tools, textvariable=self.summary_var, style="Location.TLabel", width=1).grid(row=0, column=0, sticky="ew")
         self.filter_var = tk.StringVar(value="Änderungen und Ungeklärte")
-        self.filter_combo = ttk.Combobox(toolbar, textvariable=self.filter_var,
+        self.filter_combo = ttk.Combobox(result_tools, textvariable=self.filter_var,
             values=("Änderungen und Ungeklärte", "Nur Änderungen", "Nur Ungeklärte", "Alle Bilder"),
-            state="readonly", width=29, style="Location.TCombobox")
-        self.filter_combo.pack(side=tk.RIGHT)
+            state="readonly", width=25, style="Location.TCombobox")
+        self.filter_combo.grid(row=1, column=0, sticky="w", pady=(5, 0))
         self.filter_combo.bind("<<ComboboxSelected>>", self._filter_rows)
-
-        table_host = ttk.Frame(self, padding=(22, 0, 22, 0), style="Location.TFrame")
-        table_host.grid(row=3, column=0, sticky="nsew")
+        table_host = ttk.Frame(self.results_page, style="Location.TFrame")
+        table_host.grid(row=1, column=0, sticky="nsew")
         table_host.columnconfigure(0, weight=1)
         table_host.rowconfigure(0, weight=1)
         self.table = ttk.Treeview(table_host, columns=("photo", "old", "new", "basis"), show="headings",
@@ -167,44 +193,43 @@ class LocationRepairDialog(tk.Toplevel):
         scroll.grid(row=0, column=1, sticky="ns")
         self.table.configure(yscrollcommand=scroll.set)
         self.table.bind("<<TreeviewSelect>>", self._show_row)
-
-        foot = ttk.Frame(self, padding=(22, 6, 22, 0), style="Location.TFrame")
-        foot.grid(row=4, column=0, sticky="ew")
-        self.summary_var = tk.StringVar(value=f"{len(owner.photos)} Bilder. Noch keine Vorschau berechnet.")
-        ttk.Label(foot, textvariable=self.summary_var, style="Location.TLabel").pack(anchor=tk.W)
+        detail_host = ttk.Frame(self.results_page, style="Location.TFrame")
+        detail_host.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
         self.detail_var = tk.StringVar(value="Die Vorschau verändert deine Fotos und Entscheidungen noch nicht.")
-        detail_host = ttk.Frame(foot, style="Location.TFrame")
-        detail_host.pack(fill=tk.X, pady=(4, 0))
-        self._detail_text = tk.Text(detail_host, height=2, width=1, wrap=tk.WORD, state=tk.DISABLED,
+        self._detail_text = tk.Text(detail_host, height=3, width=1, wrap=tk.WORD, state=tk.DISABLED,
             bg=colors["surface"], fg=colors["ink"], font=(font, 10), padx=8, pady=5,
             relief=tk.FLAT, borderwidth=0, takefocus=True)
         detail_scroll = ttk.Scrollbar(detail_host, command=self._detail_text.yview, style="Location.Vertical.TScrollbar")
         detail_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self._detail_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._detail_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._detail_text.configure(yscrollcommand=detail_scroll.set)
         self.detail_var.trace_add("write", self._update_detail)
         self._update_detail()
+
+        foot = ttk.Frame(self, padding=(20, 8, 20, 12), style="Location.TFrame")
+        foot.grid(row=2, column=0, sticky="ew")
         paging = ttk.Frame(foot, style="Location.TFrame")
-        paging.pack(fill=tk.X, pady=(8, 0))
+        paging.pack(fill=tk.X)
         self.prev_btn = ttk.Button(paging, text="< Zurück", command=lambda: self._change_page(-1), style="Location.TButton", state=tk.DISABLED)
         self.prev_btn.pack(side=tk.LEFT)
         self.page_var = tk.StringVar(value="0 Bilder")
         ttk.Label(paging, textvariable=self.page_var, style="Location.TLabel").pack(side=tk.LEFT, padx=10)
         self.next_btn = ttk.Button(paging, text="Weiter >", command=lambda: self._change_page(1), style="Location.TButton", state=tk.DISABLED)
         self.next_btn.pack(side=tk.LEFT)
-        self.progress = ttk.Progressbar(paging, mode="indeterminate", length=150)
-        self.progress.pack(side=tk.RIGHT, padx=(15, 0))
-        self.status_var = tk.StringVar(value="Auswahl, Favoriten, manuelle Entscheidungen und Buchpositionen bleiben erhalten.")
-        status = ttk.Label(foot, textvariable=self.status_var, style="Location.TLabel", wraplength=980, justify=tk.LEFT)
-        status.pack(anchor=tk.W, fill=tk.X, pady=(5, 0))
-        foot.bind("<Configure>", lambda event: status.configure(wraplength=max(400, event.width-44)))
-        actions = ttk.Frame(self, padding=(22, 5, 22, 12), style="Location.TFrame")
-        actions.grid(row=5, column=0, sticky="ew")
-        ttk.Label(actions, text="Speichern setzt den Rückgängig-Verlauf zurück.",
-                  style="Location.TLabel").pack(anchor=tk.W, pady=(0, 6))
-        buttons = ttk.Frame(actions, style="Location.TFrame")
+        self.progress = ttk.Progressbar(paging, mode="indeterminate", length=100)
+        self.status_var = tk.StringVar(value="Bildauswahl und Entscheidungen bleiben erhalten.")
+        self._status_text = tk.Text(foot, height=1, width=1, wrap=tk.WORD, state=tk.DISABLED,
+            bg=colors["bg"], fg=colors["muted"], font=(font, 10), relief=tk.FLAT, borderwidth=0, takefocus=True)
+        self._status_text.pack(fill=tk.X, pady=(5, 0))
+        self.status_var.trace_add("write", self._update_status)
+        self._update_status()
+        ttk.Label(foot, text="Speichern setzt den Rückgängig-Verlauf zurück.",
+                  style="Location.TLabel").pack(anchor=tk.W, pady=(4, 7))
+        buttons = ttk.Frame(foot, style="Location.TFrame")
         buttons.pack(fill=tk.X)
-        ttk.Button(buttons, text="Schließen", command=self.destroy, style="Location.TButton").pack(side=tk.LEFT)
+        self.preview_btn = ttk.Button(buttons, text="Vorschau berechnen", command=self._start_preview, style="Location.TButton")
+        self.preview_btn.pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Schließen", command=self.destroy, style="Location.TButton").pack(side=tk.LEFT, padx=8)
         self.apply_btn = ttk.Button(buttons, text="Alle Ortskorrekturen speichern", command=self._apply,
                                     style="Location.TButton", state=tk.DISABLED)
         self.apply_btn.pack(side=tk.RIGHT)
@@ -213,6 +238,13 @@ class LocationRepairDialog(tk.Toplevel):
         self._invalidate()
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _update_status(self, *_):
+        self._status_text.configure(state=tk.NORMAL)
+        self._status_text.delete("1.0", tk.END)
+        self._status_text.insert("1.0", self.status_var.get())
+        self._status_text.configure(state=tk.DISABLED)
+        self._status_text.yview_moveto(0)
 
     def _update_detail(self, *_):
         self._detail_text.configure(state=tk.NORMAL)
@@ -243,9 +275,11 @@ class LocationRepairDialog(tk.Toplevel):
         self.online_check.configure(state=tk.DISABLED if busy else tk.NORMAL)
         self.hours_combo.configure(state=tk.DISABLED if busy else "readonly")
         if busy:
+            self.progress.pack(side=tk.RIGHT, padx=(15, 0))
             self.progress.start(12)
         else:
             self.progress.stop()
+            self.progress.pack_forget()
 
     def _start_preview(self):
         if self._busy:
@@ -262,6 +296,7 @@ class LocationRepairDialog(tk.Toplevel):
         self._preview_settings = (online, hours)
         self._stop = threading.Event()
         self._set_busy(True)
+        self.notebook.select(self.results_page)
         self.status_var.set("Ortsgrundlagen werden geprüft..." + (" Online-Abfragen können etwas dauern." if online else " Alles läuft lokal."))
         photos = list(self.owner.photos)
         cache_path = Path(self.owner.output_dir) / "geocode_cache.json"

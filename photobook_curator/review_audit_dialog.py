@@ -76,29 +76,36 @@ class AuditDetail(ttk.Frame):
         super().__init__(master, style="Audit.TFrame")
         colors, font = _style(self)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
+        self.rowconfigure(0, weight=1)
         self.title_var = tk.StringVar(value="Bild auswählen")
         self.status_var = tk.StringVar(value="Die Begründung erscheint hier.")
-        title = tk.Label(self, textvariable=self.title_var, bg=colors["bg"], fg=colors["ink"],
-                         font=(font, 16, "bold"), anchor=tk.W, justify=tk.LEFT, wraplength=460)
-        title.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        status = ttk.Label(self, textvariable=self.status_var, style="Audit.TLabel", wraplength=460,
-                           justify=tk.LEFT)
-        status.grid(row=1, column=0, sticky="ew", pady=(0, 12))
-        self.bind("<Configure>", lambda event: (title.configure(wraplength=max(100, event.width-18)),
-                                                 status.configure(wraplength=max(100, event.width-18))))
         self.text = tk.Text(self, wrap=tk.WORD, bg=colors["surface"], fg=colors["ink"],
                             insertbackground=colors["ink"], relief=tk.FLAT, borderwidth=0,
                             padx=16, pady=12, font=(font, 10), width=35, height=12,
                             takefocus=True, state=tk.DISABLED)
-        self.text.grid(row=2, column=0, sticky="nsew")
+        self.text.grid(row=0, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.text.yview,
                                style="Audit.Vertical.TScrollbar")
-        scroll.grid(row=2, column=1, sticky="ns")
+        scroll.grid(row=0, column=1, sticky="ns")
         self.text.configure(yscrollcommand=scroll.set)
         self.text.tag_configure("heading", font=(font, 11, "bold"), foreground=colors["accent"],
                                 spacing1=12, spacing3=6)
         self.text.tag_configure("body", spacing3=8)
+        self.text.tag_configure("filename", font=(font, 16, "bold"), spacing3=8)
+        self.text.tag_configure("status", foreground=colors["muted"], spacing3=12)
+        self.show_empty(self.title_var.get(), self.status_var.get())
+
+    def _header(self):
+        self.text.insert(tk.END, self.title_var.get() + "\n", "filename")
+        self.text.insert(tk.END, self.status_var.get() + "\n", "status")
+
+    def show_empty(self, title, status):
+        self.title_var.set(title)
+        self.status_var.set(status)
+        self.text.configure(state=tk.NORMAL)
+        self.text.delete("1.0", tk.END)
+        self._header()
+        self.text.configure(state=tk.DISABLED)
 
     def show(self, audit):
         self.title_var.set(audit.filename)
@@ -106,6 +113,7 @@ class AuditDetail(ttk.Frame):
                             (audit.chapter or "Ohne Kapitel") + "  |  " + (audit.day or "Ohne Datum"))
         self.text.configure(state=tk.NORMAL)
         self.text.delete("1.0", tk.END)
+        self._header()
         for title, body in _sections(audit):
             self.text.insert(tk.END, title + "\n", "heading")
             self.text.insert(tk.END, body.strip() + "\n", "body")
@@ -309,11 +317,7 @@ class AuditReportWindow(tk.Toplevel):
             self.table.see(selected)
             self._select()
         else:
-            self.detail.title_var.set("Keine passenden Bilder")
-            self.detail.status_var.set("Suchbegriff ändern oder einen anderen Filter wählen.")
-            self.detail.text.configure(state=tk.NORMAL)
-            self.detail.text.delete("1.0", tk.END)
-            self.detail.text.configure(state=tk.DISABLED)
+            self.detail.show_empty("Keine passenden Bilder", "Suchbegriff ändern oder einen anderen Filter wählen.")
 
     def _select(self, _event=None):
         selected = self.table.selection()

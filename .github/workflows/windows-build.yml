@@ -27,6 +27,9 @@ jobs:
       - name: Tests
         run: python -m pytest -q
       - name: Capture native Windows layouts
+        # Preserve diagnostic screenshots when a UI test fails; a failed test
+        # still blocks the build and release steps below.
+        if: ${{ !cancelled() }}
         timeout-minutes: 1
         run: python packaging/capture_ui.py --output artifacts/windows-ui
       - name: Upload native Windows UI evidence

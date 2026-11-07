@@ -43,12 +43,19 @@ ausdrücklich simulierten Fortschritts-/Kostenbeispiels. Hinzu kommen die
 fokussierte Albumvorschau, der Variantenvergleich und der Prüfbericht mit fünf
 kleinen, erzeugten DEMO-Bildern. Ihre Metadaten und Auswahlbelege sind konstruierte
 Testdaten; die Aufnahmen behaupten keine tatsächlich gemessene Bildbewertung.
+Zusätzlich werden der Prüfbericht bei 920 × 580 und die Offline-Ortsprüfung
+regulär sowie bei 800 × 600 aufgenommen. Die Ortsprüfung verwendet nur zwei
+öffentliche Stadtmittelpunkt-Koordinaten als ausdrücklich synthetische Metadaten;
+sie startet keine Online-Abfrage. Tabellen-/Detailhöhen und tatsächliche
+Schaltflächengeometrien stehen ebenfalls in den Metadaten.
 `metadata.json` hält
 tatsächliche Bildschirmauflösung, DPI und Fenster-/Inhaltsgeometrie fest.
 1920 × 1080 wird nur verwendet, wenn der Runner diesen Modus unterstützt;
 sonst dokumentieren die Aufnahmen den tatsächlich verfügbaren Bildschirm.
 Die Hauptfensterquellen bleiben leer. Die Aufnahmen verwenden keine privaten
 Fotos oder API-Schlüssel, keine KI-Aufrufe und isolierte Einstellungen.
+Die Aufnahme läuft auch nach einem fehlgeschlagenen Test für die Fehlerdiagnose.
+Fehlgeschlagene Tests sperren weiterhin Build und Veröffentlichung.
 
 Solange `main` nur die ursprüngliche README enthält, zuerst den Entwicklungsstand
 einschliesslich dieses Workflows übernehmen. Ein manueller Workflow-Start wird in
