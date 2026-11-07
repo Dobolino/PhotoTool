@@ -1,9 +1,0 @@
-Traceback (most recent call last):
-  File "/workspace/PhotoTool/photobook_curator/gui.py", line 261, in __init__
-    self._init_app()
-  File "/workspace/PhotoTool/photobook_curator/gui.py", line 366, in _init_app
-    self._build()
-  File "/workspace/PhotoTool/photobook_curator/gui.py", line 835, in _build
-    tself._translated_label(self._album_tools_host, "travel_profile", style="Field.TLabel").pack(side=tk.LEFT)
-    ^^^^^
-NameError: name 'tself' is not defined. Did you mean: 'self'?

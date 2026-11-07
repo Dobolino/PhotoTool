@@ -32,3 +32,6 @@ output_sample/
 output_dry/
 output_*/
 gesamter_code.txt
+
+# Local startup diagnostics
+fehler_beim_start.txt
