@@ -12,6 +12,8 @@ import tempfile
 from typing import Any
 
 from .models import Photo
+from .trace_schema import normalize_selection_trace
+from .location_schema import normalize_location_evidence
 from .selection_draft import _path_key
 
 _JOURNAL = '.source-relink-transaction.json'
@@ -226,6 +228,18 @@ def _remap_review_state(value: Any, paths: dict[str, str]) -> Any:
     return value
 
 
+def _remap_trace_peers(trace: Any, paths: dict[str, str]) -> dict:
+    """Keep recorded comparison identities aligned with relocated source files."""
+    trace = normalize_selection_trace(trace)
+    for event in trace.get('events', []):
+        details = event['details']
+        if 'peer_path' in details:
+            details['peer_path'] = paths.get(_path_key(details['peer_path']), details['peer_path'])
+        if 'peer_paths' in details:
+            details['peer_paths'] = [paths.get(_path_key(path), path) for path in details['peer_paths']]
+    return trace
+
+
 def _relocated_project_metadata(output_dir: Path, preview: SourceRelinkPreview,
                                 photos: list[Photo]) -> dict | None:
     """Preserve project settings while moving a covered source root."""
@@ -287,6 +301,14 @@ def apply_source_relink(
         updated[entry.index].path = entry.new_path
         updated[entry.index].filename = entry.new_path.name
         mapping[_path_key(entry.old_path)] = str(entry.new_path)
+    for photo in updated:
+        photo.selection_trace = _remap_trace_peers(photo.selection_trace, mapping)
+        evidence = normalize_location_evidence(photo.location_evidence)
+        if 'anchor_path' in evidence:
+            evidence['anchor_path'] = mapping.get(_path_key(evidence['anchor_path']), evidence['anchor_path'])
+        for candidate in evidence.get('candidates', []):
+            candidate['anchor_path'] = mapping.get(_path_key(candidate['anchor_path']), candidate['anchor_path'])
+        photo.location_evidence = evidence
     draft = load_selection_draft(output_dir)
     view = review_state if review_state is not None else (draft or {}).get('review_state', {})
     view = _remap_review_state(view, mapping)
@@ -321,4 +343,7 @@ def apply_source_relink(
     for entry in preview.changes:
         photos[entry.index].path = entry.new_path
         photos[entry.index].filename = entry.new_path.name
+    for original, prepared in zip(photos, updated):
+        original.selection_trace = prepared.selection_trace
+        original.location_evidence = prepared.location_evidence
     return len(preview.changes)

@@ -1,15 +1,21 @@
-# PhotoTool 0.4.1: Jede Reise, ein eigenes Album
+# PhotoTool 0.4.2: Jede Reise, ein eigenes Album
 
 PhotoTool reduziert eine Fotosammlung für ein Fotobuch. Das endgültige Layout
 entsteht anschliessend in deiner Fotobuchsoftware. Alle Funktionen sind für
 beliebige Reisen gedacht, nicht speziell für Japan.
 
-Die folgenden Ansichten wurden in der laufenden Windows-App aufgenommen.
+Die Startansichten stammen aus der laufenden Windows-App.
 [Maximierte Ansicht bei 1920 × 1080](docs/screenshots/phototool-0.4.1-windows-maximized.png).
 
 ![Projekt und Album planen](docs/screenshots/phototool-0.4.1-main.png)
 
-![Album prüfen](docs/screenshots/phototool-0.4-review.png)
+Die folgenden neuen Prüfansichten sind native Tk-Aufnahmen auf Linux mit
+ausdrücklich synthetischen Testbildern/-daten. Der Windows-Build erzeugt zusätzlich
+eigene native Prüfaufnahmen als Actions-Artefakt `PhotoTool-windows-ui`.
+
+![Albumfoto und Alternative vergleichen](docs/screenshots/phototool-0.4.2-review-comparison-linux-demo.png)
+
+![Prüfbericht mit manueller und letzter automatischer Entscheidung](docs/screenshots/phototool-0.4.2-audit-linux-demo.png)
 
 ## Der Ablauf
 
@@ -95,6 +101,29 @@ Texteingaben erhalten. **Strg+Z / Strg+Y** machen Änderungen innerhalb der Sitz
 rückgängig bzw. wiederholen sie.
 
 ## Bewusster vergleichen
+
+In der Vorschau öffnet **Varianten vergleichen** Albumfoto und Alternative als
+zusammengehöriges Paar. Bei schmalem Fenster wechselt man zwischen den Bildseiten.
+**Als Ersatz wählen** ersetzt das Albumfoto am selben Platz; **Zusätzlich aufnehmen**
+behält beide. **Zurück zum Albumfoto** führt zum ursprünglichen Platz zurück,
+nach einem Ersatz zum neuen Foto. Rückgängig stellt den gesamten Austausch wieder her.
+Serien-/Motivbezug und bloss weitere Aufnahmen sind unterschiedlich beschriftet.
+
+**Prüfbericht** zeigt alle Bilder mit Suche/Filtern; **Warum dieses Bild?** öffnet
+die einzelnen Gründe. Aktuelle manuelle Entscheidungen stehen getrennt vom letzten
+automatischen Lauf. Nur tatsächlich protokollierte Vergleiche, Ausschlussfilter,
+Bewertungen und Kontingentschritte werden erklärt. Bei alten oder unvollständigen
+Läufen fehlen die genauen damaligen Gründe ausdrücklich. Der Export schreibt
+`selection_audit.html` und `selection_audit.csv`; der aktuelle Review-Bericht kann
+zusätzlich jederzeit exportiert werden.
+
+**Werkzeuge → Orte neu prüfen…** zeigt eine Vorschau von Orts-/Kapitelkorrekturen.
+GPS-Aufnahmen sind die Grundlage; GPS-lose Bilder verwenden nahe echte GPS-Zeitanker.
+Widersprüche und fehlende Grundlagen bleiben ungeklärt. Offline dient ein kleiner
+Städtekatalog als Näherung bis 25 km; optional liefert Nominatim Online-Ortsnamen.
+Die Bildauswahl und manuellen Entscheidungen bleiben beim Speichern erhalten.
+
+![Ortsprüfung vor dem Speichern](docs/screenshots/phototool-0.4.2-location-linux-demo.png)
 
 **Zuerst prüfen** priorisiert unter anderem Qualitätsprobleme, Konflikte zwischen
 Bewertung und Auswahl sowie nahe Alternativen. Es zeigt nachvollziehbare Hinweise,

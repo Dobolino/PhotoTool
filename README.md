@@ -1,12 +1,18 @@
-# Photobook Curator
+# PhotoTool – Photobook Curator
 
-Lokales Python-CLI-Tool zur Kuratierung eines Urlaubs-Fotobuchs aus einer großen iPhone/iCloud-Fotosammlung.
+Lokales Windows-Programm mit Python-Oberfläche und CLI: grosse Urlaubssammlungen
+für ein Fotobuch reduzieren, prüfen und als geordnete Originalkopien exportieren.
 
 **Japan-Reise / grosse Sammlungen:** [Japan-Workflow](JAPAN_WORKFLOW.md) · [Technischer Check](TECHNIK_CHECK.md).
 
 **Einstieg:** siehe [ANLEITUNG.md](ANLEITUNG.md). Unter Windows am einfachsten: `Fotobuch starten.bat` doppelklicken (Fenster-Oberfläche).
 
-Neu in **0.4.1**: kompakte Startansicht mit begrenzter Inhaltsbreite, lesbarere
+Neu in **0.4.2**: Prüfbericht mit tatsächlich protokollierten Auswahlgründen,
+direkter Vergleich von Albumfoto und Alternative sowie eine Vorschau für
+Ortskorrekturen. Wiederholte Zwischenstopps können GPS-lose Bilder nicht mehr
+über den gesamten Reisezeitraum einer falschen Stadt zuordnen.
+
+Seit **0.4.1**: kompakte Startansicht mit begrenzter Inhaltsbreite, lesbarere
 Schrift und klarer Auswahlart vor dem Start. Bildqualität, Abwechslung und KI
 stehen in einem eigenen Einstellungsfenster; die Analyse hat eine eigene
 Fortschrittsansicht. Kurze Hilfen öffnen direkt an der jeweiligen Einstellung.
@@ -43,9 +49,21 @@ In Python-Entwicklungsstarts öffnet die Schaltfläche die Release-Seite.
 - **Druckqualität:** gewünschte Bildgrösse in cm und Ziel-DPI eingeben (Standard
   15 × 10 cm / 300 DPI). Die Prüfung berücksichtigt Beschnitt und Drehung; unbekannte
   Bildmasse werden separat angezeigt. Ein CSV-Bericht kann gespeichert werden.
-- **Auswahlgründe:** Rechtsklick oder Diashow-Schaltfläche. Zeigt vorhandene Scores,
-  manuelle Entscheidungen, Schutz und Qualitäts-/Duplikathinweise. Der genaue
-  automatische Rankingentscheid wird bisher nicht protokolliert.
+- **Prüfbericht / Warum dieses Bild?:** tatsächliche automatische Entscheidungen,
+  aktuelle manuelle Vorgaben, Qualitätsmerkmale und aufgezeichnete Vergleichsbilder.
+  Suche/Filter zeigen ausgewählte und ausgelassene Bilder. HTML und CSV funktionieren
+  offline; der Export erzeugt `selection_audit.html` und `selection_audit.csv`.
+  Bei alten Auswahlen ohne Protokoll bleiben die damaligen Gründe ausdrücklich unbekannt.
+- **Varianten vergleichen:** Albumfoto und Alternative nebeneinander; bei schmalen
+  Fenstern zwischen beiden umschalten. **Als Ersatz wählen** behält den Albumplatz,
+  **Zusätzlich aufnehmen** erweitert die Auswahl. Rückkehr und Wiederaufnahme merken
+  den ursprünglichen Albumzusammenhang. Serien-/Motivbezug und weitere Aufnahmen
+  werden unterschiedlich bezeichnet.
+- **Orte neu prüfen…** im Menü **Werkzeuge**: GPS-Zuordnungen und nahe Zeitanker
+  ohne neue KI oder Neuauswahl prüfen. Zuerst Änderungen ansehen, dann gemeinsam
+  speichern; Auswahl, Favoriten und dauerhafte Entscheidungen bleiben erhalten.
+  Offline-Orte sind eine Näherung an einen kleinen Städtekatalog bis 25 km,
+  keine Stadtteilerkennung. Optional liefert Nominatim Online-Ortsnamen.
 
 Das Tool scannt Fotos, bewertet sie technisch, clustert GPS-Orte zu Regionen (Kapiteln), erkennt Transit-Abschnitte zwischen Städten, trennt Essens-Fotos ans Kapitelende und wählt eine diverse, chronologische Bildauswahl.
 

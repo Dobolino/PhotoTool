@@ -28,7 +28,7 @@ in `constraints-windows.txt` auf die getesteten Versionen begrenzt.
 
 Für eine Veröffentlichung zuerst `photobook_curator/__init__.py`, `pyproject.toml`
 und den Default in `installer.iss` auf dieselbe Version setzen. Nach Prüfung und Merge
-einen Tag wie `v0.4.1` auf diesen Commit pushen. Tag und App-Version müssen übereinstimmen.
+einen Tag wie `v0.4.2` auf diesen Commit pushen. Tag und App-Version müssen übereinstimmen.
 `python packaging/build.py --check` prüft die drei Versionsangaben ohne Build;
 auch jeder Bundle-Build und der Windows-Workflow brechen bei Abweichungen ab.
 Erst nach erfolgreichem Test, EXE-Smoke-Test, Installer-Build und nativem
@@ -39,11 +39,16 @@ automatischen Programmstart und wiederholt Installation und Start als In-place-U
 
 Der Windows-Workflow lädt zusätzlich `PhotoTool-windows-ui` hoch: native Aufnahmen
 des regulären und maximierten Hauptfensters, der Einstellungen und eines
-ausdrücklich simulierten Fortschritts-/Kostenbeispiels. `metadata.json` hält
+ausdrücklich simulierten Fortschritts-/Kostenbeispiels. Hinzu kommen die
+fokussierte Albumvorschau, der Variantenvergleich und der Prüfbericht mit fünf
+kleinen, erzeugten DEMO-Bildern. Ihre Metadaten und Auswahlbelege sind konstruierte
+Testdaten; die Aufnahmen behaupten keine tatsächlich gemessene Bildbewertung.
+`metadata.json` hält
 tatsächliche Bildschirmauflösung, DPI und Fenster-/Inhaltsgeometrie fest.
 1920 × 1080 wird nur verwendet, wenn der Runner diesen Modus unterstützt;
 sonst dokumentieren die Aufnahmen den tatsächlich verfügbaren Bildschirm.
-Die Aufnahmen verwenden leere Quellen, keine API-Schlüssel und isolierte Einstellungen.
+Die Hauptfensterquellen bleiben leer. Die Aufnahmen verwenden keine privaten
+Fotos oder API-Schlüssel, keine KI-Aufrufe und isolierte Einstellungen.
 
 Solange `main` nur die ursprüngliche README enthält, zuerst den Entwicklungsstand
 einschliesslich dieses Workflows übernehmen. Ein manueller Workflow-Start wird in
@@ -65,10 +70,14 @@ Release veröffentlichen; ein Actions-Artefakt allein wird nicht als Update ange
 Ein HTTP 404 wird als nicht verfügbare Release-Quelle gemeldet, nicht als
 erfolgreicher Versionsvergleich. Es wird kein GitHub-Token in die EXE eingebaut.
 
-Beim Update von 0.4.0 auf 0.4.1 bleiben Installer-ID und Installationspfad gleich.
+Beim Update von 0.4.x auf 0.4.2 bleiben Installer-ID und Installationspfad gleich.
 Bestehende Projekte verwenden weiterhin Projektformat 1; Ausgabeordner,
 Auswahlentwürfe, Favoriten und Originalbilder werden vom Installer nicht ersetzt.
 Das Projekt kann nach dem Update über **Projekt öffnen** fortgesetzt werden.
+Ältere Analysen bleiben lesbar. Wenn sie noch keine automatische
+Entscheidungshistorie enthalten, darf der Prüfbericht daraus keine nachträgliche
+Rankingbegründung ableiten; historische Entscheidungsdaten sind erst nach einer
+neuen Auswahl mit 0.4.2 verfügbar.
 
 - **Einfach:** Ordner `dist\Fotobuch` als **ZIP** weitergeben → entpacken →
   `Fotobuch.exe` doppelklicken. Kein Python nötig.

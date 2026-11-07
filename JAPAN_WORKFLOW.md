@@ -16,9 +16,14 @@ Erinnerungen ab. Automatische Qualitätswerte ersetzen die persönliche Prüfung
 4. Für Japans Nachtstrassen, Restaurants und Tempel zunächst den Filter für schwache
    Nachtaufnahmen sowie den Fehlaufnahmefilter ausschalten. Gegenlicht, Neon und
    Architektur können von einfachen Heuristiken falsch bewertet werden.
-5. Karten/Kapitel prüfen, danach Varianten vergleichen und unverzichtbare Erinnerungen
-   als Favoriten schützen. Ein niedriger Qualitätsscore ist kein Löschgrund.
-6. **Pause & speichern**, später denselben Ausgabeordner öffnen. **Album exportieren**
+5. Karten/Kapitel prüfen. Bei falschen Ortsnamen **Werkzeuge → Orte neu prüfen…**
+   verwenden und die Änderungsvorschau ansehen. Offline gibt es nur eine grobe
+   Zuordnung zu bekannten Städten; für andere Orte optional Online-Ortsnamen aktivieren.
+6. In der Albumvorschau **Varianten vergleichen**: **Als Ersatz wählen** ersetzt
+   genau das ursprüngliche Albumfoto; **Zusätzlich aufnehmen** behält beide.
+   **Warum dieses Bild?** und **Prüfbericht** erklären die aufgezeichneten Entscheidungen.
+   Unverzichtbare Erinnerungen als Favoriten schützen; ein niedriger Score ist kein Löschgrund.
+7. **Pause & speichern**, später denselben Ausgabeordner öffnen. **Album exportieren**
    kopiert die fertige Auswahl für die Fotobuchsoftware.
 
 Geschützte Favoriten haben Vorrang vor Zielzahl und Grenzen. Manuelle Änderungen
@@ -55,6 +60,9 @@ Kamerazeit korrigieren, sonst verschieben sich Tagesgrenzen.
 ## Was gespeichert wird
 
 - `photos_analysis.csv`: Metadaten, Scores, Kapitel, Auswahl und Kennzeichnungen.
+  Ab 0.4.2 auch begrenzte automatische Auswahlprotokolle und Ortsnachweise.
+- `selection_audit.html` / `.csv`: offline lesbarer Prüfbericht der letzten
+  Analyse/Ausgabe; im Review lässt sich der aktuelle Stand erneut exportieren.
 - `selection_draft.json`: Auswahlentscheidungen, Favoriten, Kapiteländerungen,
   Variantenherkunft und Vorschauposition für das Wiederaufnehmen.
 - `analysis_cache.sqlite`: wiederverwendbare lokale Analysemerkmale nach Dateipfad,
@@ -65,6 +73,27 @@ Kamerazeit korrigieren, sonst verschieben sich Tagesgrenzen.
 oder eine frische Analyse berechnet die Auswahl neu; Favoriten bleiben geschützt,
 explizite dauerhafte Behalten-/Ausschliessen-Entscheidungen werden ebenfalls übernommen. Vor einem Experiment den Projektordner sichern. Verschobene Originale
 können über „Originale wiederfinden“ anhand der relativen Pfade neu verknüpft werden.
+
+## Falsche Stadt oder fehlendes GPS
+
+Frühere Versionen konnten bei Hin- und Rückreise über dieselbe Stadt den ganzen
+Zwischenzeitraum als Aufenthalt behandeln. Ab 0.4.2 zählen einzelne echte
+GPS-Aufnahmen als Zeitanker, nicht der Zeitraum zwischen erstem und letztem Besuch.
+Standardmässig darf ein Anker höchstens sechs Stunden entfernt sein; liegen nahe
+Anker in unterschiedlichen Städten, bleibt die Zuordnung ungeklärt. Abgeleitete
+Bilder verlängern das Zeitfenster nicht. Unterschiedlich eingestellte Kamerauhren
+können weiterhin eine manuelle Zeitkorrektur erfordern.
+
+Bestehende Projekte werden über **Orte neu prüfen…** korrigiert. Die Vorschau zeigt
+alte/neue Orte, Kapitel, GPS- oder Zeitbasis und offene Fälle. Erst **Ortskorrekturen
+speichern** übernimmt alle angezeigten Metadatenkorrekturen; bestehende Exportkopien
+werden beim nächsten Albumexport aktualisiert. Manuell zugewiesene Kapitel bleiben
+erhalten. Der Rückgängig-Verlauf beginnt nach dem Speichern neu.
+
+Eine Motivbeschreibung wie „Nara Park, Japan“ ist kein verifizierter Ortsnachweis.
+Der Bericht nennt deshalb die tatsächliche GPS-/Zeitquelle separat. Bei älteren
+Auswahlen fehlen die damaligen automatischen Auswahlgründe; eine neue lokale
+Auswahl zeichnet sie auf, ohne einen kostenpflichtigen KI-Dienst zu benötigen.
 
 ## Erweiterungen ab 0.4.0
 

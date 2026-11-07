@@ -1875,6 +1875,8 @@ class PhotobookApp(tk.Tk):
         self._result_note_var.set(text(self,
             f"{count} Fotos sind bereit. Prüfe deine Auswahl und exportiere dein Album.",
             f"{count} photos are ready. Review your selection and export your album."))
+        if result.get("audit_warning"):
+            self._result_note_var.set(self._result_note_var.get() + "\n" + result["audit_warning"])
         if cfg.enable_map_preview and not result.get("exported"):
             from .map_preview import open_map_preview
             open_map_preview(self, result.get("photo_objects") or [], result.get("plan"), cfg.output_dir,
@@ -1901,7 +1903,7 @@ class PhotobookApp(tk.Tk):
             messagebox.showerror("Export", "Keine Auswahl zum Exportieren vorhanden.")
             return
         try:
-            export_book_outputs(
+            exported = export_book_outputs(
                 photos,
                 plan,
                 order,
@@ -1910,6 +1912,8 @@ class PhotobookApp(tk.Tk):
             )
             self._append_log(f"Export fertig: {cfg.output_dir}")
             self.status_var.set("Exportiert")
+            if exported.get("audit_warning"):
+                messagebox.showwarning("Prüfbericht", exported["audit_warning"], parent=self)
         except Exception as exc:
             messagebox.showerror("Export", str(exc))
             return

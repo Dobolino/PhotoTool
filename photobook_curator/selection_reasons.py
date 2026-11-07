@@ -2,11 +2,13 @@
 
 from .i18n import t
 from .models import Photo
+from .audit_report import build_photo_audit
 
 
 def selection_reasons(photo: Photo, selected: bool | None = None) -> list[str]:
     selected = photo.is_selected if selected is None else selected
     reasons = [t("reason_selected" if selected else "reason_not_selected")]
+    audit = build_photo_audit([photo], 0, selected)
     if photo.is_favorite:
         reasons.append(t("reason_favorite"))
     decision = getattr(photo, "manual_decision", "auto")
@@ -18,6 +20,12 @@ def selection_reasons(photo: Photo, selected: bool | None = None) -> list[str]:
         reasons.append(t("reason_manual_add"))
     if "manual_reject" in photo.flags:
         reasons.append(t("reason_manual_reject"))
+    # Actual branch evidence comes before quality hints. A stored mark or low
+    # score alone cannot explain why a particular automatic run omitted a photo.
+    if audit.automatic_reasons:
+        reasons.extend(audit.automatic_reasons)
+    elif decision == "auto" and not ("manual_add" in photo.flags or "manual_reject" in photo.flags):
+        reasons.extend(audit.primary_reasons)
     if photo.is_duplicate:
         reasons.append(t("reason_duplicate", name=photo.duplicate_of or "?"))
     if photo.is_burst_reject:
@@ -34,7 +42,4 @@ def selection_reasons(photo: Photo, selected: bool | None = None) -> list[str]:
         reasons.append(t("reason_ai"))
     if photo.quality_issue:
         reasons.append(photo.quality_issue)
-    if not selected and not (photo.is_duplicate or photo.is_burst_reject or photo.is_aside
-                             or "manual_reject" in photo.flags or decision == "reject"):
-        reasons.append(t("reason_unknown"))
-    return reasons
+    return list(dict.fromkeys(reasons))

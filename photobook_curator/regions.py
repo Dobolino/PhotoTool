@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from bisect import bisect_left
+from datetime import datetime, timezone
 from typing import Optional
 
 import numpy as np
@@ -24,6 +25,9 @@ def cluster_fine_locations(
 ) -> list[FineCluster]:
     """GPS-Cluster mit Haversine-Distanz (ost-west-korrekt auf allen Breiten)."""
     gps_indices = [i for i, p in enumerate(photos) if p.has_gps]
+    for photo in photos:
+        if not photo.has_gps and (photo.gps_lat is not None or photo.gps_lon is not None):
+            photo.add_flag("gps_invalid")
     if not gps_indices:
         return []
 
@@ -70,6 +74,7 @@ def geocode_clusters(clusters: list[FineCluster], cache: GeocodeCache) -> None:
         cluster.city = info.get("city")
         cluster.region_admin = info.get("region_admin")
         cluster.country = info.get("country")
+        cluster.location_source = info.get("source", "gps_online" if cache.enabled else "gps_offline")
     cache.save()
 
 
@@ -90,6 +95,13 @@ def build_regions(photos: list[Photo], clusters: list[FineCluster]) -> list[Regi
             photos[idx].region = city
             photos[idx].country = cluster.country
             photos[idx].place_label = city
+            photos[idx].location_evidence = {
+                "version": 1,
+                "source": getattr(cluster, "location_source", "legacy"),
+                "assigned_at": datetime.now(timezone.utc).isoformat(),
+                "latitude": photos[idx].gps_lat,
+                "longitude": photos[idx].gps_lon,
+            }
             by_city[city].append(idx)
 
     regions: list[Region] = []
@@ -126,9 +138,39 @@ def assign_photos_without_gps(
     regions: list[Region],
     max_hours: float = 6.0,
 ) -> list[int]:
-    """Ordnet GPS-lose Bilder zeitlich naheliegenden Regionen zu. Gibt Unbestimmt-Indizes zurück."""
+    """Use immutable GPS observations, never a city's first-to-last visit span.
+
+    Repeated visits (e.g. arrival and departure in Hong Kong) must not absorb an
+    intervening trip. Inferred photos cannot themselves become location anchors.
+    Opposing nearby cities leave a photo unresolved rather than guessing.
+    """
     unassigned: list[int] = []
-    threshold = timedelta(hours=max_hours)
+    assigned_at = datetime.now(timezone.utc).isoformat()
+    # Group equal timestamps as well: two cameras can record different cities at
+    # the same time when their clocks disagree. Never settle that tie by order.
+    anchors: dict[datetime, list[tuple[int, Region]]] = defaultdict(list)
+    for region in regions:
+        for idx in region.photo_indices:
+            anchor = photos[idx]
+            if (anchor.has_gps and anchor.datetime_taken is not None
+                    and not anchor.assigned_by_time and not anchor.is_aside
+                    and anchor.region == region.name):
+                anchors[anchor.datetime_taken].append((idx, region))
+    times = sorted(anchors)
+
+    def evidence(source: str, **details) -> dict:
+        return dict(version=1, source=source, assigned_at=assigned_at, **details)
+
+    def unresolved(i: int, warning: str, **details) -> None:
+        photo = photos[i]
+        photo.region = "Unbestimmt"
+        photo.country = None
+        photo.place_label = None
+        photo.assigned_by_time = False
+        photo.add_flag("unbestimmt")
+        photo.add_flag("location_ambiguous" if warning == "conflicting_anchors" else "location_unknown")
+        photo.location_evidence = evidence("unknown", warning=warning, **details)
+        unassigned.append(i)
 
     for i, photo in enumerate(photos):
         if getattr(photo, "is_aside", False):
@@ -136,56 +178,59 @@ def assign_photos_without_gps(
             continue
         if photo.region is not None:
             continue
-        if photo.datetime_taken is None or not regions:
-            photo.region = "Unbestimmt"
-            photo.add_flag("unbestimmt")
-            unassigned.append(i)
+        if photo.has_gps:
+            # A real coordinate that could not be resolved is stronger evidence
+            # than an unrelated nearby photo's city.
+            unresolved(i, "gps_unresolved", latitude=photo.gps_lat, longitude=photo.gps_lon)
             continue
-
-        best_region: Optional[Region] = None
-        best_delta: Optional[timedelta] = None
-        for region in regions:
-            if region.start_time is None or region.end_time is None:
+        if photo.gps_lat is not None or photo.gps_lon is not None or "gps_invalid" in photo.flags:
+            unresolved(i, "invalid_gps")
+            continue
+        if photo.datetime_taken is None:
+            unresolved(i, "missing_datetime")
+            continue
+        pos = bisect_left(times, photo.datetime_taken)
+        nearby: dict[tuple[str, Optional[str]], tuple[float, int, Region]] = {}
+        # Only the nearest recorded moment on either side is needed. Captures
+        # beyond those moments cannot be a stronger temporal observation.
+        for at in times[max(0, pos - 1):pos + 1]:
+            delta = abs((photo.datetime_taken - at).total_seconds()) / 3600.0
+            if delta > max_hours:
                 continue
-            if region.start_time <= photo.datetime_taken <= region.end_time:
-                delta = timedelta(0)
-            else:
-                delta = min(
-                    abs(photo.datetime_taken - region.start_time),
-                    abs(photo.datetime_taken - region.end_time),
-                )
-            if delta <= threshold and (best_delta is None or delta < best_delta):
-                best_delta = delta
-                best_region = region
-
-        if best_region is not None:
+            for idx, region in anchors[at]:
+                key = (region.name, region.country)
+                if key not in nearby or delta < nearby[key][0]:
+                    nearby[key] = (delta, idx, region)
+        candidates = sorted(nearby.values(), key=lambda item: (item[0], str(photos[item[1]].path)))
+        if len(candidates) > 1:
+            unresolved(i, "conflicting_anchors", candidates=[
+                dict(anchor_path=str(photos[idx].path), region=region.name,
+                     country=region.country, delta_hours=round(delta, 6))
+                for delta, idx, region in candidates[:2]
+            ])
+        elif candidates:
+            best_delta, anchor_idx, best_region = candidates[0]
             photo.region = best_region.name
             photo.country = best_region.country
+            photo.place_label = best_region.name
             photo.assigned_by_time = True
             photo.add_flag("assigned_by_time")
+            photo.location_evidence = evidence("time_nearest",
+                anchor_path=str(photos[anchor_idx].path), anchor_region=best_region.name,
+                anchor_country=best_region.country, delta_hours=round(best_delta, 6))
             best_region.photo_indices.append(i)
-            # Zeiten aktualisieren
-            times = [
-                photos[j].datetime_taken
-                for j in best_region.photo_indices
-                if photos[j].datetime_taken
-            ]
-            if times:
-                best_region.start_time = min(times)
-                best_region.end_time = max(times)
-                best_region.day_count = max(
-                    1, (best_region.end_time.date() - best_region.start_time.date()).days + 1
-                )
         else:
-            photo.region = "Unbestimmt"
-            photo.add_flag("unbestimmt")
-            unassigned.append(i)
+            unresolved(i, "no_nearby_anchor")
 
     for region in regions:
         region.photo_indices = sorted(
             set(region.photo_indices),
             key=lambda i: photos[i].datetime_taken or datetime.min,
         )
+        region_times = [photos[i].datetime_taken for i in region.photo_indices if photos[i].datetime_taken]
+        if region_times:
+            region.start_time, region.end_time = min(region_times), max(region_times)
+            region.day_count = max(1, (region.end_time.date() - region.start_time.date()).days + 1)
     return unassigned
 
 

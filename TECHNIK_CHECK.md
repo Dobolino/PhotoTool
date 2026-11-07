@@ -9,6 +9,46 @@ Ziel: grosse Urlaubssammlungen reduzieren, Entscheidungen fortsetzen, als
 Windows-Programm ausliefern. Prüfung anhand von Code, automatisierten Tests und
 synthetischen Messungen; keine privaten Urlaubsbilder lagen vor.
 
+## Ergänzung 0.4.2: Nachvollziehbarkeit und Nachkontrolle
+
+- Auswahlentscheidungen werden am tatsächlichen Filter-/Vergleichs-/Kontingent-
+  Schritt protokolliert, maximal 24 Ereignisse pro Bild. Nur ein erfolgreich
+  abgeschlossener Lauf erhält einen endgültigen Status; alte oder abgebrochene
+  Protokolle liefern keine erfundenen Rankinggründe. CSV und Entwurf bewahren
+  Protokolle, manuelle Vorgaben und Ortsnachweise getrennt.
+- Wiederholte Ortsbesuche erzeugen keine flächendeckende Zeitzuordnung mehr:
+  unveränderliche GPS-Anker, binäre Zeitsuche, keine Kette über abgeleitete Bilder.
+  Widersprüchliche Anker und ungültige GPS-Daten werden kenntlich gemacht.
+- Ortsreparaturen besitzen eine Vorschau und gemeinsamen CSV-/Entwurf-Commit
+  mit Journal-Wiederherstellung. Neuere Ortsnachweise werden nicht durch alte
+  automatische Kapitelzuordnungen im Entwurf überschrieben.
+- Vergleichsansicht zeigt Albumfoto und Alternative mit explizitem Ersetzen oder
+  Hinzufügen; gemeinsamer Undo-Schritt, Albumplatz und Wiederaufnahme geprüft.
+  Schmale Fenster schalten die Bildseite um.
+
+Zusätzlicher End-to-End-Test mit 2.000 physischen synthetischen 24-MP-JPEGs:
+Pipeline mit neuem Analyse-Cache **28,345 s / 288,4 MiB**, Prüfbericht aufbauen
+**0,100 s**, HTML/CSV **0,157 s**, CSV laden **0,186 s**, Entwurf speichern und
+erneut anwenden **0,653 s**, manueller Export **0,358 s**. 177 Originalkopien wurden
+vor und nach manueller Anpassung über exakten Zielpfad und SHA-256 geprüft;
+Favoriten, Behalten/Ablehnen, Begründungen und Protokolle blieben erhalten.
+Gesamter Prüfprozess: **344,8 MiB** Spitzen-RAM. Wiederholte geometrische Vorlagen;
+Gesichter, Embeddings, KI, HEIC, Online-Geocoding und GUI aus dieser Messung
+ausgeschlossen. Kein Qualitäts- oder Laufzeitversprechen für echte Reisebilder.
+
+Separat mit derselben 2.000-Dateien-Sammlung in der nativen Tk-Oberfläche geprüft:
+Projekt öffnen, Variantenvergleich, genau ein Bild ersetzen, gemeinsames
+Rückgängig/Wiederholen, Rückkehr zum gleichen Albumplatz, Pause und Wiederaufnahme,
+Prüfbericht öffnen und erneuter Albumexport mit Bericht. Alle Auswahlindizes
+blieben bei der Wiederaufnahme exakt erhalten. Zusätzlich automatisierte native
+Bedientests und Windows-Aufnahmen für reguläre/maximierte Fenstergrössen.
+
+Reproduktion nach Datensatzerzeugung mit `benchmark_pipeline_scale.py`:
+
+```bash
+python scripts/benchmark_audit_lifecycle.py --input /tmp/phototool-benchmark/input --output /tmp/phototool-audit-test
+```
+
 ## Architektur
 
 Die fachliche Trennung Scan → lokale Analyse → Duplikate/Serien → Orte/Transit →

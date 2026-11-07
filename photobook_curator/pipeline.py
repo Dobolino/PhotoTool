@@ -8,6 +8,7 @@ from typing import Any, Callable, Optional
 
 from .ai_review import ensure_scene_types, run_ai_review
 from .analysis_cache import AnalysisCache
+from .audit_report import write_audit_report
 from .bursts import mark_bursts
 from .content_clusters import mark_content_clusters
 from .duplicates import mark_duplicates
@@ -102,6 +103,7 @@ def export_book_outputs(
     map_path = None
     if write_map:
         map_path = write_chapter_map(photos, plan, output_dir, order)
+    audit_warning = _write_selection_report(photos, output_dir)
     print(f"  CSV: {output_dir / 'photos_analysis.csv'}")
     print(f"  Auswahl: {output_dir / 'selected'}")
     if aside_copied:
@@ -109,7 +111,20 @@ def export_book_outputs(
     print(f"  Übersicht: {output_dir / 'inhaltsverzeichnis.md'}")
     if map_path:
         print(f"  Karte: {map_path}")
-    return {"aside_copied": aside_copied, "map_path": map_path}
+    return {"aside_copied": aside_copied, "map_path": map_path, "audit_warning": audit_warning}
+
+
+def _write_selection_report(photos: list[Photo], output_dir: Path) -> str | None:
+    """A report failure must not turn a successfully written album into a failure."""
+    try:
+        write_audit_report(photos, output_dir / "selection_audit.html",
+                           csv_path=output_dir / "selection_audit.csv")
+        print(f"  Prüfbericht: {output_dir / 'selection_audit.html'}")
+        return None
+    except Exception as exc:
+        warning = f"Prüfbericht konnte nicht gespeichert werden: {exc}"
+        print(f"  Hinweis: {warning}")
+        return warning
 
 
 def run_pipeline(
@@ -360,6 +375,14 @@ def run_pipeline(
             coverage_intensity=cfg.coverage_intensity,
             max_per_day=cfg.max_per_day,
             max_per_chapter=cfg.max_per_chapter,
+            audit_context={"book_pages": cfg.book_pages, "photos_per_page": cfg.photos_per_page,
+                           "reserved_pages": cfg.reserved_pages, "ai_review": cfg.ai_review,
+                           "ai_provider": cfg.ai_provider, "ai_model": cfg.ai_model,
+                           "faces_enabled": cfg.enable_faces, "bursts_enabled": cfg.enable_bursts,
+                           "documents_enabled": cfg.enable_document_aside,
+                           "accidental_filter_enabled": cfg.enable_accidental_filter,
+                           "weak_night_filter_enabled": cfg.enable_weak_night_filter,
+                           "finger_filter_enabled": cfg.enable_finger_filter},
         )
         print(f"  {len(candidates)} Kandidaten (Faktor {cfg.candidate_factor})")
 
@@ -446,15 +469,17 @@ def run_pipeline(
             print("=== Ausgabe zurückgestellt (Kapitel-Vorschau) ===")
             write_csv(photos, cfg.output_dir / "photos_analysis.csv")
             print(f"  CSV: {cfg.output_dir / 'photos_analysis.csv'}")
+            audit_warning = _write_selection_report(photos, cfg.output_dir)
         else:
             print("=== Ausgabe ===")
-            export_book_outputs(
+            export_result = export_book_outputs(
                 photos,
                 plan,
                 order,
                 cfg.output_dir,
                 write_map=False,  # Karte ggf. schon oben geschrieben
             )
+            audit_warning = export_result.get("audit_warning")
             exported = True
 
         report("Fertig", 1.0, "done")
@@ -472,6 +497,7 @@ def run_pipeline(
             "output_dir": cfg.output_dir,
             "map_path": map_path,
             "exported": exported,
+            "audit_warning": audit_warning,
             "enable_map_preview": cfg.enable_map_preview,
             "target_count": cfg.target_n,
             "book_budget": asdict(book_budget) if book_budget else None,

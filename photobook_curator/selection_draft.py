@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .models import Photo, normalized_manual_decision
+from .trace_schema import latest_selection_trace, normalize_selection_trace
+from .location_schema import latest_location_evidence, normalize_location_evidence
 
 DRAFT_NAME = "selection_draft.json"
 
@@ -58,8 +60,10 @@ def save_selection_draft(
         "version": 3,
         "review_state": review_state or {},
         "photo_states": [dict(path=str(p.path), filename=p.filename,
+            selection_trace=normalize_selection_trace(p.selection_trace),
+            location_evidence=normalize_location_evidence(p.location_evidence),
             **{key: getattr(p, key) for key in ("chapter_folder", "chapter_type",
-                "region", "is_aside", "is_duplicate", "is_burst_reject",
+                "region", "place_label", "country", "assigned_by_time", "is_aside", "is_duplicate", "is_burst_reject",
                 "duplicate_of", "flags", "review_added", "manual_decision",
                 "decision_reason")}) for p in photos],
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -117,12 +121,41 @@ def apply_selection_draft(
     for i, p in enumerate(photos):
         by_name.setdefault(p.filename.lower(), []).append(i)
 
+    # Fresh analysis geography must not be reverted by a previous automatic
+    # region/folder snapshot. Explicit chapter placement remains a user choice.
+    current_location = {i: normalize_location_evidence(p.location_evidence) for i, p in enumerate(photos)}
+    guard_region = {i for i, evidence in current_location.items() if evidence}
+    fresh_location = set(guard_region)
+    manual_chapter_flags = {"manual_chapter", "manual_chapter_override"}
+    manual_chapters = {i for i, p in enumerate(photos) if manual_chapter_flags.intersection(p.flags)}
+
+    def geographic_flag(flag: str) -> bool:
+        return flag in {"assigned_by_time", "unbestimmt", "transit", "preamble_next_region"} or flag.startswith(
+            ("location_", "gps_"))
+
     states = draft.get("photo_states", [])
     for entry in states if isinstance(states, list) else []:
         if not isinstance(entry, dict):
             continue
         idx = by_path.get(_path_key(entry.get("path")))
         if idx is not None:
+            current_evidence = current_location[idx]
+            saved_evidence = normalize_location_evidence(entry.get("location_evidence"))
+            chosen_evidence = latest_location_evidence(current_evidence, saved_evidence)
+            photos[idx].location_evidence = chosen_evidence
+            manual_location = saved_evidence.get("source") == "manual" and chosen_evidence == saved_evidence
+            if not current_evidence or chosen_evidence != current_evidence or manual_location:
+                guard_region.discard(idx)
+                fresh_location.discard(idx)
+            elif current_evidence == saved_evidence:
+                fresh_location.discard(idx)
+            flags = entry.get("flags")
+            if isinstance(flags, list) and all(isinstance(flag, str) for flag in flags):
+                if manual_chapter_flags.intersection(flags):
+                    manual_chapters.add(idx)
+            if "selection_trace" in entry:
+                photos[idx].selection_trace = latest_selection_trace(
+                    photos[idx].selection_trace, entry["selection_trace"])
             photos[idx].manual_decision = normalized_manual_decision(
                 entry.get("manual_decision"), flags=entry.get("flags") or ())
             reason = entry.get("decision_reason")
@@ -132,16 +165,29 @@ def apply_selection_draft(
             idx = matches[0] if len(matches) == 1 else None
         if idx is None:
             continue
-        for key in ("chapter_folder", "chapter_type", "region", "duplicate_of"):
+        for key in ("chapter_folder", "chapter_type", "region", "place_label", "country", "duplicate_of"):
+            if key in ("region", "place_label", "country") and idx in guard_region:
+                continue
+            if key in ("chapter_folder", "chapter_type") and idx in fresh_location and idx not in manual_chapters:
+                continue
             value = entry.get(key)
             if key in entry and (value is None or isinstance(value, str)):
                 setattr(photos[idx], key, value)
-        for key in ("is_aside", "is_duplicate", "is_burst_reject", "review_added"):
+        for key in ("is_aside", "is_duplicate", "is_burst_reject", "review_added", "assigned_by_time"):
+            if key == "assigned_by_time" and idx in guard_region:
+                continue
+            if key == "is_aside" and idx in fresh_location and idx not in manual_chapters:
+                continue
             if isinstance(entry.get(key), bool):
                 setattr(photos[idx], key, entry[key])
         flags = entry.get("flags")
         if isinstance(flags, list) and all(isinstance(f, str) for f in flags):
-            photos[idx].flags = list(flags)
+            if idx in guard_region:
+                photos[idx].flags = list(dict.fromkeys(
+                    [flag for flag in flags if not geographic_flag(flag)]
+                    + [flag for flag in photos[idx].flags if geographic_flag(flag)]))
+            else:
+                photos[idx].flags = list(flags)
 
     kept: set[int] = set()
     if isinstance(draft.get("favorites"), list):
@@ -165,7 +211,8 @@ def apply_selection_draft(
         raw_ctype = entry.get("chapter_type")
         folder = raw_folder.strip() if isinstance(raw_folder, str) else ""
         ctype = raw_ctype.strip() if isinstance(raw_ctype, str) else ""
-        if folder:
+        allow_folder = idx not in fresh_location or idx in manual_chapters
+        if folder and allow_folder:
             photos[idx].chapter_folder = folder
             # Verschieben aus Optional muss is_aside löschen, sonst setzt Speichern wieder 99_…
             from .documents import ASIDE_FOLDER
@@ -174,9 +221,9 @@ def apply_selection_draft(
                 photos[idx].is_aside = True
             else:
                 photos[idx].is_aside = False
-        if ctype:
+        if ctype and allow_folder:
             photos[idx].chapter_type = ctype
-        if "region" in entry and (entry["region"] is None or isinstance(entry["region"], str)):
+        if idx not in guard_region and "region" in entry and (entry["region"] is None or isinstance(entry["region"], str)):
             photos[idx].region = entry["region"]
         if exact_match and "is_favorite" in entry:
             photos[idx].is_favorite = entry["is_favorite"] is True

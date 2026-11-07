@@ -5,8 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
+import math
+from numbers import Real
 from pathlib import Path
 from typing import Any, Optional
+
+from .trace_schema import selection_trace_json
+from .location_schema import location_evidence_json
 
 
 class ChapterType(str, Enum):
@@ -73,6 +78,7 @@ class Photo:
     # Orte / Regionen
     fine_cluster_id: Optional[int] = None
     region: Optional[str] = None
+    location_evidence: dict[str, Any] = field(default_factory=dict)
     country: Optional[str] = None
     place_label: Optional[str] = None
     assigned_by_time: bool = False
@@ -88,6 +94,7 @@ class Photo:
 
     # Auswahl
     final_score: float = 0.0
+    selection_trace: dict[str, Any] = field(default_factory=dict)
     is_candidate: bool = False
     is_selected: bool = False
     is_favorite: bool = False
@@ -105,7 +112,10 @@ class Photo:
 
     @property
     def has_gps(self) -> bool:
-        return self.gps_lat is not None and self.gps_lon is not None
+        return (not isinstance(self.gps_lat, bool) and not isinstance(self.gps_lon, bool)
+                and isinstance(self.gps_lat, Real) and isinstance(self.gps_lon, Real)
+                and -90 <= self.gps_lat <= 90 and -180 <= self.gps_lon <= 180
+                and math.isfinite(self.gps_lat) and math.isfinite(self.gps_lon))
 
     def to_csv_row(self) -> dict[str, Any]:
         date_str = self.datetime_taken.strftime("%Y-%m-%d") if self.datetime_taken else ""
@@ -116,6 +126,7 @@ class Photo:
             "date": date_str,
             "time": time_str,
             "region": self.region or "",
+            "location_evidence": location_evidence_json(self.location_evidence),
             "chapter_type": self.chapter_type or "",
             "scene_type": self.scene_type or "",
             "mood": self.mood or "",
@@ -153,6 +164,7 @@ class Photo:
             ),
             "ai_reviewed": self.ai_reviewed,
             "final_score": round(self.final_score, 2),
+            "selection_trace": selection_trace_json(self.selection_trace),
             "flags": "|".join(self.flags),
             "is_candidate": self.is_candidate,
             "is_selected": self.is_selected,

@@ -96,7 +96,7 @@ def test_assistant_constructs_queue_motifs_and_story_tabs(workspace):
     win.destroy()
 
 
-def test_typing_in_search_does_not_remove_current_preview_photo(workspace):
+def test_focusing_visible_grid_search_exits_preview_without_changing_selection(workspace):
     win = workspace
     win._enter_slideshow()
     win._slide_pos = win._slide_indices.index(0)
@@ -104,9 +104,11 @@ def test_typing_in_search_does_not_remove_current_preview_photo(workspace):
     win.geometry('1120x760+80+80')
     win.lift()
     win.update()
+    win._focus_search()
     win._search_entry.focus_force()
     win.update()
     before = set(win.kept)
+    assert not win._slideshow
     assert win._text_input_active()
     win._slide_key_remove()
     win._decision_shortcut('reject', object())

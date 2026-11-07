@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -32,7 +34,15 @@ OFFLINE_CITIES = [
     {"city": "Sapporo", "region_admin": "Hokkaido", "country": "Japan", "lat": 43.0618, "lon": 141.3545},
     {"city": "Fukuoka", "region_admin": "Fukuoka", "country": "Japan", "lat": 33.5904, "lon": 130.4017},
     {"city": "Nagoya", "region_admin": "Aichi", "country": "Japan", "lat": 35.1815, "lon": 136.9066},
+    {"city": "Hong Kong", "region_admin": "Hong Kong", "country": "China", "lat": 22.3193, "lon": 114.1694},
 ]
+
+
+def valid_coordinates(lat: float, lon: float) -> bool:
+    return (not isinstance(lat, bool) and not isinstance(lon, bool)
+            and isinstance(lat, (int, float)) and isinstance(lon, (int, float))
+            and -90 <= lat <= 90 and -180 <= lon <= 180
+            and math.isfinite(lat) and math.isfinite(lon))
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -41,11 +51,13 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dphi = math.radians(lat2 - lat1)
     dlmb = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
-    return 2 * r * math.asin(math.sqrt(a))
+    return 2 * r * math.asin(math.sqrt(min(1.0, max(0.0, a))))
 
 
 def offline_reverse(lat: float, lon: float, max_km: float = 25.0) -> dict[str, Optional[str]]:
     """Ordnet Koordinaten der nächsten bekannten Stadt zu; sonst kein Ortsname (Transit)."""
+    if not valid_coordinates(lat, lon):
+        return {"city": None, "region_admin": None, "country": None, "raw_display": None}
     best = None
     best_d = float("inf")
     for city in OFFLINE_CITIES:
@@ -78,7 +90,8 @@ class GeocodeCache:
         self._cache: dict[str, Any] = {}
         if cache_path.exists():
             try:
-                self._cache = json.loads(cache_path.read_text(encoding="utf-8"))
+                loaded = json.loads(cache_path.read_text(encoding="utf-8"))
+                self._cache = loaded if isinstance(loaded, dict) else {}
             except Exception:
                 self._cache = {}
         self._geocoder: Optional[Nominatim] = None
@@ -86,14 +99,25 @@ class GeocodeCache:
             self._geocoder = Nominatim(user_agent=user_agent, timeout=15)
 
     def _key(self, lat: float, lon: float, precision: int = 4) -> str:
-        # Sprache im Key: alte de/ja-Caches werden nicht wiederverwendet
-        return f"{lat:.{precision}f},{lon:.{precision}f}:{GEOCODE_LANGUAGE}"
+        # Old versions mixed offline approximations with online results. Such
+        # entries have no reliable origin and must not acquire one retroactively.
+        mode = "online" if self.enabled else "offline"
+        return f"v2:{mode}:{lat:.{precision}f},{lon:.{precision}f}:{GEOCODE_LANGUAGE}"
 
     def save(self) -> None:
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        self.cache_path.write_text(
-            json.dumps(self._cache, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        pending = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                    dir=self.cache_path.parent, suffix=".tmp", delete=False) as handle:
+                pending = Path(handle.name)
+                json.dump(self._cache, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(pending, self.cache_path)
+        finally:
+            if pending is not None:
+                pending.unlink(missing_ok=True)
 
     def _throttle(self) -> None:
         elapsed = time.time() - self._last_call
@@ -103,13 +127,20 @@ class GeocodeCache:
 
     def reverse(self, lat: float, lon: float) -> dict[str, Optional[str]]:
         """Gibt city, region_admin, country zurück (Namen auf Englisch)."""
+        empty = {"city": None, "region_admin": None, "country": None, "raw_display": None}
+        if not valid_coordinates(lat, lon):
+            return empty
         key = self._key(lat, lon)
         if key in self._cache:
-            return self._cache[key]
+            cached = self._cache[key]
+            if (isinstance(cached, dict) and all(cached.get(k) is None
+                    or isinstance(cached.get(k), str) for k in empty)
+                    and cached.get("source") == ("gps_online" if self.enabled else "gps_offline")):
+                return cached
 
-        empty = {"city": None, "region_admin": None, "country": None, "raw_display": None}
         if not self.enabled or self._geocoder is None:
             result = offline_reverse(lat, lon)
+            result["source"] = "gps_offline"
             self._cache[key] = result
             return result
 
@@ -125,10 +156,13 @@ class GeocodeCache:
             return empty
 
         if loc is None:
+            empty["source"] = "gps_online"
             self._cache[key] = empty
             return empty
 
         addr = loc.raw.get("address", {}) if hasattr(loc, "raw") else {}
+        if not isinstance(addr, dict):
+            return empty
         city = (
             addr.get("city")
             or addr.get("town")
@@ -144,6 +178,7 @@ class GeocodeCache:
             "region_admin": region_admin,
             "country": country,
             "raw_display": getattr(loc, "address", None),
+            "source": "gps_online",
         }
         self._cache[key] = result
         return result

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import csv
+import warnings
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .documents import ASIDE_FOLDER
+from .trace_schema import normalize_selection_trace
+from .location_schema import normalize_location_evidence
 from .models import BookPlan, Photo, Region, TransitSection, normalized_manual_decision, set_manual_decision
 from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
 
@@ -75,6 +78,7 @@ def apply_manual_selection(
     plan: BookPlan,
     kept_indices: list[int],
     output_dir: Path,
+    *, report_warning: Callable[[str], None] | None = None,
 ) -> list[tuple[int, str, str]]:
     """Setzt is_selected/book_position neu und schreibt CSV, Ordner, Markdown."""
     kept = {i for i in kept_indices if 0 <= i < len(photos)}
@@ -115,6 +119,20 @@ def apply_manual_selection(
     copy_selected(photos, order, output_dir)
     copy_aside_pool(photos, output_dir)
     write_markdown_overview(photos, plan, order, output_dir / "inhaltsverzeichnis.md")
+    try:
+        from .audit_report import write_audit_report
+
+        write_audit_report(photos, output_dir / "selection_audit.html", kept=kept,
+                           csv_path=output_dir / "selection_audit.csv")
+    except Exception as exc:
+        message = f"Album gespeichert. Der Prüfbericht konnte nicht gespeichert werden: {exc}"
+        if report_warning is not None:
+            try:
+                report_warning(message)
+            except Exception:
+                warnings.warn(message, RuntimeWarning, stacklevel=2)
+        else:
+            warnings.warn(message, RuntimeWarning, stacklevel=2)
     return order
 
 
@@ -345,6 +363,7 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 mood=(row.get("mood") or None) or None,
                 quality_issue=(row.get("quality_issue") or None) or None,
                 final_score=float(_float("final_score") or 0),
+                selection_trace=normalize_selection_trace(row.get("selection_trace")),
                 is_candidate=_bool("is_candidate"),
                 is_selected=_bool("is_selected"),
                 is_favorite=_bool("is_favorite"),
@@ -387,6 +406,7 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 ],
                 flags=[f for f in (row.get("flags") or "").split("|") if f],
                 region=(row.get("region") or None) or None,
+                location_evidence=normalize_location_evidence(row.get("location_evidence")),
                 ai_reviewed=_bool("ai_reviewed"),
             )
             kr = (row.get("keep_recommendation") or "").strip().lower()

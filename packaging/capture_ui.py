@@ -1,7 +1,8 @@
 """Capture real native UI states for the Windows CI review artifact.
 
-No images are analyzed, API calls made or user settings read. Progress and the
-2,000-photo cost example are explicitly demo data, recorded in metadata.json.
+No images are analyzed, API calls made or user settings read. Generated review
+images, their synthetic selection evidence, progress and the 2,000-photo cost
+example are explicitly demo data, recorded in metadata.json.
 """
 from __future__ import annotations
 
@@ -110,6 +111,74 @@ def window_geometry(widget, *, native_window=True) -> dict:
     return result
 
 
+def create_review_fixture(master, directory: Path):
+    """Real review widgets over small generated JPEGs, never personal photos.
+
+The trace deliberately demonstrates supported report cases; it is test input,
+not a claim that an algorithm measured the generated drawings.
+"""
+    from datetime import datetime, timedelta
+    from PIL import Image, ImageDraw
+    from photobook_curator.models import BookPlan, Photo
+    from photobook_curator.review_gui import ReviewWindow
+    from photobook_curator.selection_audit import (
+        begin_selection_audit, finalize_selection_audit, record_selection_event,
+    )
+
+    source = directory / "generated-images"
+    destination = directory / "DEMO-Japan-Pruefbericht"
+    source.mkdir(parents=True)
+    destination.mkdir()
+    names = ["DEMO_Kyoto_01.jpg", "DEMO_Kyoto_02.jpg", "DEMO_Kyoto_03.jpg",
+             "DEMO_Kyoto_Essen.jpg", "DEMO_Tokyo_01.jpg"]
+    photos = []
+    for index, name in enumerate(names):
+        image = Image.new("RGB", (1000, 660), "#c9dcd6")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((0, 400, 1000, 660), fill="#61836b")
+        draw.ellipse((735, 65, 855, 185), fill="#f6d482")
+        if index == 3:
+            draw.ellipse((270, 180, 730, 600), fill="#efe1bb", outline="#203b32", width=14)
+            for x, y in ((400, 330), (530, 315), (470, 430)):
+                draw.ellipse((x-65, y-50, x+65, y+50), fill="#dc794f")
+        else:
+            shift = index * 35 if index < 3 else 150
+            draw.rectangle((330+shift, 260, 610+shift, 530), fill="#b95540")
+            draw.polygon(((250+shift, 285), (470+shift, 145), (690+shift, 285)), fill="#24483f")
+            draw.rectangle((440+shift, 385, 500+shift, 530), fill="#213f36")
+            draw.line((0, 600, 460+shift, 530, 1000, 610), fill="#e7cf96", width=45)
+        draw.rectangle((0, 0, 1000, 56), fill="#16382e")
+        draw.text((20, 18), "DEMO / GENERATED TEST IMAGE / " + name, fill="white")
+        path = source / name
+        image.save(path, quality=90)
+        image.close()
+        photo = Photo(path=path, filename=name, width=1000, height=660,
+            datetime_taken=datetime(2026, 7, 1, 9, 30) + timedelta(seconds=index*3),
+            region="Kyoto" if index < 4 else "Tokyo", country="Japan",
+            chapter_folder="01_Kyoto/essen" if index == 3 else
+                "01_Kyoto/hauptteil" if index < 3 else "02_Tokyo/hauptteil",
+            chapter_type="Essen" if index == 3 else "Hauptteil",
+            scene_type="essen" if index == 3 else "sehenswuerdigkeit",
+            burst_group_id=7 if index < 3 else None,
+            is_burst_reject=index == 1, is_candidate=index != 1,
+            technical_score=[91, 82, 79, 86, 84][index],
+            final_score=[91, 82, 79, 86, 84][index], is_selected=index in {0, 3, 4},
+            book_position={0: 1, 3: 2, 4: 3}.get(index))
+        photos.append(photo)
+    begin_selection_audit(photos, {"demo_fixture": True, "target": 3})
+    record_selection_event(photos[0], "diversity_selected", "diversity", quota=2, score=91)
+    record_selection_event(photos[1], "eligibility_rejected", "eligibility", filters=["is_burst_reject"])
+    record_selection_event(photos[2], "histogram_rejected", "diversity",
+        peer_path=str(photos[0].path), comparison_available=True, similarity=.97, threshold=.92)
+    record_selection_event(photos[3], "story_role_selected", "story", role="Essen", quota=1)
+    finalize_selection_audit(photos, [(index, photos[index].chapter_folder, photos[index].chapter_type)
+                                     for index in (0, 3, 4)])
+    photos[4].selection_trace = {}  # Demonstrates honest unknown evidence in old projects.
+    review = ReviewWindow(master, photos, BookPlan(), destination)
+    review.title("DEMO · Japan · Album prüfen")
+    return review
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts" / "windows-ui")
@@ -124,7 +193,12 @@ def main() -> int:
                 "native_windows": sys.platform == "win32", "captures": [],
                 "source_fields_empty": True, "network_and_analysis_disabled": True,
                 "demo_states": ["Anthropic estimate for 2000 synthetic input count",
-                                "Simulated analysis progress; no pipeline run"]}
+                                "Simulated analysis progress; no pipeline run",
+                                "Review over five generated drawings, not holiday photos",
+                                "Hand-authored synthetic report evidence, not measured analysis"],
+                "review_fixture": {"generated_image_count": 5, "selected_count": 3,
+                                   "legacy_unknown_trace_count": 1,
+                                   "real_photo_or_user_project_loaded": False}}
     try:
         metadata["commit"] = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
@@ -156,6 +230,9 @@ def main() -> int:
                         "tk_screen": [app.winfo_screenwidth(), app.winfo_screenheight()],
                         "tk_scaling": float(app.tk.call("tk", "scaling")),
                     })
+                    review = None
+                    report = None
+                    capture_target = None
 
                     def fail(error):
                         nonlocal failed
@@ -175,7 +252,8 @@ def main() -> int:
                         for child in list(app.winfo_children()):
                             if isinstance(child, tk.Toplevel) and child is not sheet:
                                 child.grab_release()
-                                child.destroy()
+                                close = getattr(child, "_close", child.destroy)
+                                close()
 
                     def regular():
                         app.state("normal")
@@ -214,11 +292,36 @@ def main() -> int:
                         app._show_main_view("analysis")
                         app._set_progress("DEMO · Lokale Analyse – 840 von 2000", 0.42, "quality")
 
+                    def review_demo():
+                        nonlocal review
+                        close_dialogs()
+                        app._show_main_view("setup")
+                        review = create_review_fixture(app, Path(isolated))
+                        review._open_photo_preview(0, review.photos[0].chapter_folder)
+                        review.lift()
+                        return review
+
+                    def comparison_demo():
+                        review._preview_alternatives()
+                        review.lift()
+                        return review
+
+                    def report_demo():
+                        nonlocal report
+                        from photobook_curator.review_audit_dialog import open_audit_report
+                        report = open_audit_report(review, initial_index=2)
+                        report.title("DEMO · Prüfbericht · Japan")
+                        report.lift()
+                        return report
+
                     steps = [("main-regular", regular), ("main-maximized", maximized),
                              ("settings-grouped", processing_settings),
                              ("settings-anthropic-dry-run-demo", anthropic_settings),
                              ("main-anthropic-dry-run-demo", cost_main),
-                             ("analysis-progress-demo", progress_demo)]
+                             ("analysis-progress-demo", progress_demo),
+                             ("review-focused-album-demo", review_demo),
+                             ("review-focused-comparison-demo", comparison_demo),
+                             ("review-audit-report-demo", report_demo)]
 
                     def capture(name):
                         import tkinter as tk
@@ -226,7 +329,12 @@ def main() -> int:
                             raise RuntimeError("Windows maximized state was not reached")
                         visible = [w for w in app.winfo_children()
                                    if isinstance(w, tk.Toplevel) and w.winfo_ismapped()]
-                        target = visible[-1] if visible else app
+                        target = capture_target or (visible[-1] if visible else app)
+                        if name.startswith("review-focused"):
+                            if not review._slide_image_lbl.cget("image"):
+                                raise RuntimeError("Generated review image did not finish loading")
+                            if name == "review-focused-comparison-demo" and not review._anchor_image_lbl.cget("image"):
+                                raise RuntimeError("Generated comparison anchor did not finish loading")
                         geometry = window_geometry(target)
                         screenshot = ImageGrab.grab(bbox=tuple(geometry["capture_bbox"]), all_screens=True)
                         if screenshot.width < 100 or screenshot.height < 100:
@@ -245,6 +353,25 @@ def main() -> int:
                                 "cost_summary": app.cost_var.get()}
                         if name == "main-maximized":
                             item["requested_maximized_state_achieved"] = app.state() == "zoomed"
+                        if name.startswith("review-"):
+                            item["synthetic_fixture"] = True
+                            item["review_state"] = review.state()
+                            item["review_photo_count"] = len(review.photos)
+                            item["review_selected_count"] = len(review.kept)
+                            if name == "review-focused-comparison-demo":
+                                item["comparison"] = {
+                                    "anchor_index": review._comparison_anchor(),
+                                    "candidate_indices": list(review._slide_indices),
+                                    "anchor_panel_visible": bool(review._anchor_panel.winfo_ismapped()),
+                                    "candidate_panel_visible": bool(review._current_panel.winfo_ismapped()),
+                                }
+                            elif name == "review-audit-report-demo":
+                                item["audit_report"] = {
+                                    "visible_rows": len(report.table.get_children()),
+                                    "selected_row": list(report.table.selection()),
+                                    "detail_title": report.detail.title_var.get(),
+                                    "detail_status": report.detail.status_var.get(),
+                                }
                         for attribute in ("_content", "_content_frame", "_workspace", "_cards_host"):
                             widget = getattr(app, attribute, None)
                             if widget is not None and hasattr(widget, "winfo_width"):
@@ -252,6 +379,7 @@ def main() -> int:
                         metadata["captures"].append(item)
 
                     def advance(index=0):
+                        nonlocal capture_target
                         if index == len(steps):
                             close_dialogs()
                             app.destroy()
@@ -269,7 +397,7 @@ def main() -> int:
                         # still permits its screenshot and the scripted close.
                         app.after(900, finish_step)
                         try:
-                            prepare()
+                            capture_target = prepare()
                         except Exception as error:
                             fail(error)
 
