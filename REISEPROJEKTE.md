@@ -4,6 +4,9 @@ PhotoTool reduziert eine Fotosammlung für ein Fotobuch. Das endgültige Layout
 entsteht anschliessend in deiner Fotobuchsoftware. Alle Funktionen sind für
 beliebige Reisen gedacht, nicht speziell für Japan.
 
+Die folgenden Ansichten wurden in der laufenden Windows-App aufgenommen.
+[Maximierte Ansicht bei 1920 × 1080](docs/screenshots/phototool-0.4.1-windows-maximized.png).
+
 ![Projekt und Album planen](docs/screenshots/phototool-0.4.1-main.png)
 
 ![Album prüfen](docs/screenshots/phototool-0.4-review.png)
