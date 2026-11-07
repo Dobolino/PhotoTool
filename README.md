@@ -6,10 +6,12 @@ Lokales Python-CLI-Tool zur Kuratierung eines Urlaubs-Fotobuchs aus einer große
 
 **Einstieg:** siehe [ANLEITUNG.md](ANLEITUNG.md). Unter Windows am einfachsten: `Fotobuch starten.bat` doppelklicken (Fenster-Oberfläche).
 
-Neu in **0.3.1**: Tages-/Kapitelgrenzen, stabileres Speichern und Exportieren,
-korrektes Cache-Verhalten bei geänderten Analyseoptionen sowie weniger RAM beim
-JPEG-Decodieren. Der Updater benötigt erreichbare Release-Dateien; das derzeit
-private Repository bietet noch keine anonyme Update-Verteilung (siehe Technik-Check).
+Neu in **0.4.0**: moderne Projekt- und Albumplanung, Reiseprofile, Seitenbudget,
+dauerhafte Behalten-/Ausschliessen-Entscheidungen, Originale neu verknüpfen und ein
+Prüf-Assistent mit Motivgruppen und Erzählmix. Siehe [Reiseprojekte und Bedienung](REISEPROJEKTE.md).
+Die Verbesserungen aus 0.3.1 (Caps, sicheres Speichern und effizientere JPEG-Analyse)
+sind enthalten. Das Repository ist öffentlich; stabile Downloads und Updates
+stehen nach Veröffentlichung unter [Releases](https://github.com/Dobolino/PhotoTool/releases).
 
 ## Windows-Programm und Updates
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from .documents import ASIDE_FOLDER
-from .models import BookPlan, Photo, Region, TransitSection
+from .models import BookPlan, Photo, Region, TransitSection, normalized_manual_decision, set_manual_decision
 from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
 
 
@@ -77,10 +77,18 @@ def apply_manual_selection(
     output_dir: Path,
 ) -> list[tuple[int, str, str]]:
     """Setzt is_selected/book_position neu und schreibt CSV, Ordner, Markdown."""
-    kept = set(kept_indices)
+    kept = {i for i in kept_indices if 0 <= i < len(photos)}
+    # Export respects durable intent even when called without the review UI.
+    # The UI resets a keep decision before a deliberate removal.
+    kept.update(i for i, p in enumerate(photos)
+                if p.is_favorite or p.manual_decision == "keep")
+    kept.difference_update({i for i in kept
+                            if photos[i].manual_decision == "reject" and not photos[i].is_favorite})
     for i, photo in enumerate(photos):
         was_selected = photo.is_selected
         photo.is_selected = i in kept
+        if was_selected != photo.is_selected and photo.manual_decision == "auto":
+            set_manual_decision(photo, "keep" if photo.is_selected else "reject", photo.decision_reason)
         if i in kept:
             if "manual_reject" in photo.flags:
                 photo.flags = [f for f in photo.flags if f != "manual_reject"]
@@ -198,6 +206,7 @@ def rebuild_selection_from_analysis(
     candidate_factor: float = 4.0,
     max_per_day: int = 0,
     max_per_chapter: int = 0,
+    storytelling_intensity: float = 0.0,
 ) -> tuple[BookPlan, list[tuple[int, str, str]]]:
     """
     Erzeugt eine Buchauswahl aus bereits analysierter CSV-Daten **ohne neue KI**.
@@ -246,6 +255,7 @@ def rebuild_selection_from_analysis(
         people_balance_intensity=people_balance_intensity,
         max_per_day=max_per_day,
         max_per_chapter=max_per_chapter,
+        storytelling_intensity=storytelling_intensity,
     )
     return plan, order
 
@@ -260,6 +270,9 @@ def analysis_has_ai_scores(photos: list[Photo]) -> bool:
 
 def load_photos_from_csv(csv_path: Path) -> list[Photo]:
     """Lädt Fotozeilen aus der Analyse-CSV für die Review-Oberfläche."""
+    from .source_relink import recover_source_relink
+
+    recover_source_relink(csv_path.parent)
     photos: list[Photo] = []
     with csv_path.open(encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -335,6 +348,9 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 is_candidate=_bool("is_candidate"),
                 is_selected=_bool("is_selected"),
                 is_favorite=_bool("is_favorite"),
+                manual_decision=normalized_manual_decision(
+                    row.get("manual_decision"), flags=(row.get("flags") or "").split("|")),
+                decision_reason=row.get("decision_reason") or "",
                 review_added=_bool("review_added"),
                 chapter_type=(row.get("chapter_type") or None) or None,
                 book_position=_int("book_position") if bp_raw else None,

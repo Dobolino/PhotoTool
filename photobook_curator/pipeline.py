@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -39,6 +39,10 @@ class PipelineConfig:
     input_dir: Path
     output_dir: Path
     target_n: int = 80
+    book_pages: int = 0  # 0 uses manual target_n
+    photos_per_page: float = 2.5
+    reserved_pages: int = 4
+    storytelling_intensity: float = 0.0
     candidate_factor: float = 4.0
     geocode: bool = True
     ai_review: bool = False
@@ -141,6 +145,19 @@ def run_pipeline(
                 pass
         except Exception:
             pass
+
+    from .story_budget import calculate_book_budget, assess_budget
+    book_budget = None
+    if cfg.book_pages < 0:
+        raise RuntimeError("Seitenzahl darf nicht negativ sein")
+    if cfg.book_pages:
+        try:
+            book_budget = calculate_book_budget(cfg.book_pages, cfg.photos_per_page, cfg.reserved_pages)
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
+        cfg = replace(cfg, target_n=book_budget.target_count)
+    if not 0 <= cfg.storytelling_intensity <= 1:
+        raise RuntimeError("Erzählbalance muss zwischen 0 und 1 liegen")
 
     if not cfg.input_dir.is_dir():
         raise RuntimeError(f"Eingabeordner nicht gefunden: {cfg.input_dir}")
@@ -324,6 +341,14 @@ def run_pipeline(
                 f"Kapitel „{promoted.name}“ (Auswahl ohne GPS/KI möglich)"
             )
 
+        budget_assessment = assess_budget(photos, plan, cfg.target_n,
+                                          cfg.max_per_day, cfg.max_per_chapter)
+        if book_budget is not None:
+            print(f"  Seitenbudget: {book_budget.photo_pages} Bildseiten × "
+                  f"{book_budget.photos_per_page:g} Bilder = Ziel {cfg.target_n}")
+        for warning in budget_assessment.warnings:
+            print(f"  Albumplanung: {warning}")
+
         report("Kandidaten…", 0.82, "candidates")
         print("=== Kandidatenauswahl ===")
         candidates = mark_candidates(
@@ -374,6 +399,9 @@ def run_pipeline(
                 "candidates": len(candidates),
                 "ai": ai_stats,
                 "dry_run": True,
+                "target_count": cfg.target_n,
+                "book_budget": asdict(book_budget) if book_budget else None,
+                "budget_assessment": asdict(budget_assessment),
             }
 
         report("Auswahl & Buchstruktur…", 0.90, "selection")
@@ -395,6 +423,7 @@ def run_pipeline(
             similarity_threshold=cfg.similarity_threshold,
             coverage_intensity=cfg.coverage_intensity,
             people_balance_intensity=cfg.people_balance_intensity,
+            storytelling_intensity=cfg.storytelling_intensity,
             max_per_day=cfg.max_per_day,
             max_per_chapter=cfg.max_per_chapter,
         )
@@ -444,6 +473,9 @@ def run_pipeline(
             "map_path": map_path,
             "exported": exported,
             "enable_map_preview": cfg.enable_map_preview,
+            "target_count": cfg.target_n,
+            "book_budget": asdict(book_budget) if book_budget else None,
+            "budget_assessment": asdict(budget_assessment),
         }
     finally:
         clear_bgr_cache()

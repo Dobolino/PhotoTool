@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import tkinter as tk
+import sys
 from typing import Callable, Optional
+
+
+FONT_UI = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
 
 
 def section_header(parent: tk.Misc, text: str, colors: dict[str, str]) -> tk.Label:
@@ -12,7 +16,7 @@ def section_header(parent: tk.Misc, text: str, colors: dict[str, str]) -> tk.Lab
         text=text.upper(),
         bg=colors["bg"],
         fg=colors["muted"],
-        font=("Segoe UI Semibold", 9),
+        font=(FONT_UI, 9, "bold"),
         anchor=tk.W,
     )
     lbl.pack(anchor=tk.W, pady=(0, 8))
@@ -36,7 +40,7 @@ def soft_banner(parent: tk.Misc, text: str, colors: dict[str, str]) -> tk.Frame:
         text=text,
         bg=colors.get("accent_soft", colors["surface"]),
         fg=colors.get("hero_muted", colors["ink"]),
-        font=("Segoe UI", 9),
+        font=(FONT_UI, 9),
         anchor=tk.W,
         justify=tk.LEFT,
         wraplength=720,
@@ -55,19 +59,21 @@ class PaddedButton(tk.Frame):
         command: Optional[Callable[[], None]] = None,
         *,
         primary: bool = False,
-        font=("Segoe UI Semibold", 10),
+        font=None,
         padx: int = 16,
         pady: int = 10,
         **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
+        self.configure(takefocus=True)
         self.colors = colors
         self._command = command
         self._primary = primary
+        self._enabled = True
         self._label = tk.Label(
             self,
             text=text,
-            font=font,
+            font=font or (FONT_UI, 10, "bold"),
             padx=padx,
             pady=pady,
             cursor="hand2",
@@ -77,12 +83,19 @@ class PaddedButton(tk.Frame):
         self.bind("<Button-1>", self._click)
         self._label.bind("<Enter>", lambda _e: self._hover(True))
         self._label.bind("<Leave>", lambda _e: self._hover(False))
+        self.bind("<Return>", self._click)
+        self.bind("<space>", self._click)
+        self.bind("<FocusIn>", lambda _e: self._paint(False))
+        self.bind("<FocusOut>", lambda _e: self._paint(False))
         self._paint(False)
 
     def configure(self, cnf=None, **kw):  # type: ignore[override]
         if isinstance(cnf, dict):
             kw = {**cnf, **kw}
         text = kw.pop("text", None)
+        state = kw.pop("state", None)
+        if state is not None:
+            self._enabled = state != tk.DISABLED
         if text is not None:
             self._label.configure(text=text)
         if kw:
@@ -90,7 +103,7 @@ class PaddedButton(tk.Frame):
         return None
 
     def _click(self, _event=None) -> None:
-        if self._command:
+        if self._enabled and self._command:
             self._command()
 
     def _hover(self, on: bool) -> None:
@@ -106,7 +119,9 @@ class PaddedButton(tk.Frame):
             bg = c["line"] if hover else c.get("chip_bg", c["surface"])
             fg = c["ink"]
             border = c["line"]
-        self.configure(bg=border, highlightbackground=border, highlightthickness=1)
+        if self.focus_get() is self:
+            border = c["accent"]
+        self.configure(bg=border, highlightbackground=border, highlightthickness=2)
         self._label.configure(bg=bg, fg=fg)
 
 
@@ -125,13 +140,14 @@ class AnAusToggle(tk.Frame):
         **kwargs,
     ) -> None:
         super().__init__(parent, bg=colors["surface"], **kwargs)
+        self.configure(takefocus=True, highlightthickness=1, highlightbackground=colors["surface"])
         self.variable = variable
         self.colors = colors
         self._command = command
         self._on = tk.Label(
             self,
             text=f"  {on_text}  ",
-            font=("Segoe UI Semibold", 10),
+            font=(FONT_UI, 10, "bold"),
             padx=10,
             pady=7,
             cursor="hand2",
@@ -139,7 +155,7 @@ class AnAusToggle(tk.Frame):
         self._off = tk.Label(
             self,
             text=f"  {off_text}  ",
-            font=("Segoe UI Semibold", 10),
+            font=(FONT_UI, 10, "bold"),
             padx=10,
             pady=7,
             cursor="hand2",
@@ -148,6 +164,11 @@ class AnAusToggle(tk.Frame):
         self._off.pack(side=tk.LEFT, padx=(3, 0))
         self._on.bind("<Button-1>", lambda _e: self._set(True))
         self._off.bind("<Button-1>", lambda _e: self._set(False))
+        self.bind("<space>", lambda _e: self._set(not bool(self.variable.get())))
+        self.bind("<Right>", lambda _e: self._set(True))
+        self.bind("<Left>", lambda _e: self._set(False))
+        self.bind("<FocusIn>", lambda _e: self.configure(highlightbackground=colors["accent"]))
+        self.bind("<FocusOut>", lambda _e: self.configure(highlightbackground=colors["surface"]))
         try:
             self.variable.trace_add("write", lambda *_: self._paint())
         except Exception:
@@ -196,7 +217,7 @@ class StepChip(tk.Frame):
         self._label = tk.Label(
             self,
             text=text,
-            font=("Segoe UI Semibold", 10),
+            font=(FONT_UI, 10, "bold"),
             padx=16,
             pady=9,
         )
@@ -226,7 +247,7 @@ def pill_badge(parent: tk.Misc, text: str, colors: dict[str, str]) -> tk.Label:
         text=f"  {text}  ",
         bg=colors["accent"],
         fg=colors.get("hero_fg", "#FFFFFF"),
-        font=("Segoe UI Semibold", 9),
+        font=(FONT_UI, 9, "bold"),
         padx=10,
         pady=6,
     )
@@ -257,13 +278,16 @@ class HelpTip(tk.Label):
             text=" ?",
             bg=colors.get("surface", colors.get("bg", "#111")),
             fg=colors.get("muted", "#888"),
-            font=("Segoe UI Semibold", 10),
+            font=(FONT_UI, 10, "bold"),
             cursor="question_arrow",
             padx=4,
             pady=0,
             **kwargs,
         )
         self.bind("<Button-1>", self._toggle)
+        self.configure(takefocus=True)
+        self.bind("<Return>", self._toggle)
+        self.bind("<space>", self._toggle)
         self.bind("<Enter>", lambda _e: self.configure(fg=colors.get("accent", "#7B6CFF")))
         self.bind("<Leave>", lambda _e: self.configure(fg=colors.get("muted", "#888")))
 
@@ -336,7 +360,7 @@ class HelpTip(tk.Label):
             bg=c.get("surface", "#1a1a22"),
             fg=c.get("ink", "#eee"),
             relief=tk.FLAT,
-            font=("Segoe UI", 10),
+            font=(FONT_UI, 10),
             padx=4,
             pady=4,
             yscrollcommand=scroll.set,
@@ -361,7 +385,7 @@ class HelpTip(tk.Label):
             activebackground=c.get("line", "#333"),
             activeforeground=c.get("ink", "#eee"),
             relief=tk.FLAT,
-            font=("Segoe UI Semibold", 10),
+            font=(FONT_UI, 10, "bold"),
             padx=14,
             pady=8,
             cursor="hand2",

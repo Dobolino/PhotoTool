@@ -5,10 +5,11 @@ from __future__ import annotations
 import itertools
 import queue
 import re
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import messagebox, simpledialog, ttk
 from typing import Callable, Optional
 
 from PIL import Image, ImageTk
@@ -37,6 +38,7 @@ from .selection_draft import (
 from .settings import load_settings, save_settings, theme_colors
 from .utils import load_image_scaled, load_thumb_cached
 
+FONT_UI = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
 COLORS = theme_colors()
 
 THUMB = 160
@@ -73,7 +75,8 @@ def short_tile_label(filename: str, max_len: int = 12) -> str:
         label = match.group(1)
     else:
         # oft reicht der vordere Teil (ohne lange Hash-/Export-Suffixe)
-        label = stem.split("_")[0] if "_" in stem else stem
+        suffix = re.search(r"(?:_|-)(\d{2,})$", stem)
+        label = suffix.group(1) if suffix else (stem.split("_")[0] if "_" in stem else stem)
     if len(label) > max_len:
         return label[: max_len - 1] + "…"
     return label
@@ -98,13 +101,15 @@ class ReviewWindow(tk.Toplevel):
         self.configure(bg=COLORS["bg"])
         self._open_large()
         # Nach Style/Build erneut – manche Windows-Setups setzen zoomed erst dann um
-        self.after(80, self._open_large)
+        self._open_large_job = self.after(80, self._open_large)
 
         self.photos = photos
         self.plan = plan
         self.output_dir = Path(output_dir)
         self.on_saved = on_saved
-        self._filter_mode = "all"  # all | kept | removed
+        self._filter_mode = "all"  # all | kept | removed | candidates | duplicates
+        self._search_text = ""
+        self._search_job = None
         self._chapter_filter = ""  # Diashow: "" = alle
         self._grid_folder = ""  # Raster: genau ein Ordner
         self._folder_labels: list[tuple[str, str]] = []  # (folder, title)
@@ -180,8 +185,8 @@ class ReviewWindow(tk.Toplevel):
         self._restore_review_view()
         self._render()
         self._autosave_draft()
-        self.after(50, self._drain_thumbs)
-        self.after(60, self._drain_slides)
+        self._thumb_after = self.after(50, self._drain_thumbs)
+        self._slide_after = self.after(60, self._drain_slides)
         self.protocol("WM_DELETE_WINDOW", self._close)
         self.bind("<Left>", self._slide_key_prev)
         self.bind("<Right>", self._slide_key_next)
@@ -197,6 +202,11 @@ class ReviewWindow(tk.Toplevel):
         self.bind("<Control-z>", self._undo)
         self.bind("<Control-y>", self._redo)
         self.bind("<Control-Shift-Z>", self._redo)
+        self.bind("<Control-s>", lambda _e: self._save_shortcut())
+        self.bind("<Control-f>", lambda _e: self._focus_search())
+        self.bind("<k>", lambda e: self._decision_shortcut("keep", e))
+        self.bind("<x>", lambda e: self._decision_shortcut("reject", e))
+        self.bind("<u>", lambda e: self._decision_shortcut("auto", e))
 
     def _open_large(self) -> None:
         """Groß öffnen (möglichst maximiert), frei skalierbar."""
@@ -222,12 +232,258 @@ class ReviewWindow(tk.Toplevel):
             height=860,
         )
 
+    def _refresh_workspace_tabs(self) -> None:
+        if not hasattr(self, "_workspace_tabs"):
+            return
+        counts = {"all": len(self.baseline | self.kept), "kept": len(self.kept),
+                  "removed": len(self.baseline - self.kept),
+                  "candidates": sum(p.is_candidate and i not in self.kept for i, p in enumerate(self.photos)),
+                  "duplicates": len(all_duplicate_indices(self.photos))}
+        for mode, (button, label) in self._workspace_tabs.items():
+            active = self._filter_mode == mode
+            button.configure(text=f"{label}  {counts.get(mode, 0)}",
+                             bg=COLORS["accent_soft"] if active else COLORS["bg"],
+                             fg=COLORS["accent"] if active else COLORS["muted"],
+                             activebackground=COLORS["accent_soft"], activeforeground=COLORS["accent"])
+
+    def _set_workspace_filter(self, mode: str) -> None:
+        self._workspace_page = 0
+        self._filter_mode = mode
+        if hasattr(self, "_filter_var"):
+            self._filter_var.set(mode)
+        if self._slideshow:
+            self._exit_slideshow()
+        self._refresh_folder_nav()
+        self._render()
+        self.canvas.yview_moveto(0)
+        self._schedule_view_save()
+
+    def _schedule_search(self) -> None:
+        if self._search_job:
+            self.after_cancel(self._search_job)
+        self._search_job = self.after(180, self._apply_search)
+
+    def _apply_search(self) -> None:
+        if self._search_job is not None:
+            try:
+                self.after_cancel(self._search_job)
+            except tk.TclError:
+                pass
+        self._search_job = None
+        self._search_text = self._search_var.get().strip().casefold()
+        self._workspace_page = 0
+        if not self._slideshow:
+            self._render()
+            self.canvas.yview_moveto(0)
+
+    def _focus_search(self) -> str:
+        self._search_entry.focus_set()
+        self._search_entry.select_range(0, tk.END)
+        return "break"
+
+    def _save_shortcut(self) -> str:
+        self._autosave_draft()
+        if not getattr(self, "_draft_save_error", None):
+            self._flash_status("Zwischenstand gespeichert. Das Album exportierst du separat.")
+        return "break"
+
+    def _show_shortcuts(self) -> None:
+        messagebox.showinfo("Schneller prüfen",
+            "Bild anklicken: grosse Vorschau\n← / →: vorheriges / nächstes Bild\n"
+            "Leertaste: zur Auswahl hinzufügen / entfernen\nK: dauerhaft behalten\n"
+            "X: dauerhaft ablehnen\nU: dauerhafte Entscheidung aufheben\n"
+            "Strg+Z / Strg+Y: rückgängig / wiederholen\nStrg+S: Zwischenstand speichern\n"
+            "Strg+F: Suche\nEsc: zurück zum Raster\n\n"
+            "Dauerhafte Entscheidungen gelten auch bei einer Neuberechnung. "
+            "Geschützte Favoriten haben Vorrang.", parent=self)
+
+    def _open_insights(self) -> None:
+        from .review_workspace import open_review_assistant
+        open_review_assistant(self)
+
+    def _open_review_pool(self, indices: list[int], label: str = "Prüfliste") -> None:
+        indices = list(dict.fromkeys(i for i in indices if 0 <= i < len(self.photos)))
+        if not indices:
+            self._flash_status("In dieser Prüfliste gibt es keine Bilder.")
+            return
+        self._preview_pool = indices
+        self._preview_kind = "variants"
+        self._album_return = None
+        self._enter_slideshow()
+        self._slide_pos = 0
+        self._show_current_slide()
+        self._flash_status(label)
+
+    def _relink_sources(self) -> None:
+        from .source_relink_dialog import open_source_relink
+        self._autosave_draft()
+        if getattr(self, "_draft_save_error", None):
+            return
+        open_source_relink(self, self.photos, self.output_dir, on_saved=self._sources_relinked)
+
+    def _sources_relinked(self) -> None:
+        self._thumb_cache.clear()
+        self._thumb_failed.clear()
+        self._slide_cache.clear()
+        self._slide_pil.clear()
+        self._wanted_thumbs.clear()
+        self._pending_thumbs.clear()
+        self._pending_slides.clear()
+        for result_queue in (self._ready_queue, self._slide_queue):
+            while True:
+                try:
+                    result_queue.get_nowait()
+                except queue.Empty:
+                    break
+        self._refresh_review_edit()
+        self._flash_status("Originalordner aktualisiert. Die Auswahl bleibt erhalten.")
+
+    def _text_input_active(self) -> bool:
+        try:
+            return isinstance(self.focus_get(), (tk.Entry, ttk.Entry, tk.Text, ttk.Combobox))
+        except (tk.TclError, AttributeError):
+            return False
+
+    def _decision_shortcut(self, decision: str, event=None) -> str | None:
+        if event is not None:
+            try:
+                if isinstance(self.focus_get(), (tk.Entry, ttk.Entry, tk.Text, ttk.Combobox)):
+                    return None
+            except (tk.TclError, AttributeError):
+                pass
+        if self._slideshow and self._slide_indices:
+            self._set_decision(self._slide_indices[self._slide_pos], decision)
+            return "break"
+        return None
+
+    def _set_decision(self, idx: int, decision: str, reason: str | None = None) -> None:
+        from .models import set_manual_decision
+        photo = self.photos[idx]
+        if decision == "reject" and photo.is_favorite:
+            self._flash_status("Zuerst den Favoritenschutz aufheben, um dieses Bild abzulehnen.")
+            return
+        set_manual_decision(photo, decision,
+                            getattr(photo, "decision_reason", "") if reason is None else reason)
+        if decision == "keep":
+            self.kept.add(idx)
+            self.baseline.add(idx)
+            if not photo.chapter_folder:
+                self._place_in_chapter(idx, self._grid_folder)
+        elif decision == "reject":
+            self.baseline.add(idx)
+            self.kept.discard(idx)
+        photo.is_selected = idx in self.kept
+        self._autosave_draft()
+        self._refresh_review_edit()
+        labels = {"keep": "Dauerhaft behalten", "reject": "Dauerhaft abgelehnt",
+                  "auto": "Dauerhafte Entscheidung aufgehoben"}
+        self._flash_status(labels.get(decision, decision))
+
+    def _apply_motif_recommendation(self, group) -> None:
+        from .models import set_manual_decision
+        recommended = set(group.recommended_indices)
+        for idx in group.indices:
+            photo = self.photos[idx]
+            if photo.is_favorite or getattr(photo, "manual_decision", "auto") == "keep":
+                continue
+            if idx in recommended:
+                set_manual_decision(photo, "keep", "Motivgruppe: empfohlene Variante übernommen")
+                self.kept.add(idx)
+                self.baseline.add(idx)
+                if not photo.chapter_folder:
+                    self._place_in_chapter(idx, self._grid_folder)
+            else:
+                set_manual_decision(photo, "reject", "Motivgruppe: andere Variante gewählt")
+                self.baseline.add(idx)
+                self.kept.discard(idx)
+            photo.is_selected = idx in self.kept
+        self._autosave_draft()
+        self._refresh_review_edit()
+
+    def _edit_decision_reason(self, idx: int) -> None:
+        photo = self.photos[idx]
+        reason = simpledialog.askstring("Entscheidung begründen", photo.filename,
+            initialvalue=getattr(photo, "decision_reason", ""), parent=self)
+        if reason is not None:
+            self._set_decision(idx, getattr(photo, "manual_decision", "auto"), reason)
+
+    def _matches_search(self, idx: int) -> bool:
+        query = getattr(self, "_search_text", "")
+        if not query:
+            return True
+        photo = self.photos[idx]
+        return query in " ".join(str(value or "") for value in (
+            photo.filename, photo.region, photo.scene_type, photo.landmark,
+            getattr(photo, "decision_reason", ""))).casefold()
+
+    def _render_workspace_view(self, folder: str, y: int, width: int, cols: int) -> bool:
+        mode = self._filter_mode
+        if mode == "all" and not getattr(self, "_search_text", ""):
+            if hasattr(self, "_page_label"):
+                self._page_label.configure(text="")
+                self._page_prev.configure(state=tk.DISABLED)
+                self._page_next.configure(state=tk.DISABLED)
+            return False
+        if mode == "duplicates":
+            indices = all_duplicate_indices(self.photos)
+            draw_mode, label = "dup", "Serien und Duplikate · alle Kapitel"
+            tile_folder = "__dups__"
+        elif mode == "candidates":
+            indices = candidate_alternatives(self.photos, folder, limit=len(self.photos), exclude=self.kept)
+            draw_mode, label, tile_folder = "add", "Weitere Bilder für dieses Kapitel", folder
+        else:
+            base = self.kept if mode == "kept" else (self.baseline - self.kept if mode == "removed" else self.baseline | self.kept)
+            indices = [i for i in sorted(base) if not folder or self.photos[i].chapter_folder == folder]
+            draw_mode, label, tile_folder = "keep", {"kept": "Im Album", "removed": "Entfernt"}.get(mode, "Suchergebnisse"), folder
+        indices = [i for i in indices if self._matches_search(i)]
+        page_size = 120
+        pages = max(1, (len(indices) + page_size - 1) // page_size)
+        page = max(0, min(getattr(self, "_workspace_page", 0), pages - 1))
+        self._workspace_page = page
+        if hasattr(self, "_page_label"):
+            self._page_label.configure(text=f"{len(indices)} Bilder · {page + 1}/{pages}")
+            self._page_prev.configure(state=tk.NORMAL if page > 0 else tk.DISABLED)
+            self._page_next.configure(state=tk.NORMAL if page + 1 < pages else tk.DISABLED)
+        self.canvas.create_text(GRID_PAD, y + 8, anchor=tk.NW,
+            text=f"{label} · {len(indices)}", fill=COLORS["ink"],
+            font=(FONT_UI, 13), tags=("grid",))
+        y += HEADER_H
+        if indices:
+            y = self._draw_photo_rows(indices[page * page_size:(page + 1) * page_size], tile_folder, draw_mode, y, cols)
+        else:
+            message = "Keine passenden Bilder. Suche leeren oder eine andere Ansicht wählen."
+            if mode == "removed" and not getattr(self, "_search_text", ""):
+                message = "Noch keine Bilder entfernt. Deine Auswahl bleibt unverändert."
+            self.canvas.create_text(GRID_PAD, y + 16, anchor=tk.NW, text=message,
+                fill=COLORS["muted"], font=(FONT_UI, 11), width=max(280, width - GRID_PAD * 2), tags=("grid",))
+            y += 80
+        self.canvas.configure(scrollregion=(0, 0, width, max(100, y + GRID_PAD)))
+        self._flush_thumb_requests()
+        return True
+
+    def _workspace_page_change(self, delta: int) -> None:
+        self._workspace_page = max(0, getattr(self, "_workspace_page", 0) + delta)
+        self._render()
+        self.canvas.yview_moveto(0)
+
     def _setup_style(self) -> None:
+        from tkinter import font as tkfont
+        global FONT_UI
+        families = {family.casefold(): family for family in tkfont.families(self)}
+        for candidate in ("Segoe UI", "DejaVu Sans", "Nimbus Sans L", "Helvetica"):
+            if candidate.casefold() in families:
+                FONT_UI = families[candidate.casefold()]
+                break
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
         except tk.TclError:
             pass
+        style.configure("Rev.TEntry", fieldbackground=COLORS["surface"], foreground=COLORS["ink"],
+                        insertcolor=COLORS["ink"], bordercolor=COLORS["line"], padding=5)
+        style.configure("Rev.TMenubutton", background=COLORS["chip_bg"], foreground=COLORS["ink"],
+                        arrowcolor=COLORS["muted"], borderwidth=0, font=(FONT_UI, 10), padding=(12, 8))
+        style.map("Rev.TMenubutton", background=[("active", COLORS["line"])])
         style.configure("Rev.TCombobox", fieldbackground=COLORS["surface"],
             background=COLORS["surface"], foreground=COLORS["ink"],
             arrowcolor=COLORS["muted"], borderwidth=0, padding=6)
@@ -240,29 +496,29 @@ class ReviewWindow(tk.Toplevel):
             "RevHead.TLabel",
             background=COLORS["bg"],
             foreground=COLORS["ink"],
-            font=("Segoe UI Semibold", 12),
+            font=(FONT_UI, 12),
         )
         style.configure(
             "RevCardHead.TLabel",
             background=COLORS["surface"],
             foreground=COLORS["ink"],
-            font=("Segoe UI Semibold", 11),
+            font=(FONT_UI, 11),
         )
         style.configure(
             "RevMuted.TLabel",
             background=COLORS["bg"],
             foreground=COLORS["muted"],
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
         )
         style.configure(
             "RevCardMuted.TLabel",
             background=COLORS["surface"],
             foreground=COLORS["muted"],
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
         )
         style.configure(
             "RevSave.TButton",
-            font=("Segoe UI Semibold", 10),
+            font=(FONT_UI, 10),
             padding=(16, 10),
             background=COLORS["accent"],
             foreground=COLORS.get("hero_fg", "#FFFFFF"),
@@ -273,7 +529,7 @@ class ReviewWindow(tk.Toplevel):
         )
         style.configure(
             "Rev.TButton",
-            font=("Segoe UI Semibold", 10),
+            font=(FONT_UI, 10),
             padding=(14, 9),
             borderwidth=0, relief="flat",
             background=COLORS.get("chip_bg", COLORS["surface"]),
@@ -287,7 +543,7 @@ class ReviewWindow(tk.Toplevel):
             "Rev.TRadiobutton",
             background=COLORS["bg"],
             foreground=COLORS["ink"],
-            font=("Segoe UI", 10),
+            font=(FONT_UI, 10),
             focuscolor=COLORS["bg"],
         )
         style.map("Rev.TRadiobutton", background=[("active", COLORS["bg"])])
@@ -295,74 +551,70 @@ class ReviewWindow(tk.Toplevel):
     def _build(self) -> None:
         from .ui_widgets import PaddedButton
 
-        # Nacht-Header wie Hauptfenster (kein alter Akzent-Banner)
         tk.Frame(self, bg=COLORS["accent"], height=3).pack(fill=tk.X)
-        header = tk.Frame(self, bg=COLORS["bg"], padx=20, pady=14)
+        header = tk.Frame(self, bg=COLORS["bg"], padx=24, pady=16)
         header.pack(fill=tk.X)
-        titles = tk.Frame(header, bg=COLORS["bg"])
-        titles.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        tk.Label(
-            titles,
-            text=t("review_title"),
-            bg=COLORS["bg"],
-            fg=COLORS["ink"],
-            font=("Segoe UI Semibold", 20),
-        ).pack(anchor=tk.W)
-        self._hero_hint = tk.Label(
-            titles,
-            text="Bild öffnen: Vorschau · Schaltfläche am Bild: auswählen oder entfernen",
-            bg=COLORS["bg"],
-            fg=COLORS["muted"],
-            font=("Segoe UI", 10),
-            wraplength=720,
-            justify=tk.LEFT,
-        )
-        self._hero_hint.pack(anchor=tk.W, pady=(4, 0))
-
         actions = tk.Frame(header, bg=COLORS["bg"])
         actions.pack(side=tk.RIGHT)
-        PaddedButton(
-            actions,
-            "Album exportieren",
-            COLORS,
-            command=self._save,
-            primary=True,
-            padx=16,
-            pady=10,
-        ).pack(side=tk.RIGHT)
-        PaddedButton(
-            actions,
-            "Pause & speichern",
-            COLORS,
-            command=self._close,
-            padx=14,
-            pady=10,
-        ).pack(side=tk.RIGHT, padx=(0, 10))
+        PaddedButton(actions, "Album exportieren", COLORS, command=self._save,
+                     primary=True, padx=18, pady=11).pack(side=tk.RIGHT)
+        PaddedButton(actions, "Pause & speichern", COLORS, command=self._close,
+                     padx=14, pady=11).pack(side=tk.RIGHT, padx=(0, 10))
+        titles = tk.Frame(header, bg=COLORS["bg"])
+        titles.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Label(titles, text="FOTOBUCH  /  AUSWAHL PRÜFEN", bg=COLORS["bg"],
+                 fg=COLORS["accent"], font=(FONT_UI, 9)).pack(anchor=tk.W)
+        tk.Label(titles, text=self.output_dir.name or t("review_title"),
+                 bg=COLORS["bg"], fg=COLORS["ink"], font=(FONT_UI, 23)
+                 ).pack(anchor=tk.W, pady=(4, 0))
+        self._hero_hint = tk.Label(titles,
+            text="Erinnerungen auswählen. Varianten vergleichen. Dein Album fertigstellen.",
+            bg=COLORS["bg"], fg=COLORS["muted"], font=(FONT_UI, 10),
+            anchor=tk.W, justify=tk.LEFT)
+        self._hero_hint.pack(anchor=tk.W, pady=(4, 0))
 
-        bar = tk.Frame(self, bg=COLORS["bg"], padx=20)
-        bar.pack(fill=tk.X, pady=(0, 4))
+        bar = tk.Frame(self, bg=COLORS["surface"], padx=18, pady=10,
+                       highlightbackground=COLORS["line"], highlightthickness=1)
+        bar.pack(fill=tk.X, padx=24, pady=(0, 12))
         self.count_var = tk.StringVar()
-        tk.Label(
-            bar,
-            textvariable=self.count_var,
-            bg=COLORS["bg"],
-            fg=COLORS["ink"],
-            font=("Segoe UI Semibold", 11),
-        ).pack(side=tk.LEFT)
-        self.mode_btn = PaddedButton(
-            bar,
-            t("slideshow"),
-            COLORS,
-            command=self._toggle_slideshow,
-            padx=14,
-            pady=8,
-        )
-        self.mode_btn.pack(side=tk.LEFT, padx=(16, 0))
-        self._undo_btn = ttk.Button(bar, text=t("undo"), command=self._undo)
-        self._undo_btn.pack(side=tk.LEFT, padx=(12, 0))
-        self._redo_btn = ttk.Button(bar, text=t("redo"), command=self._redo)
-        self._redo_btn.pack(side=tk.LEFT, padx=4)
-        ttk.Button(bar, text=t("print_check"), command=self._print_check).pack(side=tk.LEFT, padx=4)
+        tk.Label(bar, textvariable=self.count_var, bg=COLORS["surface"],
+                 fg=COLORS["ink"], font=(FONT_UI, 11)).pack(side=tk.LEFT)
+        self.mode_btn = ttk.Button(bar, text="Grosse Vorschau", command=self._toggle_slideshow)
+        self.mode_btn.pack(side=tk.LEFT, padx=(18, 8))
+        self._undo_btn = ttk.Button(bar, text="Rückg.", width=6, command=self._undo)
+        self._undo_btn.pack(side=tk.LEFT)
+        self._redo_btn = ttk.Button(bar, text="Wiederh.", width=7, command=self._redo)
+        self._redo_btn.pack(side=tk.LEFT, padx=(4, 12))
+        ttk.Button(bar, text="Prüf-Assistent", command=self._open_insights).pack(side=tk.RIGHT)
+        more = ttk.Menubutton(bar, text="Werkzeuge", style="Rev.TMenubutton")
+        menu = tk.Menu(more, tearoff=0, bg=COLORS["surface"], fg=COLORS["ink"])
+        menu.add_command(label="Druckqualität prüfen", command=self._print_check)
+        menu.add_command(label="Originalordner neu verknüpfen...", command=self._relink_sources)
+        menu.add_separator()
+        menu.add_command(label="Tastenkürzel", command=self._show_shortcuts)
+        more.configure(menu=menu)
+        more.pack(side=tk.RIGHT, padx=(0, 8))
+
+        tabs = tk.Frame(self, bg=COLORS["bg"], padx=24)
+        tabs.pack(fill=tk.X, pady=(0, 12))
+        self._workspace_tabs = {}
+        for mode, label in (("all", "Übersicht"), ("kept", "Im Album"),
+                            ("candidates", "Weitere Bilder"), ("removed", "Entfernt"),
+                            ("duplicates", "Serien & Duplikate")):
+            btn = tk.Button(tabs, text=label, relief=tk.FLAT, borderwidth=0,
+                            font=(FONT_UI, 9), padx=12, pady=9,
+                            cursor="hand2", takefocus=True,
+                            command=lambda value=mode: self._set_workspace_filter(value))
+            btn.pack(side=tk.LEFT, padx=(0, 5))
+            self._workspace_tabs[mode] = (btn, label)
+        self._search_var = tk.StringVar(value="")
+        search = ttk.Entry(tabs, textvariable=self._search_var, width=23, style="Rev.TEntry")
+        search.pack(side=tk.RIGHT, ipady=5, padx=(8, 0))
+        self._search_entry = search
+        self._search_var.trace_add("write", lambda *_: self._schedule_search())
+        search.bind("<Escape>", lambda _e: self._search_var.set(""))
+        tk.Label(tabs, text="Suchen", bg=COLORS["bg"], fg=COLORS["muted"],
+                 font=(FONT_UI, 9)).pack(side=tk.RIGHT)
 
         # Warn-Leiste (Tageslücken, Personen, Auflösung)
         self._warn_host = tk.Frame(self, bg=COLORS["bg"], padx=20)
@@ -373,7 +625,7 @@ class ReviewWindow(tk.Toplevel):
             textvariable=self._warn_var,
             bg=COLORS.get("chip_bg", COLORS["surface"]),
             fg=COLORS["muted"],
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
             anchor=tk.W,
             justify=tk.LEFT,
             padx=10,
@@ -387,7 +639,7 @@ class ReviewWindow(tk.Toplevel):
         self._folder_meta = tk.StringVar(value="")
         PaddedButton(
             nav,
-            t("chapter_jump_prev"),
+            "< Voriges Kapitel",
             COLORS,
             command=self._grid_folder_prev,
             padx=12,
@@ -404,7 +656,7 @@ class ReviewWindow(tk.Toplevel):
         self._grid_folder_combo.bind("<<ComboboxSelected>>", self._on_grid_folder_chosen)
         PaddedButton(
             nav,
-            t("chapter_jump_next"),
+            "Nächstes Kapitel >",
             COLORS,
             command=self._grid_folder_next,
             padx=12,
@@ -415,15 +667,26 @@ class ReviewWindow(tk.Toplevel):
             textvariable=self._folder_meta,
             bg=COLORS["bg"],
             fg=COLORS["muted"],
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
         ).pack(side=tk.LEFT, padx=(14, 0))
 
         # Kein Banner mehr – Hinweis steht kurz in der Zählerzeile / Hilfe
         if self._draft_note:
-            self.after(100, lambda: self._flash_status(self._draft_note))
+            self._draft_note_job = self.after(100, lambda: self._flash_status(self._draft_note))
 
         self._body = tk.Frame(self, bg=COLORS["bg"])
-        self._body.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 14))
+        footer = tk.Frame(self, bg=COLORS["bg"], padx=24, pady=8)
+        footer.pack(side=tk.BOTTOM, fill=tk.X)
+        self._page_next = ttk.Button(footer, text="Weiter >", command=lambda: self._workspace_page_change(1))
+        self._page_next.pack(side=tk.RIGHT)
+        self._page_prev = ttk.Button(footer, text="< Zurück", command=lambda: self._workspace_page_change(-1))
+        self._page_prev.pack(side=tk.RIGHT, padx=6)
+        self._page_label = tk.Label(footer, text="", bg=COLORS["bg"], fg=COLORS["muted"], font=(FONT_UI, 9))
+        self._page_label.pack(side=tk.RIGHT, padx=8)
+        tk.Label(footer, text="Klick: Vorschau  ·  Rechtsklick: Entscheidungen  ·  Strg+S: speichern",
+                 bg=COLORS["bg"], fg=COLORS["muted"], font=(FONT_UI, 9)
+                 ).pack(side=tk.LEFT)
+        self._body.pack(fill=tk.BOTH, expand=True, padx=24, pady=(0, 4))
 
         self._grid_host = tk.Frame(self._body, bg=COLORS["bg"])
         self._grid_host.pack(fill=tk.BOTH, expand=True)
@@ -486,6 +749,7 @@ class ReviewWindow(tk.Toplevel):
                 for i in sorted(self.baseline)],
             preview=[str(self.photos[i].path) for i in self._preview_pool]
                 if self._preview_pool is not None else None,
+            search=getattr(self, "_search_text", ""), page=getattr(self, "_workspace_page", 0),
             scroll=self.canvas.yview()[0])
 
     def _restore_review_view(self) -> None:
@@ -499,9 +763,15 @@ class ReviewWindow(tk.Toplevel):
             self._grid_folder = folder
             self._refresh_folder_nav()
         mode = state.get("filter", "all")
-        if mode in ("all", "kept", "removed", "duplicates"):
+        if mode in ("all", "kept", "removed", "duplicates", "candidates"):
             self._filter_mode = mode
             self._filter_var.set(mode)
+        search = state.get("search", "")
+        if isinstance(search, str):
+            self._search_text = search[:300].casefold()
+            self._search_var.set(self._search_text)
+        page = state.get("page", 0)
+        self._workspace_page = page if isinstance(page, int) and page >= 0 else 0
         if state.get("slideshow"):
             pool = state.get("preview")
             if isinstance(pool, list):
@@ -672,7 +942,7 @@ class ReviewWindow(tk.Toplevel):
             text=t("surroundings"),
             bg=stage_bg,
             fg=COLORS.get("slide_fg", "#E8E2D8"),
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
         ).pack(anchor=tk.CENTER)
         self._strip_bar = tk.Frame(below_inner, bg=stage_bg)
         self._strip_bar.pack(anchor=tk.CENTER, pady=(4, 0))
@@ -686,7 +956,7 @@ class ReviewWindow(tk.Toplevel):
             textvariable=self._slide_status,
             bg=stage_bg,
             fg=COLORS.get("slide_fg", "#E8E2D8"),
-            font=("Segoe UI Semibold", 10),
+            font=(FONT_UI, 10),
             justify=tk.CENTER,
         ).pack(anchor=tk.CENTER, pady=(10, 0))
         tk.Label(
@@ -694,7 +964,7 @@ class ReviewWindow(tk.Toplevel):
             textvariable=self._slide_caption,
             bg=stage_bg,
             fg=COLORS.get("muted", "#A8A0B8"),
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
             justify=tk.CENTER,
         ).pack(anchor=tk.CENTER, pady=(2, 0))
         self._slide_notes_lbl = tk.Label(
@@ -702,7 +972,7 @@ class ReviewWindow(tk.Toplevel):
             textvariable=self._slide_notes,
             bg=stage_bg,
             fg=COLORS.get("phase_run_fg", "#F0D9B5"),
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9),
             justify=tk.CENTER,
             wraplength=720,
         )
@@ -727,6 +997,13 @@ class ReviewWindow(tk.Toplevel):
         self._favorite_btn.pack(side=tk.LEFT, padx=8)
         ttk.Button(controls, text=t("reason_title"), command=self._explain_current).pack(side=tk.LEFT)
 
+        decisions = tk.Frame(below_inner, bg=stage_bg)
+        decisions.pack(anchor=tk.CENTER, pady=(3, 0))
+        for decision, label in (("keep", "Behalten [K]"), ("reject", "Ablehnen [X]"),
+                                ("auto", "Entscheidung aufheben [U]")):
+            ttk.Button(decisions, text=label,
+                       command=lambda d=decision: self._decision_shortcut(d)).pack(side=tk.LEFT, padx=3)
+
         stage_row = ttk.Frame(host, style="Rev.TFrame")
         stage_row.pack(fill=tk.BOTH, expand=True)
 
@@ -738,7 +1015,7 @@ class ReviewWindow(tk.Toplevel):
             text=t("loading_image"),
             bg=stage_bg,
             fg=COLORS.get("slide_fg", "#E8E2D8"),
-            font=("Segoe UI", 12),
+            font=(FONT_UI, 12),
             cursor="hand2",
         )
         self._slide_image_lbl.pack(fill=tk.BOTH, expand=True)
@@ -758,7 +1035,7 @@ class ReviewWindow(tk.Toplevel):
             text=t("alt_title"),
             bg=stage_bg,
             fg=COLORS.get("slide_fg", "#E8E2D8"),
-            font=("Segoe UI Semibold", 10),
+            font=(FONT_UI, 10),
         )
         self._alt_title_lbl.pack(anchor=tk.W)
         self._alt_image_lbl = tk.Label(
@@ -766,7 +1043,7 @@ class ReviewWindow(tk.Toplevel):
             text=t("alt_none"),
             bg=stage_bg,
             fg=COLORS.get("slide_fg", "#E8E2D8"),
-            font=("Segoe UI", 10),
+            font=(FONT_UI, 10),
             cursor="hand2",
         )
         self._alt_image_lbl.pack(fill=tk.BOTH, expand=True, pady=(8, 8))
@@ -777,7 +1054,7 @@ class ReviewWindow(tk.Toplevel):
             textvariable=self._alt_caption,
             bg=stage_bg,
             fg=COLORS.get("slide_fg", "#E8E2D8"),
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
             wraplength=280,
             justify=tk.LEFT,
         ).pack(anchor=tk.W)
@@ -813,10 +1090,13 @@ class ReviewWindow(tk.Toplevel):
             if real < 0 or real >= len(self.photos):
                 continue
             photo = self.photos[real]
+            source_path = photo.path
             try:
                 if kind == "slide":
                     # Ein Decode für großes Bild; Thumb gleich mit erzeugen
-                    img = load_image_scaled(photo.path, _SLIDE_MAX)
+                    img = load_image_scaled(source_path, _SLIDE_MAX)
+                    if photo.path != source_path:
+                        continue
                     self._slide_queue.put((real, img.copy()))
                     if real not in self._thumb_cache:
                         thumb = img.copy()
@@ -828,7 +1108,9 @@ class ReviewWindow(tk.Toplevel):
                         canvas_img.paste(thumb, (x, y))
                         self._ready_queue.put((real, canvas_img))
                 else:
-                    img = load_thumb_cached(photo.path, THUMB)
+                    img = load_thumb_cached(source_path, THUMB)
+                    if photo.path != source_path:
+                        continue
                     pad = COLORS.get("thumb_pad", "#F5F1E9")
                     canvas_img = Image.new("RGB", (THUMB, THUMB), pad)
                     x = (THUMB - img.width) // 2
@@ -836,6 +1118,8 @@ class ReviewWindow(tk.Toplevel):
                     canvas_img.paste(img, (x, y))
                     self._ready_queue.put((real, canvas_img))
             except Exception:
+                if photo.path != source_path:
+                    continue
                 if kind == "slide":
                     self._slide_queue.put((real, None))
                 else:
@@ -920,7 +1204,7 @@ class ReviewWindow(tk.Toplevel):
         self._flush_thumb_requests()
         if self.winfo_exists():
             delay = 25 if (updated or self._wanted_thumbs or self._pending_thumbs) else 100
-            self.after(delay, self._drain_thumbs)
+            self._thumb_after = self.after(delay, self._drain_thumbs)
 
     def _drain_slides(self) -> None:
         try:
@@ -943,13 +1227,14 @@ class ReviewWindow(tk.Toplevel):
         except queue.Empty:
             pass
         if self.winfo_exists():
-            self.after(50, self._drain_slides)
+            self._slide_after = self.after(50, self._drain_slides)
 
     def _update_count(self) -> None:
         error = getattr(self, "_draft_save_error", None)
         self.count_var.set(f"Zwischenstand nicht gespeichert: {error}" if error
                            else t("selected_count", n=len(self.kept)))
         self._refresh_warnings()
+        self._refresh_workspace_tabs()
         if self._slideshow:
             self._refresh_slide_meta()
 
@@ -974,7 +1259,7 @@ class ReviewWindow(tk.Toplevel):
         parts: list[str] = []
         for w in warns[:3]:
             try:
-                parts.append(t(w.key, **w.params))
+                parts.append(t(w.key, **w.params).replace("⚠ ", "Hinweis: "))
             except Exception:
                 parts.append(w.key)
         self._warn_var.set("  ·  ".join(parts))
@@ -988,6 +1273,8 @@ class ReviewWindow(tk.Toplevel):
         """Review-Menge: Baseline ∪ Kept, bei Filter „Duplikate“ die aussortierten."""
         if self._filter_mode == "duplicates":
             return all_duplicate_indices(self.photos)
+        if self._filter_mode == "candidates":
+            return candidate_alternatives(self.photos, self._grid_folder, limit=len(self.photos), exclude=self.kept)
         return sorted(self.baseline | self.kept)
 
     def _chapter_list(self) -> list[str]:
@@ -998,7 +1285,7 @@ class ReviewWindow(tk.Toplevel):
 
     def _folder_entries(self) -> list[tuple[str, str]]:
         """[(folder, title), ...] in Buch-Reihenfolge; leere Session-Ordner bleiben navigierbar."""
-        display = self._display_indices()
+        display = sorted(self.baseline | self.kept)
         sections = chapter_sections(self.photos, display)
         by_folder = {folder: title for title, folder, _idx in sections}
         from .documents import ASIDE_FOLDER, aside_indices
@@ -1141,6 +1428,8 @@ class ReviewWindow(tk.Toplevel):
         """Bild in einen anderen Kapitelordner legen; Entwurf speichert chapter_folder."""
         if idx < 0 or idx >= len(self.photos) or not target_folder:
             return
+        if not self._can_add_photo(idx):
+            return
         photo = self.photos[idx]
         current = photo.chapter_folder or ""
         if current == target_folder and not (
@@ -1161,7 +1450,7 @@ class ReviewWindow(tk.Toplevel):
         if self._preview_pool is not None:
             return list(self._preview_pool)
         indices = self._display_indices()
-        if self._filter_mode == "duplicates":
+        if self._filter_mode in ("duplicates", "candidates"):
             return indices
         if self._chapter_filter:
             indices = [
@@ -1191,6 +1480,7 @@ class ReviewWindow(tk.Toplevel):
 
     def _on_filter_changed(self) -> None:
         self._filter_mode = self._filter_var.get() or "all"
+        self._workspace_page = 0
         if self._slideshow:
             self._reapply_slide_filter(keep_photo=True)
         else:
@@ -1481,7 +1771,7 @@ class ReviewWindow(tk.Toplevel):
                     text="…",
                     bg=COLORS["line"],
                     fg=COLORS["muted"],
-                    font=("Segoe UI", 9),
+                    font=(FONT_UI, 9),
                     cursor="hand2",
                 )
                 self._request_thumb(idx, priority=8)
@@ -1493,7 +1783,7 @@ class ReviewWindow(tk.Toplevel):
                     text="●",
                     bg=COLORS["surface"],
                     fg=accent,
-                    font=("Segoe UI", 8),
+                    font=(FONT_UI, 8),
                     cursor="hand2",
                 )
                 here.place(relx=0.5, rely=0.0, anchor=tk.N)
@@ -1504,7 +1794,7 @@ class ReviewWindow(tk.Toplevel):
                     text="×",
                     bg=COLORS["reject"],
                     fg="white",
-                    font=("Segoe UI Semibold", 8),
+                    font=(FONT_UI, 8),
                     cursor="hand2",
                 )
                 mark.place(relx=1.0, rely=0.0, anchor=tk.NE)
@@ -1575,6 +1865,11 @@ class ReviewWindow(tk.Toplevel):
             parts.append(t("dup_of", name=photo.duplicate_of))
         self._slide_caption.set("  ·  ".join(p for p in parts if p))
         notes = self._photo_quality_notes(photo)
+        decision = getattr(photo, "manual_decision", "auto")
+        if decision != "auto":
+            notes.insert(0, "Dauerhaft behalten" if decision == "keep" else "Dauerhaft abgelehnt")
+        if getattr(photo, "decision_reason", ""):
+            notes.append(photo.decision_reason)
         self._favorite_btn.configure(text=t("unfavorite" if photo.is_favorite else "favorite"))
         if photo.is_favorite:
             notes.insert(0, t("reason_favorite"))
@@ -1689,6 +1984,8 @@ class ReviewWindow(tk.Toplevel):
             return
         cur = self._slide_indices[self._slide_pos]
         alt = self._alt_idx
+        if not self._can_add_photo(alt):
+            return
         folder = self.photos[cur].chapter_folder or ""
         if cur in self.kept:
             if self._protected(cur):
@@ -1766,6 +2063,8 @@ class ReviewWindow(tk.Toplevel):
             self.kept.remove(idx)
             removed = True
         else:
+            if not self._can_add_photo(idx):
+                return
             was_variant = idx not in self.baseline
             self.kept.add(idx)
             self.baseline.add(idx)
@@ -1802,19 +2101,27 @@ class ReviewWindow(tk.Toplevel):
         return "break"
 
     def _slide_key_prev(self, _event=None) -> None:
+        if self._text_input_active():
+            return None
         if self._slideshow:
             self._slide_prev()
 
     def _slide_key_next(self, _event=None) -> None:
+        if self._text_input_active():
+            return None
         if self._slideshow:
             self._slide_next()
 
     def _slide_key_toggle(self, _event=None) -> None:
+        if self._text_input_active():
+            return None
         if self._slideshow:
             self._slide_toggle_current()
             return "break"
 
     def _slide_key_remove(self, _event=None) -> None:
+        if self._text_input_active():
+            return None
         if not self._slideshow or not self._slide_indices:
             return
         idx = self._slide_indices[self._slide_pos]
@@ -1836,17 +2143,23 @@ class ReviewWindow(tk.Toplevel):
         return "break"
 
     def _slide_key_take_alt(self, _event=None) -> None:
+        if self._text_input_active():
+            return None
         if self._slideshow:
             self._slide_take_alternative()
             return "break"
 
     def _slide_key_chapter_prev(self, _event=None) -> None:
+        if self._text_input_active():
+            return None
         if self._slideshow:
             # PageUp = vorheriger Ordner (wie oben)
             self._grid_folder_prev()
             return "break"
 
     def _slide_key_chapter_next(self, _event=None) -> None:
+        if self._text_input_active():
+            return None
         if self._slideshow:
             # PageDown = nächster Ordner (wie oben)
             self._grid_folder_next()
@@ -1861,10 +2174,17 @@ class ReviewWindow(tk.Toplevel):
             return "break"
 
     def _protected(self, idx: int) -> bool:
-        if self.photos[idx].is_favorite:
-            self._flash_status(t("favorite_blocked"))
+        if self.photos[idx].is_favorite or getattr(self.photos[idx], "manual_decision", "auto") == "keep":
+            self._flash_status("Dieses Bild ist geschützt. Zuerst den Schutz oder die dauerhafte Entscheidung aufheben.")
             return True
         return False
+
+    def _can_add_photo(self, idx: int) -> bool:
+        photo = self.photos[idx]
+        if getattr(photo, "manual_decision", "auto") == "reject" and not photo.is_favorite:
+            self._flash_status("Dauerhaft abgelehnt. Zuerst die Entscheidung über Rechtsklick oder [U] aufheben.")
+            return False
+        return True
 
     def _favorite_current(self) -> None:
         if self._slide_indices:
@@ -2089,6 +2409,8 @@ class ReviewWindow(tk.Toplevel):
         if alt is None:
             self._flash_status(t("alt_none"))
             return
+        if not self._can_add_photo(alt):
+            return
         target_folder = folder or self.photos[idx].chapter_folder or self._grid_folder or ""
         self.kept.remove(idx)
         self.photos[idx].is_selected = False
@@ -2135,6 +2457,12 @@ class ReviewWindow(tk.Toplevel):
                          command=lambda: self._toggle_favorite(idx))
         menu.add_command(label=t("reason_title"), command=lambda: self._explain(idx))
         menu.add_separator()
+        for decision, label in (("keep", "Dauerhaft behalten"),
+                                ("reject", "Dauerhaft ablehnen"),
+                                ("auto", "Dauerhafte Entscheidung aufheben")):
+            menu.add_command(label=label, command=lambda d=decision: self._set_decision(idx, d))
+        menu.add_command(label="Entscheidung begründen...", command=lambda: self._edit_decision_reason(idx))
+        menu.add_separator()
         menu.add_command(label=t("move_to"), state=tk.DISABLED)
         for folder in folders:
             label = self._folder_title(folder)
@@ -2148,6 +2476,8 @@ class ReviewWindow(tk.Toplevel):
             menu.grab_release()
 
     def _toggle_photo(self, idx: int, mode: str, folder: str) -> None:
+        if idx not in self.kept and not self._can_add_photo(idx):
+            return
         if mode in ("add", "dup"):
             if idx in self.kept:
                 return
@@ -2223,7 +2553,7 @@ class ReviewWindow(tk.Toplevel):
                         cy,
                         text=t("removed_state"),
                         fill=COLORS.get("hero_fg", "#FFFFFF"),
-                        font=("Segoe UI Semibold", 9),
+                        font=(FONT_UI, 9),
                         anchor=tk.CENTER,
                         tags=("grid", tag),
                     )
@@ -2233,7 +2563,7 @@ class ReviewWindow(tk.Toplevel):
                         cy,
                         text="+",
                         fill=COLORS.get("hero_fg", "#FFFFFF"),
-                        font=("Segoe UI Semibold", 14),
+                        font=(FONT_UI, 14),
                         anchor=tk.CENTER,
                         tags=("grid", tag),
                     )
@@ -2264,6 +2594,9 @@ class ReviewWindow(tk.Toplevel):
             current = self._folder_labels[0][0]
             self._grid_folder = current
 
+        if self._render_workspace_view(current, y, width, cols):
+            return
+
         # Filter „Duplikate“: eigene Rasteransicht aller aussortierten
         if self._filter_mode == "duplicates":
             dups = all_duplicate_indices(self.photos)
@@ -2273,7 +2606,7 @@ class ReviewWindow(tk.Toplevel):
                 anchor=tk.NW,
                 text=t("dup_section_title", n=len(dups)),
                 fill=COLORS["ink"],
-                font=("Segoe UI Semibold", 12),
+                font=(FONT_UI, 12),
                 tags=("grid",),
             )
             y += HEADER_H
@@ -2286,7 +2619,7 @@ class ReviewWindow(tk.Toplevel):
                     anchor=tk.NW,
                     text=t("dup_none"),
                     fill=COLORS["muted"],
-                    font=("Segoe UI", 10),
+                    font=(FONT_UI, 10),
                     tags=("grid",),
                 )
                 y += 40
@@ -2340,7 +2673,7 @@ class ReviewWindow(tk.Toplevel):
                 anchor=tk.NW,
                 text=title,
                 fill=COLORS["ink"],
-                font=("Segoe UI Semibold", 12),
+                font=(FONT_UI, 12),
                 tags=("grid",),
             )
             self.canvas.create_text(
@@ -2349,7 +2682,7 @@ class ReviewWindow(tk.Toplevel):
                 anchor=tk.NW,
                 text=t("empty_folder"),
                 fill=COLORS["muted"],
-                font=("Segoe UI", 10),
+                font=(FONT_UI, 10),
                 tags=("grid",),
             )
             y += HEADER_H + 16
@@ -2402,7 +2735,7 @@ class ReviewWindow(tk.Toplevel):
                     anchor=tk.NW,
                     text=t("empty_folder"),
                     fill=COLORS["muted"],
-                    font=("Segoe UI", 10),
+                    font=(FONT_UI, 10),
                     tags=("grid",),
                 )
                 y += 40
@@ -2414,7 +2747,7 @@ class ReviewWindow(tk.Toplevel):
                 anchor=tk.NW,
                 text="Keine Bilder in der Auswahl. Füge Alternativen hinzu oder brich ab.",
                 fill=COLORS["muted"],
-                font=("Segoe UI", 10),
+                font=(FONT_UI, 10),
                 tags=("grid",),
             )
             y += 40
@@ -2465,7 +2798,7 @@ class ReviewWindow(tk.Toplevel):
             anchor=tk.NW,
             text=title,
             fill=COLORS["ink"],
-            font=("Segoe UI Semibold", 12),
+            font=(FONT_UI, 12),
             tags=("grid",),
         )
         self.canvas.create_text(
@@ -2474,7 +2807,7 @@ class ReviewWindow(tk.Toplevel):
             anchor=tk.NW,
             text="",
             fill=COLORS["muted"],
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
             tags=("grid",),
         )
         y += HEADER_H
@@ -2549,7 +2882,7 @@ class ReviewWindow(tk.Toplevel):
             (y1 + y2) / 2,
             text=text,
             fill=COLORS["ink"],
-            font=("Segoe UI Semibold", 10),
+            font=(FONT_UI, 10),
             anchor=tk.CENTER,
             tags=("grid",),
         )
@@ -2642,7 +2975,11 @@ class ReviewWindow(tk.Toplevel):
         photo = self.photos[idx]
         caption = short_tile_label(photo.filename)
         if photo.is_favorite:
-            caption = "★ " + caption
+            caption = "* " + caption
+        elif getattr(photo, "manual_decision", "auto") == "keep":
+            caption = "+ " + caption
+        elif getattr(photo, "manual_decision", "auto") == "reject":
+            caption = "x " + caption
         fg = COLORS["muted"] if (mode == "keep" and not kept) else COLORS["ink"]
         # Beschriftungsband: Text horizontal + vertikal mittig
         self.canvas.create_rectangle(
@@ -2659,7 +2996,7 @@ class ReviewWindow(tk.Toplevel):
             label_cy,
             text=caption,
             fill=fg,
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9),
             anchor=tk.CENTER,
             tags=("grid",),
         )
@@ -2703,7 +3040,7 @@ class ReviewWindow(tk.Toplevel):
                 anchor=tk.W,
                 text=warn,
                 fill=COLORS.get("phase_run_fg", "#FFF8F0"),
-                font=("Segoe UI Semibold", 7),
+                font=(FONT_UI, 7),
                 tags=("grid",),
             )
         elif mode == "keep" and idx in self._session_added:
@@ -2722,7 +3059,7 @@ class ReviewWindow(tk.Toplevel):
                 anchor=tk.W,
                 text=t("new_badge"),
                 fill=COLORS.get("hero_fg", "#FFFFFF"),
-                font=("Segoe UI Semibold", 7),
+                font=(FONT_UI, 7),
                 tags=("grid",),
             )
 
@@ -2735,7 +3072,7 @@ class ReviewWindow(tk.Toplevel):
                 img_cy,
                 text=t("removed_state"),
                 fill=COLORS.get("hero_fg", "#FFFFFF"),
-                font=("Segoe UI Semibold", 9),
+                font=(FONT_UI, 9),
                 anchor=tk.CENTER,
                 tags=("grid", tag),
             )
@@ -2745,7 +3082,7 @@ class ReviewWindow(tk.Toplevel):
                 img_cy,
                 text="+",
                 fill=COLORS.get("hero_fg", "#FFFFFF"),
-                font=("Segoe UI Semibold", 16),
+                font=(FONT_UI, 16),
                 anchor=tk.CENTER,
                 tags=("grid", tag),
             )
@@ -2761,13 +3098,13 @@ class ReviewWindow(tk.Toplevel):
         )
 
         # A separate action keeps opening a photo from changing the selection.
-        action = "✓ Entfernen" if kept else "+ Hinzufügen"
+        action = "Entfernen" if kept else "+ Hinzufügen"
         bx1, by1, bx2, by2 = img_x1, img_y2 - 26, img_x2, img_y2
         self.canvas.create_rectangle(bx1, by1, bx2, by2,
             fill=COLORS["surface"], outline="", tags=("grid",))
         self.canvas.create_text((bx1 + bx2) / 2, (by1 + by2) / 2,
             text=action, fill=COLORS["accent"] if kept else COLORS["ink"],
-            font=("Segoe UI Semibold", 9), tags=("grid",))
+            font=(FONT_UI, 9), tags=("grid",))
         self._hit_tiles.append(dict(kind="selection", idx=idx, mode=mode,
             folder=folder, box=(bx1, by1, bx2, by2)))
 
@@ -2813,6 +3150,17 @@ class ReviewWindow(tk.Toplevel):
                 + self._draft_save_error, parent=self)
             return
         self._unbind_wheel()
+        for attr in ("_thumb_after", "_slide_after", "_open_large_job", "_draft_note_job"):
+            job = getattr(self, attr, None)
+            if job:
+                try:
+                    self.after_cancel(job)
+                except tk.TclError:
+                    pass
+                setattr(self, attr, None)
+        if self._search_job is not None:
+            self.after_cancel(self._search_job)
+            self._search_job = None
         if self._view_save_job is not None:
             self.after_cancel(self._view_save_job)
             self._view_save_job = None

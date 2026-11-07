@@ -5,7 +5,7 @@ from __future__ import annotations
 from .models import Photo
 
 FIELDS = (
-    "is_selected", "is_favorite", "chapter_folder", "chapter_type", "region",
+    "is_selected", "is_favorite", "manual_decision", "decision_reason", "chapter_folder", "chapter_type", "region",
     "is_aside", "is_duplicate", "is_burst_reject", "duplicate_of",
     "book_position", "flags", "review_added",
 )

@@ -1,5 +1,9 @@
 # Technischer Check und umgesetzte Härtung
 
+Historischer Check der Härtung 0.3.1; für die neue Oberfläche und Reiseverwaltung
+siehe [Reiseprojekte 0.4](REISEPROJEKTE.md). Die damalige private Updatequelle ist
+inzwischen öffentlich.
+
 Geprüfter Ausgangspunkt: `codex/review-metadata-fixes`.
 Ziel: grosse Urlaubssammlungen reduzieren, Entscheidungen fortsetzen, als
 Windows-Programm ausliefern. Prüfung anhand von Code, automatisierten Tests und
@@ -91,7 +95,7 @@ Ergebnis: `PhotoTool-Setup-0.3.1.exe`, portables ZIP, SHA256-Prüfsummen. Der Bu
 enthält einen Starttest des gebündelten EXE. Die CI erstellt bei Pull Requests
 Artefakte; eine Release-Veröffentlichung erfolgt nur bei passenden Versionstags.
 
-**Verteilungslücke:** Das Quellrepository ist privat. Zum Prüfzeitpunkt gab es
+**Historischer Befund aus 0.3.1 (inzwischen öffentlich):** Das Quellrepository war privat. Zum Prüfzeitpunkt gab es
 keine veröffentlichten Releases. Der Updater nutzt anonyme GitHub-Release-Abfragen;
 private Release-Dateien sind für installierte Clients ohne Authentifizierung
 nicht erreichbar. Eine 404 wird nun als nicht verfügbare Updatequelle gemeldet,
@@ -111,9 +115,9 @@ und Tests von Neuinstallation, Aktualisierung und Deinstallation vorsehen.
   Staging braucht zusätzlichen freien Speicher ungefähr in Grösse der exportierten Kopien;
   ein harter Prozessabbruch zwischen Verzeichnis-Renames kann ein Sicherungsverzeichnis
   `.selected-previous-*` hinterlassen.
-- Kein Projekt-Locking gegen zwei gleichzeitig schreibende App-Instanzen.
-- Review hängt an Originalpfaden; keine interaktive Neuverknüpfung.
-- Neuberechnung bewahrt Favoriten, keine dauerhafte Ablehnungsregel.
+- Weiterhin kein allgemeines Projekt-Locking gegen zwei gleichzeitig schreibende App-Instanzen.
+- Ab 0.4.0 gibt es interaktive Neuverknüpfung per Stammordner mit Vorschau.
+- Ab 0.4.0 bewahrt Neuberechnung auch explizite Behalten-/Ablehnen-Entscheidungen.
 - Histogrammvielfalt und Motiv-/Gesichtsheuristiken sind keine objektive Bewertung
   persönlicher Erinnerungen. KI-Anbieter wurden ohne Schlüssel nicht live geprüft.
 - Sehr grosse Kapitel und Motive ohne Aufnahmedatum können weiterhin quadratische

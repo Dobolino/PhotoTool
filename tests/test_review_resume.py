@@ -115,10 +115,22 @@ def test_open_output_folder_uses_stored_analysis_without_pipeline(tmp_path,monke
     folder=tmp_path/'existing';folder.mkdir()
     write_csv(make_photos(tmp_path),folder/'photos_analysis.csv')
     chosen=[]
-    fake=SimpleNamespace(output_var=SimpleNamespace(set=chosen.append),_open_review=lambda:chosen.append('review'))
+    reset={}
+    def variable(key):
+        return SimpleNamespace(set=lambda value: reset.__setitem__(key,value))
+    fake=SimpleNamespace(output_var=SimpleNamespace(set=chosen.append),
+        _open_review=lambda:chosen.append('review'),
+        _save_open_reviews=lambda:reset.__setitem__('saved',True),
+        _mark_profile_custom=lambda:reset.__setitem__('custom',True),
+        ai_provider_var=variable('ai'),book_pages_var=variable('pages'),
+        input_var=variable('source'),found_var=variable('found'),
+        _project_name_var=variable('project_name'))
     monkeypatch.setattr('photobook_curator.gui.filedialog.askdirectory',lambda **_:str(folder))
     PhotobookApp._open_existing_review(fake)
     assert chosen==[str(folder),'review']
+    assert reset['saved'] and reset['custom']
+    assert reset['source']=='' and reset['ai']=='none' and reset['pages']=='0'
+    assert fake._current_project is None and fake._loaded_config_settings=={}
 
 
 def test_return_from_variants_restores_album_photo_after_adding_and_restart(review,tmp_path):

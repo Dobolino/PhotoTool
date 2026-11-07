@@ -54,6 +54,8 @@ CSV_FIELDS = [
     "is_candidate",
     "is_selected",
     "is_favorite",
+    "manual_decision",
+    "decision_reason",
     "review_added",
     "book_position",
     "chapter_folder",

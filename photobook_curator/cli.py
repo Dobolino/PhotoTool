@@ -37,6 +37,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=80,
         help="Zielanzahl N ausgewählter Bilder (Standard: 80)",
     )
+    p.add_argument("--book-pages", type=int, default=0,
+                   help="Fotobuch-Seitenzahl; 0 nutzt --target-count")
+    p.add_argument("--photos-per-page", type=float, default=2.5,
+                   help="Durchschnittliche Bilder pro Bildseite (Standard: 2.5)")
+    p.add_argument("--reserved-pages", type=int, default=4,
+                   help="Seiten für Titel/Text ohne Bilder (Standard: 4)")
+    p.add_argument("--storytelling-intensity", type=float, default=0.0,
+                   help="Erzählbalance aus Übersicht/Menschen/Details/Atmosphäre, 0–1 (Standard: 0)")
     p.add_argument(
         "-k",
         "--candidate-factor",
@@ -274,6 +282,10 @@ def main(argv: list[str] | None = None) -> int:
         input_dir=args.input.resolve(),
         output_dir=args.output.resolve(),
         target_n=args.target_count,
+        book_pages=args.book_pages,
+        photos_per_page=args.photos_per_page,
+        reserved_pages=args.reserved_pages,
+        storytelling_intensity=args.storytelling_intensity,
         candidate_factor=args.candidate_factor,
         geocode=args.geocode,
         ai_review=ai_review,

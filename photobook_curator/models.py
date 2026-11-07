@@ -91,6 +91,8 @@ class Photo:
     is_candidate: bool = False
     is_selected: bool = False
     is_favorite: bool = False
+    manual_decision: str = "auto"  # auto | keep | reject; independent of the current selection
+    decision_reason: str = ""
     chapter_type: Optional[str] = None
     book_position: Optional[int] = None
     chapter_folder: Optional[str] = None
@@ -155,6 +157,8 @@ class Photo:
             "is_candidate": self.is_candidate,
             "is_selected": self.is_selected,
             "is_favorite": self.is_favorite,
+            "manual_decision": self.manual_decision,
+            "decision_reason": self.decision_reason,
             "review_added": self.review_added,
             "book_position": self.book_position if self.book_position is not None else "",
             "chapter_folder": self.chapter_folder or "",
@@ -172,6 +176,37 @@ class Photo:
             "country": self.country or "",
             "place_label": self.place_label or "",
         }
+
+
+MANUAL_DECISIONS = frozenset({"auto", "keep", "reject"})
+
+
+def normalized_manual_decision(value: Any, *, flags=()) -> str:
+    """Read modern decisions and migrate older explicit review flags once.
+
+    An explicit 'auto' always wins over historic flags. Unknown values cannot
+    silently become forced selections.
+    """
+    if isinstance(value, str) and value in MANUAL_DECISIONS:
+        return value
+    if value is None:
+        if not isinstance(flags, (list, tuple, set, frozenset)):
+            flags = ()
+        if "manual_reject" in flags:
+            return "reject"
+        if "manual_add" in flags:
+            return "keep"
+    return "auto"
+
+
+def set_manual_decision(photo: Photo, decision: str, reason: str = "") -> None:
+    """Set durable intent without changing the current selection/favorite flag."""
+    if decision not in MANUAL_DECISIONS:
+        raise ValueError("Entscheidung muss auto, keep oder reject sein")
+    if not isinstance(reason, str):
+        raise ValueError("Die Begründung muss Text sein")
+    photo.manual_decision = decision
+    photo.decision_reason = reason.strip()
 
 
 @dataclass

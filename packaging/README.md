@@ -31,8 +31,11 @@ und den Default in `installer.iss` auf dieselbe Version setzen. Nach Prüfung un
 einen Tag wie `v0.2.0` auf diesen Commit pushen. Tag und App-Version müssen übereinstimmen.
 `python packaging/build.py --check` prüft die drei Versionsangaben ohne Build;
 auch jeder Bundle-Build und der Windows-Workflow brechen bei Abweichungen ab.
-Erst nach erfolgreichem Test, EXE-Smoke-Test und Installer-Build wird ein GitHub Release
+Erst nach erfolgreichem Test, EXE-Smoke-Test, Installer-Build und nativem
+Installer-Test wird ein GitHub Release
 mit den Dateien veröffentlicht. PR-/manuelle Builds bleiben herunterladbare Actions-Artefakte.
+Der Installer-Test installiert in einen Pfad mit Leerzeichen, prüft den
+automatischen Programmstart und wiederholt Installation und Start als In-place-Update.
 
 Solange `main` nur die ursprüngliche README enthält, zuerst den Entwicklungsstand
 einschliesslich dieses Workflows übernehmen. Ein manueller Workflow-Start wird in
@@ -48,12 +51,11 @@ SHA256 stellt die Übereinstimmung mit dem GitHub-Asset sicher; es ersetzt keine
 Windows-Codesignatur. Der Installer aktualisiert die Installation im Benutzerprofil;
 Fotoquellen, Ausgabeordner und Benutzereinstellungen sind nicht Teil des Installers.
 
-Der Desktop-Updater greift ohne GitHub-Anmeldung zu. Seine Release-Quelle muss
-öffentlich lesbar sein. Bei einem privaten Repository sind Actions-Artefakte für
-berechtigte Nutzer zwar herunterladbar, automatische Desktop-Updates benötigen
-jedoch eine öffentliche Release-Quelle oder einen eigenen authentifizierten
-Update-Dienst. Einen GitHub-Token nicht in die EXE einbauen. Ein HTTP 404 wird als
-nicht verfügbare Release-Quelle gemeldet, nicht als erfolgreicher Versionsvergleich.
+Der Desktop-Updater greift ohne GitHub-Anmeldung auf die öffentlichen Releases zu.
+Für jede stabile Version muss der Windows-Workflow den passenden Installer im
+Release veröffentlichen; ein Actions-Artefakt allein wird nicht als Update angeboten.
+Ein HTTP 404 wird als nicht verfügbare Release-Quelle gemeldet, nicht als
+erfolgreicher Versionsvergleich. Es wird kein GitHub-Token in die EXE eingebaut.
 
 - **Einfach:** Ordner `dist\Fotobuch` als **ZIP** weitergeben → entpacken →
   `Fotobuch.exe` doppelklicken. Kein Python nötig.

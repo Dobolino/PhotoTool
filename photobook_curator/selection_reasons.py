@@ -9,6 +9,11 @@ def selection_reasons(photo: Photo, selected: bool | None = None) -> list[str]:
     reasons = [t("reason_selected" if selected else "reason_not_selected")]
     if photo.is_favorite:
         reasons.append(t("reason_favorite"))
+    decision = getattr(photo, "manual_decision", "auto")
+    if decision in ("keep", "reject"):
+        reasons.append(t("reason_manual_keep" if decision == "keep" else "reason_manual_exclude"))
+        if getattr(photo, "decision_reason", ""):
+            reasons.append(t("reason_decision_note", reason=photo.decision_reason))
     if "manual_add" in photo.flags:
         reasons.append(t("reason_manual_add"))
     if "manual_reject" in photo.flags:
@@ -30,6 +35,6 @@ def selection_reasons(photo: Photo, selected: bool | None = None) -> list[str]:
     if photo.quality_issue:
         reasons.append(photo.quality_issue)
     if not selected and not (photo.is_duplicate or photo.is_burst_reject or photo.is_aside
-                             or "manual_reject" in photo.flags):
+                             or "manual_reject" in photo.flags or decision == "reject"):
         reasons.append(t("reason_unknown"))
     return reasons

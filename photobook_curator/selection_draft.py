@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from .models import Photo
+from .models import Photo, normalized_manual_decision
 
 DRAFT_NAME = "selection_draft.json"
 
@@ -18,9 +18,11 @@ DRAFT_NAME = "selection_draft.json"
 def _path_key(value: Any) -> str:
     """Respect case-sensitive POSIX files while accepting Windows separators/case."""
     raw = str(value or "").replace("\\", "/")
+    if not raw:
+        return ""
     if os.name == "nt" or ntpath.splitdrive(raw)[0]:
-        return ntpath.normpath(raw).replace("\\", "/").casefold()
-    return os.path.normpath(raw)
+        return ntpath.abspath(raw).replace("\\", "/").casefold()
+    return os.path.abspath(raw)
 
 
 def draft_path(output_dir: Path) -> Path:
@@ -53,12 +55,13 @@ def save_selection_draft(
             }
         )
     payload = {
-        "version": 2,
+        "version": 3,
         "review_state": review_state or {},
         "photo_states": [dict(path=str(p.path), filename=p.filename,
             **{key: getattr(p, key) for key in ("chapter_folder", "chapter_type",
                 "region", "is_aside", "is_duplicate", "is_burst_reject",
-                "duplicate_of", "flags", "review_added")}) for p in photos],
+                "duplicate_of", "flags", "review_added", "manual_decision",
+                "decision_reason")}) for p in photos],
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "kept_count": len(entries),
         "kept": entries,
@@ -82,6 +85,9 @@ def save_selection_draft(
 
 
 def load_selection_draft(output_dir: Path) -> Optional[dict[str, Any]]:
+    from .source_relink import recover_source_relink
+
+    recover_source_relink(output_dir)
     path = draft_path(output_dir)
     if not path.is_file():
         return None
@@ -103,6 +109,10 @@ def apply_selection_draft(
     Returns: Indizes der behaltenen Fotos.
     """
     by_path = {_path_key(p.path): i for i, p in enumerate(photos)}
+    version = draft.get("version", 1)
+    # Modern projects use explicit source relinking. A reused camera filename
+    # must not apply an old photo's selected state or chapter to a new source.
+    allow_name_fallback = isinstance(version, int) and version < 3
     by_name: dict[str, list[int]] = {}
     for i, p in enumerate(photos):
         by_name.setdefault(p.filename.lower(), []).append(i)
@@ -112,7 +122,12 @@ def apply_selection_draft(
         if not isinstance(entry, dict):
             continue
         idx = by_path.get(_path_key(entry.get("path")))
-        if idx is None:
+        if idx is not None:
+            photos[idx].manual_decision = normalized_manual_decision(
+                entry.get("manual_decision"), flags=entry.get("flags") or ())
+            reason = entry.get("decision_reason")
+            photos[idx].decision_reason = reason if isinstance(reason, str) else ""
+        if idx is None and allow_name_fallback:
             matches = by_name.get(str(entry.get("filename", "")).lower(), [])
             idx = matches[0] if len(matches) == 1 else None
         if idx is None:
@@ -138,7 +153,8 @@ def apply_selection_draft(
             continue
         raw = _path_key(entry.get("path"))
         idx = by_path.get(raw)
-        if idx is None:
+        exact_match = idx is not None
+        if idx is None and allow_name_fallback:
             names = by_name.get(str(entry.get("filename") or "").lower(), [])
             if len(names) == 1:
                 idx = names[0]
@@ -162,7 +178,7 @@ def apply_selection_draft(
             photos[idx].chapter_type = ctype
         if "region" in entry and (entry["region"] is None or isinstance(entry["region"], str)):
             photos[idx].region = entry["region"]
-        if "is_favorite" in entry:
+        if exact_match and "is_favorite" in entry:
             photos[idx].is_favorite = entry["is_favorite"] is True
 
     for i, p in enumerate(photos):
@@ -176,19 +192,60 @@ def draft_exists(output_dir: Path) -> bool:
     return draft_path(output_dir).is_file()
 
 
-def restore_favorites(photos: list[Photo], output_dir: Path) -> int:
-    """Carry protection into a new analysis of the same paths/output directory."""
+def restore_project_decisions(photos: list[Photo], output_dir: Path) -> dict[str, int]:
+    """Restore durable intent for the same source paths before a new analysis.
+
+    Current selected state and analysis scores are deliberately not restored.
+    Draft entries override exported CSV, including an explicit reset to auto.
+    Filename-only matches never carry durable intent to a different image.
+    """
     from .review_export import load_photos_from_csv
 
     csv_path = output_dir / "photos_analysis.csv"
     previous = load_photos_from_csv(csv_path) if csv_path.is_file() else []
+    state = {_path_key(p.path): (p.is_favorite, p.manual_decision, p.decision_reason)
+             for p in previous}
     draft = load_selection_draft(output_dir)
-    if draft and isinstance(draft.get("kept"), list):
-        # A draft may exist before the first export, so apply to fresh photos too.
-        if not previous:
-            previous = [Photo(path=p.path, filename=p.filename) for p in photos]
-        apply_selection_draft(previous, draft)
-    protected = {os.path.normcase(str(p.path.resolve())) for p in previous if p.is_favorite}
-    for p in photos:
-        p.is_favorite = os.path.normcase(str(p.path.resolve())) in protected
-    return sum(p.is_favorite for p in photos)
+    if draft:
+        favorites = draft.get("favorites")
+        has_favorites = isinstance(favorites, list)
+        favorite_paths = {_path_key(path) for path in (favorites if has_favorites else [])
+                          if isinstance(path, str)}
+        entries = draft.get("photo_states")
+        if isinstance(entries, list):
+            for entry in entries:
+                if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+                    continue
+                key = _path_key(entry["path"])
+                reason = entry.get("decision_reason")
+                favorite = key in favorite_paths if has_favorites else state.get(key, (False,))[0]
+                state[key] = (favorite, normalized_manual_decision(
+                    entry.get("manual_decision"), flags=entry.get("flags") or ()),
+                    reason if isinstance(reason, str) else "")
+        else:
+            # Older drafts had only kept entries plus a complete favorite list.
+            if has_favorites:
+                state = {key: (key in favorite_paths, decision, reason)
+                         for key, (_favorite, decision, reason) in state.items()}
+            for entry in draft.get("kept", []):
+                if isinstance(entry, dict) and isinstance(entry.get("path"), str):
+                    key = _path_key(entry["path"])
+                    favorite, decision, reason = state.get(key, (False, "auto", ""))
+                    state[key] = (entry.get("is_favorite") is True or key in favorite_paths,
+                                  decision, reason)
+        for key in favorite_paths:
+            _favorite, decision, reason = state.get(key, (False, "auto", ""))
+            state[key] = (True, decision, reason)
+    for photo in photos:
+        favorite, decision, reason = state.get(_path_key(photo.path), (False, "auto", ""))
+        photo.is_favorite = favorite
+        photo.manual_decision = decision
+        photo.decision_reason = reason
+    return {"favorites": sum(p.is_favorite for p in photos),
+            "keep": sum(p.manual_decision == "keep" for p in photos),
+            "reject": sum(p.manual_decision == "reject" for p in photos)}
+
+
+def restore_favorites(photos: list[Photo], output_dir: Path) -> int:
+    """Compatibility entrypoint: restore favorites and durable manual decisions."""
+    return restore_project_decisions(photos, output_dir)["favorites"]

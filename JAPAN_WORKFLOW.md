@@ -63,11 +63,13 @@ Kamerazeit korrigieren, sonst verschieben sich Tagesgrenzen.
 
 **Öffnen/Fortsetzen** bewahrt die Entscheidungen des Entwurfs. **Auswahl neu erstellen**
 oder eine frische Analyse berechnet die Auswahl neu; Favoriten bleiben geschützt,
-frühere manuelle Ausschlüsse werden dabei derzeit nicht als permanente Sperre
-behandelt. Vor einem Experiment den Projektordner sichern. Verschobene Originale
-können bisher nicht automatisch neu verknüpft werden.
+explizite dauerhafte Behalten-/Ausschliessen-Entscheidungen werden ebenfalls übernommen. Vor einem Experiment den Projektordner sichern. Verschobene Originale
+können über „Originale wiederfinden“ anhand der relativen Pfade neu verknüpft werden.
 
-## Nächste sinnvolle Erweiterungen
+## Erweiterungen ab 0.4.0
+
+Die folgenden Vorschläge sind inzwischen als allgemeine Reisefunktionen umgesetzt
+(siehe [Bedienung](REISEPROJEKTE.md)); Motive und Erzählrollen bleiben Heuristiken.
 
 1. **Dauerhaft behalten/ablehnen mit Begründung**: getrennt vom aktuellen Auswahlstatus;
    bei Neuberechnung und erneuter Analyse konsequent übernehmen.
