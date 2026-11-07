@@ -19,6 +19,8 @@ synthetischen Messungen; keine privaten Urlaubsbilder lagen vor.
 - Wiederholte Ortsbesuche erzeugen keine flächendeckende Zeitzuordnung mehr:
   unveränderliche GPS-Anker, binäre Zeitsuche, keine Kette über abgeleitete Bilder.
   Widersprüchliche Anker und ungültige GPS-Daten werden kenntlich gemacht.
+  Die Albumgewichtung zählt tatsächliche Fototage statt Zeitspannen zwischen
+  wiederholten Besuchen derselben Stadt.
 - Ortsreparaturen besitzen eine Vorschau und gemeinsamen CSV-/Entwurf-Commit
   mit Journal-Wiederherstellung. Neuere Ortsnachweise werden nicht durch alte
   automatische Kapitelzuordnungen im Entwurf überschrieben.

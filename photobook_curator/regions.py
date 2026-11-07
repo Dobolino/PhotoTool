@@ -109,9 +109,7 @@ def build_regions(photos: list[Photo], clusters: list[FineCluster]) -> list[Regi
         times = [photos[i].datetime_taken for i in indices if photos[i].datetime_taken]
         start = min(times) if times else None
         end = max(times) if times else None
-        day_count = 1
-        if start and end:
-            day_count = max(1, (end.date() - start.date()).days + 1)
+        day_count = max(1, len({at.date() for at in times}))
         regions.append(
             Region(
                 name=city,
@@ -230,7 +228,7 @@ def assign_photos_without_gps(
         region_times = [photos[i].datetime_taken for i in region.photo_indices if photos[i].datetime_taken]
         if region_times:
             region.start_time, region.end_time = min(region_times), max(region_times)
-            region.day_count = max(1, (region.end_time.date() - region.start_time.date()).days + 1)
+            region.day_count = max(1, len({at.date() for at in region_times}))
     return unassigned
 
 
@@ -283,9 +281,7 @@ def promote_unassigned_to_region(photos: list[Photo], plan: BookPlan) -> Region 
     times = [photos[i].datetime_taken for i in remaining if photos[i].datetime_taken]
     start = min(times) if times else None
     end = max(times) if times else None
-    day_count = 1
-    if start and end:
-        day_count = max(1, (end.date() - start.date()).days + 1)
+    day_count = max(1, len({at.date() for at in times}))
 
     region = Region(
         name=name,

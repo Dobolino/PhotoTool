@@ -171,9 +171,7 @@ def plan_from_photos(photos: list[Photo]) -> BookPlan:
         times = [photos[i].datetime_taken for i in indices if photos[i].datetime_taken]
         start = min(times) if times else None
         end = max(times) if times else None
-        day_count = 1
-        if start and end:
-            day_count = max(1, (end.date() - start.date()).days + 1)
+        day_count = max(1, len({at.date() for at in times}))
         regions.append(
             Region(
                 name=name,

@@ -32,6 +32,17 @@ def test_repeated_hong_kong_stopover_does_not_swallow_japan(tmp_path):
     assert photos[4].region == 'Unbestimmt'
     assert photos[4].location_evidence['warning'] == 'no_nearby_anchor'
     assert plan.unassigned_indices == [4]
+    assert next(region for region in plan.regions if region.name == 'Hong Kong').day_count == 2
+
+
+def test_reopened_city_counts_only_actual_photo_days():
+    from photobook_curator.review_export import plan_from_photos
+    base = datetime(2025, 11, 1, 10)
+    photos = [photo('arrival.jpg', base, region='Hong Kong'),
+              photo('another.jpg', base + timedelta(hours=1), region='Hong Kong'),
+              photo('return.jpg', base + timedelta(days=14), region='Hong Kong')]
+    plan = plan_from_photos(photos)
+    assert plan.regions[0].day_count == 2
 
 
 def test_inferred_photos_never_extend_time_anchor_chain(tmp_path):

@@ -83,6 +83,8 @@ Standardmässig darf ein Anker höchstens sechs Stunden entfernt sein; liegen na
 Anker in unterschiedlichen Städten, bleibt die Zuordnung ungeklärt. Abgeleitete
 Bilder verlängern das Zeitfenster nicht. Unterschiedlich eingestellte Kamerauhren
 können weiterhin eine manuelle Zeitkorrektur erfordern.
+Für die Albumgewichtung zählen nur Tage mit tatsächlichen Aufnahmen in der Stadt,
+nicht alle Tage zwischen Hin- und Rückreise über diesen Ort.
 
 Bestehende Projekte werden über **Orte neu prüfen…** korrigiert. Die Vorschau zeigt
 alte/neue Orte, Kapitel, GPS- oder Zeitbasis und offene Fälle. Erst **Ortskorrekturen
