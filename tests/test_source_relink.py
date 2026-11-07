@@ -295,3 +295,26 @@ def test_unexpanded_preview_cannot_silently_move_project_root(tmp_path):
         apply_source_relink(photos, preview, output)
     assert {name: (output / name).read_bytes() for name in before} == before
     assert all(p.path.is_relative_to(old) for p in photos)
+
+
+def test_relink_snapshot_flush_has_write_access_required_by_windows(tmp_path, monkeypatch):
+    import os
+    import photobook_curator.source_relink as module
+
+    snapshot = tmp_path / 'snapshot.csv'
+    snapshot.write_bytes(b'previous project state')
+    original_fsync = module.os.fsync
+    flushed = []
+
+    def windows_compatible_flush(descriptor):
+        # A zero-byte write checks descriptor access without altering the file.
+        # This fails with EBADF for a read-only descriptor on Linux as well,
+        # reproducing the access contract of Windows FlushFileBuffers.
+        assert os.write(descriptor, b'') == 0
+        flushed.append(descriptor)
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(module.os, 'fsync', windows_compatible_flush)
+    module._fsync_file(snapshot)
+    assert len(flushed) == 1
+    assert snapshot.read_bytes() == b'previous project state'

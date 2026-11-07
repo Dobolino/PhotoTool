@@ -334,6 +334,7 @@ class PhotobookApp(tk.Tk):
 
         self._log_queue: queue.Queue = queue.Queue()
         self._progress_queue: queue.Queue = queue.Queue()
+        self._ui_queue: queue.Queue = queue.Queue()
         self._cancel_event = threading.Event()
         self._body_wheel_bound = False
         self._body_canvas: tk.Canvas | None = None
@@ -1866,23 +1867,33 @@ class PhotobookApp(tk.Tk):
                 from . import pipeline as _pipeline  # noqa: F401
 
                 self._pipeline_ready = True
-                self.after(0, lambda: self.status_var.set("Bereit"))
-                self.after(0, lambda: self._append_log("Erkennungsmodule geladen."))
+                self._post_ui(self._backend_loaded)
             except Exception:
                 self._pipeline_error = traceback.format_exc()
-                self.after(0, lambda: self.status_var.set("Module fehlgeschlagen"))
-                self.after(
-                    0,
-                    lambda: messagebox.showerror(
-                        "Module fehlen",
-                        "Die Erkennungsmodule konnten nicht geladen werden.\n\n"
-                        "Oft hilft: „Fotobuch starten.bat“ erneut ausführen "
-                        "(repariert eine unvollständige Installation).\n\n"
-                        + (self._pipeline_error or "")[-1500:],
-                    ),
-                )
+                self._post_ui(self._backend_load_failed)
 
-        threading.Thread(target=worker, daemon=True).start()
+        self._warmup_worker = threading.Thread(target=worker, daemon=True)
+        self._warmup_worker.start()
+
+    def _post_ui(self, callback) -> None:
+        """Workers enqueue callbacks; only the main poll touches the Tk runtime."""
+        self._ui_queue.put(callback)
+
+    def _backend_loaded(self) -> None:
+        if not self._is_analysis_running():
+            self.status_var.set("Bereit")
+        self._append_log("Erkennungsmodule geladen.")
+
+    def _backend_load_failed(self) -> None:
+        self.status_var.set("Module fehlgeschlagen")
+        messagebox.showerror(
+            "Module fehlen",
+            "Die Erkennungsmodule konnten nicht geladen werden.\n\n"
+            "Oft hilft: „Fotobuch starten.bat“ erneut ausführen "
+            "(repariert eine unvollständige Installation).\n\n"
+            + (self._pipeline_error or "")[-1500:],
+            parent=self,
+        )
 
     def _ensure_pipeline(self):
         if self._pipeline_error:
@@ -1921,7 +1932,7 @@ class PhotobookApp(tk.Tk):
             def show_count() -> None:
                 if self._count_generation == generation:
                     self._set_found_count(n, msg)
-            self.after(0, show_count)
+            self._post_ui(show_count)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -2205,6 +2216,16 @@ class PhotobookApp(tk.Tk):
         if latest is not None:
             self._set_progress(latest[0], latest[1], latest[2])
 
+        for _ in range(40):
+            try:
+                callback = self._ui_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                callback()
+            except Exception as exc:
+                self.report_callback_exception(type(exc), exc, exc.__traceback__)
+
         self.after(100, self._drain_queues)
 
     def _selection_caps(self) -> tuple[int, int]:
@@ -2449,24 +2470,22 @@ class PhotobookApp(tk.Tk):
             self._last_order = result.get("order")
             self._last_output = result.get("output_dir") or cfg.output_dir
             self._progress_queue.put(("Fertig", 1.0, "done"))
-            self.after(0, lambda: self.status_var.set("Fertig"))
-            self.after(
-                0,
+            self._post_ui(lambda: self.status_var.set("Fertig"))
+            self._post_ui(
                 lambda: self._set_next_step(
                     "Fertig. Nächster Schritt: „Auswahl prüfen“ – Bilder rausnehmen "
                     "oder Alternativen hinzufügen."
                 ),
             )
-            self.after(0, lambda r=result: self._on_finished(r, cfg))
+            self._post_ui(lambda r=result: self._on_finished(r, cfg))
         except Exception as exc:
             from .pipeline import PipelineCancelled as _Cancelled
 
             if isinstance(exc, _Cancelled):
                 self._log_queue.put("Abgebrochen – es wurden keine Ordner geschrieben.")
                 self._progress_queue.put(("Abgebrochen", 0.0))
-                self.after(0, lambda: self.status_var.set("Abgebrochen"))
-                self.after(
-                    0,
+                self._post_ui(lambda: self.status_var.set("Abgebrochen"))
+                self._post_ui(
                     lambda: self._set_next_step(
                         "Abgebrochen. Du kannst die Optionen anpassen und erneut starten."
                     ),
@@ -2474,21 +2493,20 @@ class PhotobookApp(tk.Tk):
             else:
                 self._log_queue.put(f"Fehler: {exc}")
                 self._progress_queue.put(("Fehler", 0.0))
-                self.after(0, lambda: self.status_var.set("Fehler"))
-                self.after(
-                    0,
+                self._post_ui(lambda: self.status_var.set("Fehler"))
+                self._post_ui(
                     lambda: self._set_next_step(
                         "Fehler aufgetreten – siehe Verlauf. Danach erneut versuchen."
                     ),
                 )
-                self.after(0, lambda error_text=str(exc): messagebox.showerror("Fehler", error_text))
+                self._post_ui(lambda error_text=str(exc): messagebox.showerror("Fehler", error_text))
         finally:
             sys.stdout, sys.stderr = old_out, old_err
-            self.after(0, lambda: self.start_btn.configure(state=tk.NORMAL))
-            self.after(0, lambda: self.cancel_btn.configure(state=tk.DISABLED))
+            self._post_ui(lambda: self.start_btn.configure(state=tk.NORMAL))
+            self._post_ui(lambda: self.cancel_btn.configure(state=tk.DISABLED))
             # Nächster sinnvoller Schritt: „Auswahl prüfen“ optisch hervorheben
-            self.after(0, self._sync_project_actions)
-            self.after(0, lambda: self.review_btn.configure(style="Start.TButton"))
+            self._post_ui(self._sync_project_actions)
+            self._post_ui(lambda: self.review_btn.configure(style="Start.TButton"))
 
     def _on_finished(self, result: dict, cfg: Any) -> None:
         self._remember_ai_cost(result)

@@ -3,10 +3,13 @@
 from pathlib import Path
 from types import SimpleNamespace
 import tkinter as tk
+import threading
 
 import pytest
 
 from photobook_curator.gui import PhotobookApp
+
+_REAL_WARMUP = PhotobookApp._warmup_backend
 
 
 @pytest.fixture
@@ -26,8 +29,13 @@ def app(tmp_path, monkeypatch):
 
 
 def test_main_actions_and_responsive_cards_remain_accessible(app):
+    def assert_actual_layout():
+        wide = app._cards_host.winfo_width() >= 1000
+        assert app._settings_card.grid_info()["column"] == (1 if wide else 0)
+        assert app._settings_card.grid_info()["row"] == (0 if wide else 1)
+
     assert app._folder_card.grid_info()["column"] == 0
-    assert app._settings_card.grid_info()["column"] == 1
+    assert_actual_layout()
     assert not app.advanced_frame.winfo_ismapped()
     assert not app._log_frame.winfo_ismapped()
     assert app.start_btn.winfo_ismapped()
@@ -35,10 +43,31 @@ def test_main_actions_and_responsive_cards_remain_accessible(app):
     assert app.start_btn.winfo_rooty() + app.start_btn.winfo_height() <= app.winfo_rooty() + app.winfo_height()
     app.geometry("900x720")
     app.update()
-    assert app._settings_card.grid_info()["row"] == 1
+    # Windows DPI and the runner's physical screen may clamp requested sizes.
+    # Validate the layout against the actual available space in both requests.
+    assert_actual_layout()
     app._toggle_advanced()
     app.update()
     assert app.advanced_frame.winfo_ismapped()
+
+
+def test_backend_warmup_updates_status_through_main_queue_without_worker_tk_calls(app, monkeypatch):
+    main_thread = threading.get_ident()
+    original_after = app.after
+
+    def main_thread_after(*args, **kwargs):
+        assert threading.get_ident() == main_thread, "Worker called Tk.after"
+        return original_after(*args, **kwargs)
+
+    monkeypatch.setattr(app, "after", main_thread_after)
+    _REAL_WARMUP(app)
+    app._warmup_worker.join(timeout=15)
+    assert not app._warmup_worker.is_alive()
+    assert app._pipeline_ready
+    assert app._pipeline_error is None
+    assert app.status_var.get() != "Bereit"
+    app._drain_queues()
+    assert app.status_var.get() == "Bereit"
 
 
 def test_profiles_and_book_pages_update_real_selection_values(app):

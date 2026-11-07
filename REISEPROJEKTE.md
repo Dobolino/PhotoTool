@@ -4,6 +4,10 @@ PhotoTool reduziert eine Fotosammlung für ein Fotobuch. Das endgültige Layout
 entsteht anschliessend in deiner Fotobuchsoftware. Alle Funktionen sind für
 beliebige Reisen gedacht, nicht speziell für Japan.
 
+![Projekt und Album planen](docs/screenshots/phototool-0.4-main.png)
+
+![Album prüfen](docs/screenshots/phototool-0.4-review.png)
+
 ## Der Ablauf
 
 1. **Reise importieren:** Über **Projekte** eine Reise mit Namen, Originalordner
