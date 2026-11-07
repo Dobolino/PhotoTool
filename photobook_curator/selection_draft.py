@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ntpath
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -12,6 +13,14 @@ from typing import Any, Optional
 from .models import Photo
 
 DRAFT_NAME = "selection_draft.json"
+
+
+def _path_key(value: Any) -> str:
+    """Respect case-sensitive POSIX files while accepting Windows separators/case."""
+    raw = str(value or "").replace("\\", "/")
+    if os.name == "nt" or ntpath.splitdrive(raw)[0]:
+        return ntpath.normpath(raw).replace("\\", "/").casefold()
+    return os.path.normpath(raw)
 
 
 def draft_path(output_dir: Path) -> Path:
@@ -63,6 +72,8 @@ def save_selection_draft(
                                          suffix=".tmp", delete=False) as handle:
             temp_path = Path(handle.name)
             json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temp_path, path)
     finally:
         if temp_path is not None:
@@ -91,7 +102,7 @@ def apply_selection_draft(
     Wendet Entwurf auf Photos an (is_selected / chapter_*).
     Returns: Indizes der behaltenen Fotos.
     """
-    by_path = {str(p.path).replace("\\", "/").lower(): i for i, p in enumerate(photos)}
+    by_path = {_path_key(p.path): i for i, p in enumerate(photos)}
     by_name: dict[str, list[int]] = {}
     for i, p in enumerate(photos):
         by_name.setdefault(p.filename.lower(), []).append(i)
@@ -100,7 +111,7 @@ def apply_selection_draft(
     for entry in states if isinstance(states, list) else []:
         if not isinstance(entry, dict):
             continue
-        idx = by_path.get(str(entry.get("path", "")).replace("\\", "/").lower())
+        idx = by_path.get(_path_key(entry.get("path")))
         if idx is None:
             matches = by_name.get(str(entry.get("filename", "")).lower(), [])
             idx = matches[0] if len(matches) == 1 else None
@@ -119,13 +130,13 @@ def apply_selection_draft(
 
     kept: set[int] = set()
     if isinstance(draft.get("favorites"), list):
-        favorite_paths = {str(path).replace("\\", "/").lower() for path in draft["favorites"]}
+        favorite_paths = {_path_key(path) for path in draft["favorites"] if isinstance(path, str)}
         for p in photos:
-            p.is_favorite = str(p.path).replace("\\", "/").lower() in favorite_paths
+            p.is_favorite = _path_key(p.path) in favorite_paths
     for entry in draft.get("kept") or []:
         if not isinstance(entry, dict):
             continue
-        raw = str(entry.get("path") or "").replace("\\", "/").lower()
+        raw = _path_key(entry.get("path"))
         idx = by_path.get(raw)
         if idx is None:
             names = by_name.get(str(entry.get("filename") or "").lower(), [])
@@ -134,8 +145,10 @@ def apply_selection_draft(
         if idx is None:
             continue
         kept.add(idx)
-        folder = (entry.get("chapter_folder") or "").strip()
-        ctype = (entry.get("chapter_type") or "").strip()
+        raw_folder = entry.get("chapter_folder")
+        raw_ctype = entry.get("chapter_type")
+        folder = raw_folder.strip() if isinstance(raw_folder, str) else ""
+        ctype = raw_ctype.strip() if isinstance(raw_ctype, str) else ""
         if folder:
             photos[idx].chapter_folder = folder
             # Verschieben aus Optional muss is_aside löschen, sonst setzt Speichern wieder 99_…
@@ -147,7 +160,7 @@ def apply_selection_draft(
                 photos[idx].is_aside = False
         if ctype:
             photos[idx].chapter_type = ctype
-        if "region" in entry:
+        if "region" in entry and (entry["region"] is None or isinstance(entry["region"], str)):
             photos[idx].region = entry["region"]
         if "is_favorite" in entry:
             photos[idx].is_favorite = entry["is_favorite"] is True

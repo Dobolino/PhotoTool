@@ -1,5 +1,6 @@
 import hashlib
 import io
+from urllib.error import HTTPError
 
 import pytest
 
@@ -39,6 +40,15 @@ def test_missing_installer_is_distinct_from_current_version():
         updater.parse_release(release(assets=[]))
 
 
+def test_unavailable_release_is_not_reported_as_up_to_date(monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise HTTPError(updater.API_URL, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(updater, "urlopen", unavailable)
+    with pytest.raises(RuntimeError, match="No public stable release"):
+        updater.check_update()
+
+
 def test_download_verifies_hash_and_size(monkeypatch, tmp_path):
     update = updater.parse_release(release())
     monkeypatch.setattr(updater, "urlopen", lambda *a, **kw: io.BytesIO(b"test"))
@@ -58,3 +68,71 @@ def test_corrupt_or_truncated_download_is_deleted(monkeypatch, tmp_path, payload
 def test_source_runs_cannot_launch_installers(tmp_path):
     with pytest.raises(RuntimeError):
         updater.launch_installer(tmp_path / "setup.exe")
+
+
+def test_update_stays_open_if_review_autosave_reports_failure(monkeypatch, tmp_path):
+    from photobook_curator import update_dialog
+
+    calls = []
+
+    class Review:
+        def _autosave_draft(self):
+            calls.append("save")
+            self._draft_save_error = "Disk full"
+
+    class App:
+        def winfo_children(self):
+            return [Review()]
+
+        def destroy(self):
+            calls.append("close")
+
+    monkeypatch.setattr(update_dialog, "launch_installer", lambda path: calls.append("install"))
+    with pytest.raises(OSError, match="Disk full"):
+        update_dialog._install_downloaded_update(App(), tmp_path / "setup.exe")
+    assert calls == ["save"]
+
+
+def test_update_saves_all_reviews_before_install_and_close(monkeypatch, tmp_path):
+    from photobook_curator import update_dialog
+
+    calls = []
+
+    class Review:
+        _draft_save_error = None
+
+        def _autosave_draft(self):
+            calls.append("save")
+
+    class App:
+        def winfo_children(self):
+            return [object(), Review(), Review()]
+
+        def destroy(self):
+            calls.append("close")
+
+    monkeypatch.setattr(update_dialog, "launch_installer", lambda path: calls.append("install"))
+    update_dialog._install_downloaded_update(App(), tmp_path / "setup.exe")
+    assert calls == ["save", "save", "install", "close"]
+
+
+def test_installer_launch_failure_does_not_close_app(monkeypatch, tmp_path):
+    from photobook_curator import update_dialog
+
+    class App:
+        closed = False
+
+        def winfo_children(self):
+            return []
+
+        def destroy(self):
+            self.closed = True
+
+    def fail(path):
+        raise OSError("Installer unavailable")
+
+    monkeypatch.setattr(update_dialog, "launch_installer", fail)
+    app = App()
+    with pytest.raises(OSError, match="Installer unavailable"):
+        update_dialog._install_downloaded_update(app, tmp_path / "setup.exe")
+    assert not app.closed

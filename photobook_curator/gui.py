@@ -291,6 +291,8 @@ class PhotobookApp(tk.Tk):
         self.timezone_offset_var = tk.DoubleVar(value=0.0)
         self.coverage_var = tk.BooleanVar(value=False)
         self.coverage_intensity_var = tk.DoubleVar(value=0.5)
+        self.max_per_day_var = tk.StringVar(value=str(getattr(self.app_settings, "max_per_day", 0)))
+        self.max_per_chapter_var = tk.StringVar(value=str(getattr(self.app_settings, "max_per_chapter", 0)))
         self.people_var = tk.BooleanVar(value=False)
         self.people_intensity_var = tk.DoubleVar(value=0.5)
         self.map_preview_var = tk.BooleanVar(value=False)
@@ -915,6 +917,25 @@ class PhotobookApp(tk.Tk):
         )
         self.coverage_scale.pack(fill=tk.X, pady=(4, 0))
 
+        self._cap_labels: list[tuple[ttk.Label, str]] = []
+        caps_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
+        caps_block.pack(fill=tk.X, pady=(8, 0))
+        for key, var in (
+            ("max_per_day", self.max_per_day_var),
+            ("max_per_chapter", self.max_per_chapter_var),
+        ):
+            row = ttk.Frame(caps_block, style="Card.TFrame")
+            row.pack(fill=tk.X, pady=3)
+            label = ttk.Label(row, text=t(key), style="Field.TLabel")
+            label.pack(side=tk.LEFT)
+            self._cap_labels.append((label, key))
+            ttk.Spinbox(row, from_=0, to=10000, textvariable=var, width=8).pack(side=tk.RIGHT)
+        self._caps_hint_lbl = ttk.Label(
+            caps_block, text=t("selection_caps_hint"), style="Field.TLabel",
+            wraplength=440,
+        )
+        self._caps_hint_lbl.pack(anchor=tk.W, pady=(3, 0))
+
         self.people_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
         people_row = ttk.Frame(self.people_block, style="Card.TFrame")
         people_row.pack(fill=tk.X, pady=(8, 0))
@@ -1426,6 +1447,10 @@ class PhotobookApp(tk.Tk):
                 chk.configure(text=t(key))
             if getattr(self, "_coverage_strength_lbl", None) is not None:
                 self._coverage_strength_lbl.configure(text=t("coverage_strength"))
+            for label, key in getattr(self, "_cap_labels", []):
+                label.configure(text=t(key))
+            if getattr(self, "_caps_hint_lbl", None) is not None:
+                self._caps_hint_lbl.configure(text=t("selection_caps_hint"))
             if getattr(self, "_people_strength_lbl", None) is not None:
                 self._people_strength_lbl.configure(text=t("people_strength"))
             if getattr(self, "_ai_section_lbl", None) is not None:
@@ -1817,20 +1842,64 @@ class PhotobookApp(tk.Tk):
 
         self.after(100, self._drain_queues)
 
+    def _selection_caps(self) -> tuple[int, int]:
+        """Read strict nonnegative integers, including user-typed Spinbox text."""
+        values = []
+        for key, var in (
+            ("max_per_day", self.max_per_day_var),
+            ("max_per_chapter", self.max_per_chapter_var),
+        ):
+            try:
+                raw = str(var.get()).strip()
+                if not raw.isdecimal():
+                    raise ValueError
+                value = int(raw)
+            except (ValueError, TypeError, tk.TclError):
+                raise ValueError(f"{t(key)}: Bitte eine ganze Zahl ab 0 eingeben.") from None
+            values.append(value)
+        return values[0], values[1]
+
+    def _save_selection_caps(self, max_per_day: int, max_per_chapter: int) -> None:
+        from dataclasses import replace
+        from .settings import save_settings
+
+        settings = replace(
+            load_settings(), max_per_day=max_per_day, max_per_chapter=max_per_chapter
+        )
+        save_settings(settings)
+        self.app_settings = settings
+
     def _start(self) -> None:
         if self._worker and self._worker.is_alive():
             messagebox.showinfo("Läuft bereits", "Bitte warten, die Verarbeitung läuft noch.")
             return
 
-        input_dir = Path(self.input_var.get().strip())
-        output_dir = Path(self.output_var.get().strip())
+        try:
+            max_per_day, max_per_chapter = self._selection_caps()
+        except ValueError as exc:
+            messagebox.showerror("Ungültige Bildgrenze", str(exc), parent=self)
+            return
+
+        input_text = self.input_var.get().strip()
+        output_text = self.output_var.get().strip()
+        if not input_text:
+            messagebox.showerror("Eingabeordner fehlt", "Bitte einen vorhandenen Fotos-Ordner wählen.")
+            return
+        if not output_text:
+            messagebox.showerror("Ausgabeordner fehlt", "Bitte einen Ausgabe-Ordner wählen.")
+            return
+        input_dir = Path(input_text)
+        output_dir = Path(output_text)
         if not input_dir.is_dir():
             messagebox.showerror("Eingabeordner fehlt", "Bitte einen vorhandenen Fotos-Ordner wählen.")
             return
-        if not str(output_dir).strip():
-            messagebox.showerror("Ausgabeordner fehlt", "Bitte einen Ausgabe-Ordner wählen.")
+        if input_dir.resolve() == output_dir.resolve():
+            messagebox.showerror(
+                "Ausgabeordner wählen",
+                "Fotos und Ausgabe benötigen unterschiedliche Ordner.",
+                parent=self,
+            )
             return
-
         anthropic_key = self.api_key_var.get().strip()
         if anthropic_key:
             os.environ["ANTHROPIC_API_KEY"] = anthropic_key
@@ -1903,10 +1972,21 @@ class PhotobookApp(tk.Tk):
             enable_video_frames=bool(self.video_var.get()),
             timezone_offset_hours=float(self.timezone_offset_var.get() or 0.0),
             coverage_intensity=coverage_intensity,
+            max_per_day=max_per_day,
+            max_per_chapter=max_per_chapter,
             people_balance_intensity=people_balance_intensity,
             enable_map_preview=map_preview,
             skip_export=map_preview,  # Export erst nach Bestätigung in der Vorschau
         )
+
+        try:
+            self._save_selection_caps(max_per_day, max_per_chapter)
+        except OSError as exc:
+            messagebox.showwarning(
+                "Einstellungen nicht gespeichert",
+                f"Die Bildgrenzen gelten für diesen Lauf, konnten aber nicht gespeichert werden:\n{exc}",
+                parent=self,
+            )
 
         self._cancel_event.clear()
         self.start_btn.configure(state=tk.DISABLED)
@@ -2246,11 +2326,14 @@ class PhotobookApp(tk.Tk):
                         if self.people_var.get()
                         else 0.0
                     )
+                    max_per_day, max_per_chapter = self._selection_caps()
                     plan, order = rebuild_selection_from_analysis(
                         photos,
                         target,
                         coverage_intensity=coverage,
                         people_balance_intensity=people,
+                        max_per_day=max_per_day,
+                        max_per_chapter=max_per_chapter,
                     )
                     write_csv(photos, output_dir / "photos_analysis.csv")
                     self._last_photos = photos

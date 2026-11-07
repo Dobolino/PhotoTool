@@ -34,16 +34,33 @@ def mark_candidates(
     target_n: int,
     candidate_factor: float = 4.0,
     max_transit_quota: int = 5,
+    coverage_intensity: float = 0.0,
+    max_per_day: int = 0,
+    max_per_chapter: int = 0,
 ) -> list[int]:
     """Markiert technisch beste Kandidaten pro Region/Transit (K * Zielanzahl)."""
-    distribute_quotas(photos, plan, target_n, max_transit_quota=max_transit_quota)
+    distribute_quotas(photos, plan, target_n, max_transit_quota=max_transit_quota,
+                      max_per_chapter=max_per_chapter)
+    for photo in photos:
+        photo.is_candidate = False
     candidate_indices: list[int] = []
 
     def pick_for(indices: list[int], quota: int) -> list[int]:
         eligible = [i for i in indices if _ok_for_selection(photos[i])]
         eligible.sort(key=lambda i: photos[i].technical_score, reverse=True)
         k = max(quota, int(np.ceil(quota * candidate_factor)))
-        chosen = eligible[:k]
+        if coverage_intensity > 0 or max_per_day > 0:
+            by_day: dict = defaultdict(list)
+            for i in eligible:
+                by_day[_photo_day(photos[i])].append(i)
+            # Preserve quieter days before the expensive optional AI stage.
+            quotas = allocate_day_quotas(
+                {d: len(v) for d, v in by_day.items()}, k,
+                max(coverage_intensity, 0.5 if max_per_day else 0.0),
+            )
+            chosen = [i for d, group in by_day.items() for i in group[:quotas[d]]]
+        else:
+            chosen = eligible[:k]
         for i in chosen:
             photos[i].is_candidate = True
         return chosen
@@ -56,53 +73,49 @@ def mark_candidates(
     return sorted(set(candidate_indices))
 
 
+def _bounded_allocation(weights: list[float], capacities: list[int], budget: int) -> list[int]:
+    """Weighted allocation with exact budget/capacity bounds and stable ties."""
+    quotas = [0] * len(weights)
+    budget = min(max(0, budget), sum(capacities))
+    active = [i for i, capacity in enumerate(capacities) if capacity > 0]
+    if budget >= len(active):
+        for i in active:
+            quotas[i] = 1
+        budget -= len(active)
+    while budget > 0:
+        available = [i for i in active if quotas[i] < capacities[i]]
+        if not available:
+            break
+        i = max(available, key=lambda i: (weights[i] / (quotas[i] + 1), -i))
+        quotas[i] += 1
+        budget -= 1
+    return quotas
+
+
 def distribute_quotas(
     photos: list[Photo],
     plan: BookPlan,
     target_n: int,
     max_transit_quota: int = 5,
+    max_per_chapter: int = 0,
 ) -> None:
-    transit_total = sum(min(max_transit_quota, max(1, t.quota or max_transit_quota)) for t in plan.transits)
-    # Transit-Kontingente festsetzen
-    for t in plan.transits:
-        t.quota = min(max_transit_quota, max(1, len(t.photo_indices)))
-    transit_total = sum(t.quota for t in plan.transits)
+    """Respect the total budget, eligible capacity and optional chapter caps."""
+    def capacity(indices: list[int]) -> int:
+        count = sum(_ok_for_selection(photos[i]) or photos[i].is_favorite for i in indices)
+        return min(count, max_per_chapter) if max_per_chapter > 0 else count
 
-    region_budget = max(0, target_n - transit_total)
-    if not plan.regions:
-        return
-
-    weights = []
-    for region in plan.regions:
-        n_photos = max(1, len(region.photo_indices))
-        days = max(1, region.day_count)
-        weights.append(n_photos * days)
-    weight_sum = float(sum(weights)) or 1.0
-
-    raw = [region_budget * (w / weight_sum) for w in weights]
-    quotas = [max(1, int(round(x))) for x in raw] if region_budget > 0 else [0] * len(plan.regions)
-
-    # Anpassen falls Rundung über/unter Budget
-    diff = region_budget - sum(quotas)
-    order = sorted(range(len(quotas)), key=lambda i: raw[i] - quotas[i], reverse=diff > 0)
-    idx = 0
-    while diff != 0 and order:
-        i = order[idx % len(order)]
-        if diff > 0:
-            quotas[i] += 1
-            diff -= 1
-        elif quotas[i] > 1:
-            quotas[i] -= 1
-            diff += 1
-        else:
-            idx += 1
-            if idx > len(order) * 3:
-                break
-            continue
-        idx += 1
-
-    for region, q in zip(plan.regions, quotas):
-        region.quota = q
+    transit_caps = [min(max(0, max_transit_quota), capacity(t.photo_indices))
+                    for t in plan.transits]
+    transit_quotas = _bounded_allocation(
+        [float(c) for c in transit_caps], transit_caps, max(0, target_n),
+    )
+    for transit, quota in zip(plan.transits, transit_quotas):
+        transit.quota = quota
+    region_caps = [capacity(r.photo_indices) for r in plan.regions]
+    weights = [float(c * max(1, r.day_count)) for c, r in zip(region_caps, plan.regions)]
+    quotas = _bounded_allocation(weights, region_caps, max(0, target_n - sum(transit_quotas)))
+    for region, quota in zip(plan.regions, quotas):
+        region.quota = quota
 
 
 def color_histogram(photo: Photo, bins: int = 16) -> Optional[np.ndarray]:
@@ -184,7 +197,7 @@ def allocate_day_quotas(
 
     # Bei starker Intensität: kein Tag > ~60% des Kontingents
     max_share = 1.0 - 0.4 * intensity
-    max_per_day = max(1, int(np.ceil(quota * max_share)))
+    max_per_day = max(1, int(np.ceil(quota * max_share))) if n > 1 else quota
     for d in days:
         raw[d] = min(raw[d], float(max_per_day), float(day_sizes[d]))
 
@@ -202,7 +215,8 @@ def allocate_day_quotas(
     assigned = sum(floors.values())
     remainders = sorted(days, key=lambda d: raw[d] - int(np.floor(raw[d])), reverse=True)
     idx = 0
-    while assigned < quota and idx < len(remainders) * 3:
+    quota = min(quota, sum(min(day_sizes[d], max_per_day) for d in days))
+    while assigned < quota:
         d = remainders[idx % len(remainders)]
         if floors[d] < min(day_sizes[d], max_per_day):
             floors[d] += 1
@@ -472,7 +486,7 @@ def select_for_region(
     main = [i for i in cand if photos[i].scene_type != "essen"]
 
     food_quota = 0
-    if food and quota > 0:
+    if food and quota > 0 and food_ratio > 0:
         food_quota = max(1, int(round(quota * food_ratio)))
         food_quota = min(food_quota, len(food), quota)
     main_quota = max(0, quota - food_quota)
@@ -551,6 +565,8 @@ def build_book_order(
     similarity_threshold: float = 0.92,
     coverage_intensity: float = 0.0,
     people_balance_intensity: float = 0.0,
+    max_per_day: int = 0,
+    max_per_chapter: int = 0,
 ) -> list[tuple[int, str, str]]:
     """
     Finale Buchreihenfolge.
@@ -558,8 +574,26 @@ def build_book_order(
     """
     from .utils import slugify
 
+    for photo in photos:
+        photo.is_selected = False
+        photo.book_position = None
     order: list[tuple[int, str, str]] = []
+    fallback_order: list[tuple[int, str, str]] = []
     transit_by_after = {t.chapter_index: t for t in plan.transits}
+
+    def nominate_fallbacks(indices: list[int], folder: str, transit: bool = False) -> None:
+        if max_per_day <= 0 and max_per_chapter <= 0:
+            return
+        candidates = [i for i in indices if photos[i].is_candidate and _ok_for_selection(photos[i])]
+        if not candidates:
+            candidates = [i for i in indices if _ok_for_selection(photos[i])]
+        for i in candidates:
+            if transit:
+                fallback_order.append((i, folder, ChapterType.TRANSIT.value))
+            elif photos[i].scene_type == "essen":
+                fallback_order.append((i, f"{folder}/essen", ChapterType.ESSEN.value))
+            else:
+                fallback_order.append((i, f"{folder}/hauptteil", ChapterType.HAUPTTEIL.value))
 
     print(
         f"  Buchstruktur: {len(plan.regions)} Regionen, "
@@ -591,6 +625,7 @@ def build_book_order(
             photos[i].chapter_type = ChapterType.ESSEN.value
             photos[i].chapter_folder = f"{folder}/essen"
             order.append((i, f"{folder}/essen", ChapterType.ESSEN.value))
+        nominate_fallbacks(region.photo_indices, folder)
 
         if r_idx in transit_by_after:
             t = transit_by_after[r_idx]
@@ -610,6 +645,7 @@ def build_book_order(
                 photos[i].chapter_type = ChapterType.TRANSIT.value
                 photos[i].chapter_folder = t_folder
                 order.append((i, t_folder, ChapterType.TRANSIT.value))
+            nominate_fallbacks(t.photo_indices, t_folder, transit=True)
 
     # Favorites outside regular chapters (e.g. tickets) are explicitly retained too.
     included = {idx for idx, _folder, _ctype in order}
@@ -622,9 +658,93 @@ def build_book_order(
             photo.is_selected = True
             order.append((idx, folder, ctype))
 
+    order = apply_selection_caps(
+        photos, order, max_per_day, max_per_chapter, fallback_order=fallback_order,
+    )
     for pos, (idx, folder, ctype) in enumerate(order, start=1):
         photos[idx].book_position = pos
         photos[idx].chapter_folder = folder
         photos[idx].chapter_type = ctype
 
     return order
+
+
+def apply_selection_caps(
+    photos: list[Photo],
+    order: list[tuple[int, str, str]],
+    max_per_day: int = 0,
+    max_per_chapter: int = 0,
+    *,
+    fallback_order: Optional[list[tuple[int, str, str]]] = None,
+) -> list[tuple[int, str, str]]:
+    """Global day limits and chapter limits shared by main/food sections.
+
+    Favorites reserve capacity first and may exceed either limit. Unknown dates
+    share one bucket. Filtering keeps the original chronological book order.
+    """
+    day_counts: dict = defaultdict(int)
+    chapter_counts: dict = defaultdict(int)
+    folder_counts: dict = defaultdict(int)
+    kept: set[int] = set()
+
+    def retain(entry: tuple[int, str, str]) -> None:
+        i, folder, _ctype = entry
+        if i not in kept:
+            kept.add(i)
+            day_counts[_photo_day(photos[i])] += 1
+            chapter_counts[folder.split("/")[0]] += 1
+            folder_counts[folder] += 1
+
+    def fits(entry: tuple[int, str, str]) -> bool:
+        i, folder, _ctype = entry
+        return (
+            (max_per_day <= 0 or day_counts[_photo_day(photos[i])] < max_per_day)
+            and (max_per_chapter <= 0 or chapter_counts[folder.split("/")[0]] < max_per_chapter)
+        )
+
+    for entry in order:
+        if photos[entry[0]].is_favorite:
+            retain(entry)
+    for entry in sorted(order, key=lambda e: photos[e[0]].final_score, reverse=True):
+        i, folder, _ctype = entry
+        if i in kept:
+            continue
+        if not fits(entry):
+            continue
+        retain(entry)
+
+    # Caps can remove one busy day's pictures despite spare capacity on quieter
+    # days. Refill using unused eligible candidates while preserving the original
+    # main/food/transit budgets and every retained initial selection.
+    folder_budgets: dict = defaultdict(int)
+    original_indices: set[int] = set()
+    for i, folder, _ctype in order:
+        if i not in original_indices:
+            original_indices.add(i)
+            folder_budgets[folder] += 1
+    added: list[tuple[int, str, str]] = []
+    for entry in sorted(fallback_order or [], key=lambda e: photos[e[0]].final_score, reverse=True):
+        i, folder, _ctype = entry
+        if len(kept) >= len(original_indices):
+            break
+        if i in kept or not _ok_for_selection(photos[i]):
+            continue
+        if folder_counts[folder] >= folder_budgets[folder] or not fits(entry):
+            continue
+        retain(entry)
+        added.append(entry)
+
+    for i, _folder, _ctype in order + (fallback_order or []):
+        photos[i].is_selected = i in kept
+        if i not in kept:
+            photos[i].book_position = None
+    result = []
+    emitted: set[int] = set()
+    for entry in order + added:
+        if entry[0] in kept and entry[0] not in emitted:
+            result.append(entry)
+            emitted.add(entry[0])
+    if added:
+        folder_order = {folder: n for n, folder in enumerate(dict.fromkeys(e[1] for e in order))}
+        result.sort(key=lambda e: (folder_order[e[1]], photos[e[0]].datetime_taken or datetime.min))
+    return result

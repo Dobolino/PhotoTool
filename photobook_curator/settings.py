@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -157,6 +159,8 @@ class AppSettings:
     theme: str = DEFAULT_THEME
     slideshow_auto_advance: bool = False
     slideshow_show_alternative: bool = True
+    max_per_day: int = 0
+    max_per_chapter: int = 0
 
     def normalized(self) -> "AppSettings":
         lang = (self.language or DEFAULT_LANGUAGE).lower()
@@ -170,7 +174,16 @@ class AppSettings:
             theme=theme,
             slideshow_auto_advance=bool(self.slideshow_auto_advance),
             slideshow_show_alternative=bool(self.slideshow_show_alternative),
+            max_per_day=_normalize_cap(self.max_per_day),
+            max_per_chapter=_normalize_cap(self.max_per_chapter),
         )
+
+
+def _normalize_cap(value) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def settings_dir() -> Path:
@@ -204,6 +217,8 @@ def load_settings() -> AppSettings:
         theme=raw_theme,
         slideshow_auto_advance=bool(data.get("slideshow_auto_advance", False)),
         slideshow_show_alternative=bool(data.get("slideshow_show_alternative", True)),
+        max_per_day=data.get("max_per_day", 0),
+        max_per_chapter=data.get("max_per_chapter", 0),
     ).normalized()
     if migrated:
         try:
@@ -222,10 +237,16 @@ def load_settings() -> AppSettings:
 def _write_settings_dict(data: dict) -> Path:
     path = settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    fd, temporary = tempfile.mkstemp(prefix=".settings-", suffix=".json", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
     return path
 
 

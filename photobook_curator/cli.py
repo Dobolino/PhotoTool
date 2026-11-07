@@ -169,6 +169,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Tages-Abdeckung 0.0–1.0 (0=aus, 1=stark gleichmäßig; Standard: 0)",
     )
+    p.add_argument("--max-per-day", type=int, default=0,
+                   help="Max. Bilder pro Aufnahmetag, albumweit (0=unbegrenzt; Favoriten haben Vorrang)")
+    p.add_argument("--max-per-chapter", type=int, default=0,
+                   help="Max. Bilder pro Kapitel inkl. Essen (0=unbegrenzt; Favoriten haben Vorrang)")
     p.add_argument(
         "--people-balance-intensity",
         type=float,
@@ -256,6 +260,11 @@ def main(argv: list[str] | None = None) -> int:
     if not args.input.is_dir():
         parser.error(f"Eingabeordner nicht gefunden: {args.input}")
 
+    if args.max_per_day < 0 or args.max_per_chapter < 0:
+        parser.error("Tages- und Kapitelgrenzen müssen mindestens 0 sein")
+    if args.target_count < 1:
+        parser.error("Zielanzahl muss mindestens 1 sein")
+
     ai_provider = args.ai_provider
     if args.ai_review and ai_provider == "none":
         ai_provider = "gemini"
@@ -285,6 +294,8 @@ def main(argv: list[str] | None = None) -> int:
         enable_finger_filter=bool(args.finger_filter),
         enable_accidental_filter=bool(args.accidental_filter),
         enable_weak_night_filter=bool(args.weak_night_filter),
+        max_per_day=args.max_per_day,
+        max_per_chapter=args.max_per_chapter,
         coverage_intensity=max(0.0, min(1.0, float(args.coverage_intensity))),
         people_balance_intensity=max(
             0.0, min(1.0, float(args.people_balance_intensity))

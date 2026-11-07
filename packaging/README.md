@@ -11,7 +11,7 @@ starten können – ein Ordner mit `Fotobuch.exe`, fertig.
    ```powershell
    python -m venv .venv-build
    .\.venv-build\Scripts\Activate.ps1
-   pip install -r packaging\requirements-build.txt
+   pip install -r packaging\requirements-build.txt -c packaging\constraints-windows.txt
    python packaging\build.py
    ```
 
@@ -29,6 +29,8 @@ in `constraints-windows.txt` auf die getesteten Versionen begrenzt.
 Für eine Veröffentlichung zuerst `photobook_curator/__init__.py`, `pyproject.toml`
 und den Default in `installer.iss` auf dieselbe Version setzen. Nach Prüfung und Merge
 einen Tag wie `v0.2.0` auf diesen Commit pushen. Tag und App-Version müssen übereinstimmen.
+`python packaging/build.py --check` prüft die drei Versionsangaben ohne Build;
+auch jeder Bundle-Build und der Windows-Workflow brechen bei Abweichungen ab.
 Erst nach erfolgreichem Test, EXE-Smoke-Test und Installer-Build wird ein GitHub Release
 mit den Dateien veröffentlicht. PR-/manuelle Builds bleiben herunterladbare Actions-Artefakte.
 
@@ -46,11 +48,18 @@ SHA256 stellt die Übereinstimmung mit dem GitHub-Asset sicher; es ersetzt keine
 Windows-Codesignatur. Der Installer aktualisiert die Installation im Benutzerprofil;
 Fotoquellen, Ausgabeordner und Benutzereinstellungen sind nicht Teil des Installers.
 
+Der Desktop-Updater greift ohne GitHub-Anmeldung zu. Seine Release-Quelle muss
+öffentlich lesbar sein. Bei einem privaten Repository sind Actions-Artefakte für
+berechtigte Nutzer zwar herunterladbar, automatische Desktop-Updates benötigen
+jedoch eine öffentliche Release-Quelle oder einen eigenen authentifizierten
+Update-Dienst. Einen GitHub-Token nicht in die EXE einbauen. Ein HTTP 404 wird als
+nicht verfügbare Release-Quelle gemeldet, nicht als erfolgreicher Versionsvergleich.
+
 - **Einfach:** Ordner `dist\Fotobuch` als **ZIP** weitergeben → entpacken →
   `Fotobuch.exe` doppelklicken. Kein Python nötig.
-- **Komfortabel:** Mit [Inno Setup](https://jrsoftware.org/isinfo.php) einen
-  Installer erzeugen (Startmenü-Eintrag, Deinstallation). Beispiel-Script kann
-  bei Bedarf ergänzt werden.
+- **Komfortabel:** Der Windows-Workflow baut mit
+  [Inno Setup](https://jrsoftware.org/isinfo.php) und `packaging/installer.iss`
+  einen Installer mit Startmenü-Eintrag und Deinstallation.
 - **Code-Signing (empfohlen):** Ohne Signatur zeigt Windows SmartScreen beim
   ersten Start eine Warnung. Mit einem Code-Signing-Zertifikat:
 

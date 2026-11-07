@@ -31,6 +31,11 @@ from .utils import load_bgr_cached
 if TYPE_CHECKING:
     from .analysis_cache import AnalysisCache
 
+# Ändern, wenn Decoder/Metriken oder Modelle inkompatibel geändert werden.
+_QUALITY_RECIPE = "scaled-jpeg-v1"
+_FACE_FLAGS = {
+    "eyes_closed", "face_cut_off", "face_too_small", "bad_face", "no_smile", "looking_away"
+}
 ProgressFrac = Callable[[float], None]
 
 
@@ -158,25 +163,54 @@ def _analyze_one(
 
     stats = _PhotoStats()
     cached = cache.get(photo.path) if cache is not None else None
-    quality_hit = bool(cached and "sharpness" in cached)
-    faces_hit = bool(quality_hit and cached is not None and "smiling" in cached)
+    quality_hit = bool(cached and cached.get("_quality_recipe") == _QUALITY_RECIPE)
+    face_recipe = [bundle.face_backend, bundle.face_quality_backend]
+    composition_recipe = [
+        options.enable_accidental,
+        options.enable_weak_night,
+        face_recipe if options.enable_faces else None,
+    ]
+    faces_hit = bool(
+        quality_hit and options.enable_faces and cached.get("_faces_recipe") == face_recipe
+    )
     composition_hit = bool(
-        quality_hit and cached is not None and "is_accidental" in cached
+        quality_hit and cached.get("_composition_recipe") == composition_recipe
     )
     aesthetic_hit = bool(
-        quality_hit and cached is not None and cached.get("aesthetic_score") is not None
+        quality_hit and cached.get("_local_aesthetic") and cached.get("aesthetic_score") is not None
     )
     if quality_hit:
-        apply_quality_payload(photo, cached)  # type: ignore[arg-type]
+        # Defaults in einem Payload bedeuten nicht, dass ein optionaler Analyzer
+        # bereits lief. Nur Ergebnisse derselben aktivierten Stufe übernehmen.
+        apply_quality_payload(photo, cached)
         stats.cache_hit = True
-        stats.smiling = photo.smiling is True
-        stats.looking = photo.looking_at_camera is True
-        stats.accidental = bool(photo.is_accidental)
-        stats.weak_night = bool(photo.is_weak_night)
-        stats.closed_eyes = bool(photo.eyes_closed)
-        stats.bad_face = bool(photo.bad_face)
+    if not faces_hit:
+        photo.face_count = 0
+        photo.eyes_closed = photo.face_cut_off = photo.face_too_small = photo.bad_face = False
+        photo.smiling = photo.looking_at_camera = None
+        photo.flags = [f for f in photo.flags if f not in _FACE_FLAGS]
+    if not composition_hit or not options.enable_accidental:
+        photo.is_accidental = False
+        photo.flags = [f for f in photo.flags if f not in {"accidental", "accidental_shot"}]
+    if not composition_hit or not options.enable_weak_night:
+        photo.is_weak_night = False
+        photo.flags = [f for f in photo.flags if f != "weak_night"]
+    if not options.enable_local_aesthetic and not photo.ai_reviewed:
+        photo.aesthetic_score = None
+    stats.smiling = photo.smiling is True
+    stats.looking = photo.looking_at_camera is True
+    stats.accidental = bool(photo.is_accidental)
+    stats.weak_night = bool(photo.is_weak_night)
+    stats.closed_eyes = bool(photo.eyes_closed)
+    stats.bad_face = bool(photo.bad_face)
+    faces_done = faces_hit
+    composition_done = composition_hit
 
-    need_docs_pixels = options.enable_documents and _docs_need_pixels(photo)
+    docs_hit = bool(quality_hit and cached and "_document_result" in cached)
+    if options.enable_documents and docs_hit and cached["_document_result"][0]:
+        _apply_aside(photo, cached["_document_result"][1])
+        stats.aside = True
+    need_docs_pixels = options.enable_documents and not docs_hit and _docs_need_pixels(photo)
     need_phash = not photo.phash
     need_faces = options.enable_faces and not faces_hit
     need_finger = options.enable_finger and not getattr(photo, "is_aside", False)
@@ -187,15 +221,12 @@ def _analyze_one(
     )
     need_quality = not quality_hit
     need_aesthetic = options.enable_local_aesthetic and not aesthetic_hit
-    need_embed = False
-    if options.enable_embeddings and cache is not None:
+    need_embed = options.enable_embeddings and bundle.embed_backend == "mediapipe" and not photo.is_aside
+    if need_embed and cache is not None and cached and cached.get("_embedding_recipe") == "mediapipe-v1":
         cached_emb = cache.get_embedding(photo.path)
         if cached_emb is not None:
             stats.embedding = cached_emb
-        else:
-            need_embed = True
-    elif options.enable_embeddings:
-        need_embed = True
+            need_embed = False
 
     need_bgr = (
         need_quality
@@ -230,7 +261,7 @@ def _analyze_one(
     if need_quality and bgr is not None:
         analyze_image_quality_from_bgr(photo, bgr)
 
-    if options.enable_documents:
+    if options.enable_documents and not docs_hit:
         is_aside, aside_type = classify_document_image(photo, bgr)
         if is_aside:
             _apply_aside(photo, aside_type)
@@ -250,6 +281,7 @@ def _analyze_one(
     if need_faces and bundle.face_counter is not None and bgr is not None:
         try:
             photo.face_count = bundle.face_counter.count(bgr)
+            faces_done = True
         except Exception:
             photo.face_count = 0
             photo.add_flag("face_failed")
@@ -270,6 +302,7 @@ def _analyze_one(
                     stats.looking = photo.looking_at_camera is True
             except Exception:
                 photo.add_flag("face_quality_failed")
+                faces_done = False
         elif photo.face_count == 0:
             photo.smiling = None
             photo.looking_at_camera = None
@@ -284,6 +317,7 @@ def _analyze_one(
                 enable_accidental=options.enable_accidental,
                 enable_weak_night=options.enable_weak_night,
             )
+            composition_done = True
             if comp.is_accidental and not was_acc:
                 stats.accidental = True
             if comp.is_weak_night and not was_night:
@@ -301,7 +335,7 @@ def _analyze_one(
 
     if need_embed and bundle.embedder is not None and bgr is not None:
         try:
-            stats.embedding = bundle.embedder.embed_bgr(bgr)
+            stats.embedding = bundle.embedder.embed_bgr(bgr, allow_fallback=False)
         except Exception:
             pass
 
@@ -327,7 +361,18 @@ def _analyze_one(
             photo.finger_on_lens = False
 
     if cache is not None and "unreadable" not in photo.flags:
-        cache.put(photo.path, quality_payload(photo), embedding=stats.embedding)
+        payload = quality_payload(photo)
+        payload["_quality_recipe"] = _QUALITY_RECIPE
+        if options.enable_documents:
+            payload["_document_result"] = [photo.is_aside, photo.aside_type]
+        if faces_done and options.enable_faces:
+            payload["_faces_recipe"] = face_recipe
+        if composition_done and (not options.enable_faces or faces_done):
+            payload["_composition_recipe"] = composition_recipe
+        payload["_local_aesthetic"] = bool(options.enable_local_aesthetic and photo.aesthetic_score is not None)
+        if stats.embedding is not None:
+            payload["_embedding_recipe"] = "mediapipe-v1"
+        cache.put(photo.path, payload, embedding=stats.embedding)
 
     return stats
 
@@ -380,16 +425,18 @@ def run_local_analysis(
     result.finger_backend = probe.finger_backend
     result.embed_backend = probe.embed_backend
 
+    bundles_created: list[_AnalyzerBundle] = []
     done = 0
     done_lock = threading.Lock()
 
     def _report() -> None:
+        if cache is not None:
+            cache.save()
         if progress is None:
             return
-        try:
-            progress(done / n)
-        except Exception:
-            pass
+        # Der Pipeline-Callback prüft hier auch den Benutzer-Abbruch. Diesen
+        # nicht verschlucken; der finally-Block sichert Cache und Analyzer.
+        progress(done / n)
 
     try:
         if workers <= 1:
@@ -403,7 +450,6 @@ def run_local_analysis(
             # Probe bleibt Worker-0-ähnlich; weitere Threads bauen eigene Bundles
             probe.close()
             probe = None  # type: ignore[assignment]
-            bundles_created: list[_AnalyzerBundle] = []
             bundles_lock = threading.Lock()
 
             def _worker(item: tuple[int, Photo]) -> tuple[int, _PhotoStats]:
@@ -420,19 +466,24 @@ def run_local_analysis(
                 futures = [
                     pool.submit(_worker, (i, photo)) for i, photo in enumerate(photos)
                 ]
-                with tqdm(total=len(photos), desc="Lokale Analyse", unit="img") as bar:
-                    for fut in as_completed(futures):
-                        idx, stats = fut.result()
-                        _merge_stats(result, idx, stats)
-                        with done_lock:
-                            done += 1
-                            cur = done
-                        bar.update(1)
-                        if cur % 25 == 0 or cur == len(photos):
-                            _report()
+                try:
+                    with tqdm(total=len(photos), desc="Lokale Analyse", unit="img") as bar:
+                        for fut in as_completed(futures):
+                            idx, stats = fut.result()
+                            _merge_stats(result, idx, stats)
+                            with done_lock:
+                                done += 1
+                                cur = done
+                            bar.update(1)
+                            if cur % 25 == 0 or cur == len(photos):
+                                _report()
+                except BaseException:
+                    # Executor.__exit__ wartet sonst auf die gesamte Warteschlange.
+                    # Nur die höchstens `workers` laufenden Bilder fertigstellen.
+                    for fut in futures:
+                        fut.cancel()
+                    raise
 
-            for b in bundles_created:
-                b.close()
             # Backends vom ersten Bundle übernehmen
             if bundles_created:
                 b0 = bundles_created[0]
@@ -441,9 +492,13 @@ def run_local_analysis(
                 result.finger_backend = b0.finger_backend
                 result.embed_backend = b0.embed_backend
     finally:
+        for b in bundles_created:
+            b.close()
         if probe is not None:
             probe.close()
-        # Thread-Locals nicht zuverlässig aufräumen – Bundles oben geschlossen
+        if cache is not None:
+            cache.save()
+        # Thread-Locals gehören den beendeten Executor-Threads.
 
     if result.cache_hits:
         result.notes.append(
@@ -455,6 +510,8 @@ def run_local_analysis(
         result.notes.append(
             f"Embeddings: {result.embed_backend} ({len(result.embeddings)} Vektoren)"
         )
+    if options.enable_embeddings and result.embed_backend != "mediapipe":
+        result.notes.append("Inhalts-Cluster übersprungen: kein semantisches Modell verfügbar; pHash/Serien bleiben aktiv")
     if options.enable_local_aesthetic:
         n_aes = sum(
             1 for p in photos if p.aesthetic_score is not None and not p.ai_reviewed

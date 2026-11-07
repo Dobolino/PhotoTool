@@ -188,6 +188,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "hide_variants": "Varianten ausblenden",
         "help_title": "Hilfe – Fotobuch",
         "coverage_strength": "Abdeckung-Stärke",
+        "max_per_day": "Max. Bilder pro Tag",
+        "max_per_chapter": "Max. Bilder pro Kapitel",
+        "selection_caps_hint": "0 = unbegrenzt. Geschützte Favoriten haben Vorrang.",
         "people_strength": "Personen-Stärke",
         "help_body": (
             "Kurzanleitung\n"
@@ -474,6 +477,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "hide_variants": "Hide variants",
         "help_title": "Help – Photobook",
         "coverage_strength": "Coverage strength",
+        "max_per_day": "Max. photos per day",
+        "max_per_chapter": "Max. photos per chapter",
+        "selection_caps_hint": "0 = unlimited. Protected favorites take priority.",
         "people_strength": "People-balance strength",
         "help_body": (
             "Quick start\n"

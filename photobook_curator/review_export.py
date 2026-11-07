@@ -196,6 +196,8 @@ def rebuild_selection_from_analysis(
     coverage_intensity: float = 0.0,
     people_balance_intensity: float = 0.0,
     candidate_factor: float = 4.0,
+    max_per_day: int = 0,
+    max_per_chapter: int = 0,
 ) -> tuple[BookPlan, list[tuple[int, str, str]]]:
     """
     Erzeugt eine Buchauswahl aus bereits analysierter CSV-Daten **ohne neue KI**.
@@ -221,7 +223,7 @@ def rebuild_selection_from_analysis(
             )
         ]
 
-    distribute_quotas(photos, plan, target_n)
+    distribute_quotas(photos, plan, target_n, max_per_chapter=max_per_chapter)
     # Kandidaten neu setzen (nutzt technical/aesthetic scores aus der CSV)
     for p in photos:
         p.is_candidate = False
@@ -230,6 +232,9 @@ def rebuild_selection_from_analysis(
         plan,
         target_n=target_n,
         candidate_factor=candidate_factor,
+        coverage_intensity=coverage_intensity,
+        max_per_day=max_per_day,
+        max_per_chapter=max_per_chapter,
     )
     order = build_book_order(
         photos,
@@ -239,6 +244,8 @@ def rebuild_selection_from_analysis(
         similarity_threshold=similarity_threshold,
         coverage_intensity=coverage_intensity,
         people_balance_intensity=people_balance_intensity,
+        max_per_day=max_per_day,
+        max_per_chapter=max_per_chapter,
     )
     return plan, order
 

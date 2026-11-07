@@ -2,6 +2,8 @@
 
 Lokales Python-CLI-Tool zur Kuratierung eines Urlaubs-Fotobuchs aus einer großen iPhone/iCloud-Fotosammlung.
 
+**Japan-Reise / grosse Sammlungen:** [Japan-Workflow](JAPAN_WORKFLOW.md) · [Technischer Check](TECHNIK_CHECK.md).
+
 **Einstieg:** siehe [ANLEITUNG.md](ANLEITUNG.md). Unter Windows am einfachsten: `Fotobuch starten.bat` doppelklicken (Fenster-Oberfläche).
 
 ## Windows-Programm und Updates

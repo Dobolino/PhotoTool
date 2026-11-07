@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import csv
+import os
 import shutil
+import tempfile
 from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 
 from .models import BookPlan, Photo
@@ -70,11 +73,55 @@ CSV_FIELDS = [
 
 def write_csv(photos: list[Photo], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        for photo in photos:
-            writer.writerow(photo.to_csv_row())
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", newline="", encoding="utf-8",
+                                         dir=path.parent, suffix=".tmp", delete=False) as f:
+            temporary = Path(f.name)
+            writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+            writer.writeheader()
+            for photo in photos:
+                writer.writerow(photo.to_csv_row())
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def _staged_directory(destination: Path):
+    """Keep the previous export until every source file has copied successfully.
+
+    The two renames happen on the same filesystem. If publishing the prepared
+    directory fails (for example a Windows folder is open), restore the old one.
+    A process crash between renames leaves the previous export in the explicitly
+    named backup directory instead of deleting it.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}-pending-",
+                                    dir=destination.parent))
+    backup = staging.with_name(staging.name.replace("-pending-", "-previous-", 1))
+    moved_previous = False
+    published = False
+    try:
+        yield staging
+        if destination.exists():
+            os.replace(destination, backup)
+            moved_previous = True
+        try:
+            os.replace(staging, destination)
+            published = True
+        except OSError:
+            if moved_previous:
+                os.replace(backup, destination)
+            raise
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        if published and moved_previous:
+            shutil.rmtree(backup, ignore_errors=True)
 
 
 def copy_selected(
@@ -83,19 +130,16 @@ def copy_selected(
     output_dir: Path,
 ) -> None:
     selected_root = output_dir / "selected"
-    if selected_root.exists():
-        shutil.rmtree(selected_root)
-    selected_root.mkdir(parents=True, exist_ok=True)
-
-    counters: dict[str, int] = {}
-    for idx, folder, _ctype in order:
-        photo = photos[idx]
-        dest_dir = selected_root / folder
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        counters[folder] = counters.get(folder, 0) + 1
-        n = counters[folder]
-        dest_name = f"{n:03d}_{photo.filename}"
-        shutil.copy2(photo.path, dest_dir / dest_name)
+    with _staged_directory(selected_root) as staging:
+        counters: dict[str, int] = {}
+        for idx, folder, _ctype in order:
+            photo = photos[idx]
+            dest_dir = staging / folder
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            counters[folder] = counters.get(folder, 0) + 1
+            n = counters[folder]
+            dest_name = f"{n:03d}_{photo.filename}"
+            shutil.copy2(photo.path, dest_dir / dest_name)
 
     _prewarm_review_thumbs([photos[idx].path for idx, _f, _c in order])
 
@@ -130,11 +174,6 @@ def copy_aside_pool(photos: list[Photo], output_dir: Path) -> int:
     """Kopiert alle Aside-Dokumente in optional_dokumente/ (Pool zum späteren Einfügen)."""
     aside = [p for p in photos if getattr(p, "is_aside", False) and not p.is_duplicate]
     pool_root = output_dir / "optional_dokumente"
-    if pool_root.exists():
-        shutil.rmtree(pool_root)
-    if not aside:
-        return 0
-    pool_root.mkdir(parents=True, exist_ok=True)
     aside_sorted = sorted(
         aside,
         key=lambda p: (
@@ -143,10 +182,13 @@ def copy_aside_pool(photos: list[Photo], output_dir: Path) -> int:
             p.filename,
         ),
     )
-    for n, photo in enumerate(aside_sorted, start=1):
-        kind = photo.aside_type or "dokument"
-        dest_name = f"{n:03d}_{kind}_{photo.filename}"
-        shutil.copy2(photo.path, pool_root / dest_name)
+    with _staged_directory(pool_root) as staging:
+        for n, photo in enumerate(aside_sorted, start=1):
+            kind = photo.aside_type or "dokument"
+            dest_name = f"{n:03d}_{kind}_{photo.filename}"
+            shutil.copy2(photo.path, staging / dest_name)
+    if not aside:
+        pool_root.rmdir()
     return len(aside_sorted)
 
 

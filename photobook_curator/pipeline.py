@@ -65,6 +65,8 @@ class PipelineConfig:
     enable_video_frames: bool = False  # Best-Frame aus Videos / Live Photos
     timezone_offset_hours: float = 0.0  # manuelle Zeitkorrektur (Urlaub)
     apply_exif_offset: bool = False  # EXIF OffsetTime → UTC (selten)
+    max_per_day: int = 0  # 0 = unlimited; favorites override caps
+    max_per_chapter: int = 0  # main + food combined
     coverage_intensity: float = 0.0  # 0=aus, 1=starke Tages-Abdeckung
     people_balance_intensity: float = 0.0  # 0=aus, 1=starke Personen-Balance
     enable_map_preview: bool = False
@@ -140,286 +142,310 @@ def run_pipeline(
         except Exception:
             pass
 
+    if not cfg.input_dir.is_dir():
+        raise RuntimeError(f"Eingabeordner nicht gefunden: {cfg.input_dir}")
+    if cfg.input_dir.resolve().is_relative_to(cfg.output_dir.resolve()):
+        raise RuntimeError("Eingabe- und Ausgabeordner müssen verschieden sein; "
+                           "die Ausgabe darf den Eingabeordner nicht umfassen")
+    if cfg.max_per_day < 0 or cfg.max_per_chapter < 0 or cfg.target_n < 1:
+        raise RuntimeError("Zielanzahl muss positiv und Grenzen müssen mindestens 0 sein")
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cfg.output_dir / "geocode_cache.json"
     analysis_cache = None
     if cfg.enable_analysis_cache:
         analysis_cache = AnalysisCache(cfg.output_dir / "analysis_cache.json")
-    clear_bgr_cache()
+    try:
+        clear_bgr_cache()
 
-    report("Einlesen…", 0.02, "scan")
-    print("=== Phase 1: Einlesen & technische Vorfilterung ===")
-    extra_stills: list[Path] = []
-    if cfg.enable_video_frames:
-        report("Video-Standbilder…", 0.03, "video")
-        stills_dir = cfg.output_dir / "video_stills"
-        extra_stills = extract_video_stills(
-            cfg.input_dir, stills_dir, enabled=True
+        report("Einlesen…", 0.02, "scan")
+        print("=== Phase 1: Einlesen & technische Vorfilterung ===")
+        extra_stills: list[Path] = []
+        if cfg.enable_video_frames:
+            report("Video-Standbilder…", 0.03, "video")
+            stills_dir = cfg.output_dir / "video_stills"
+            extra_stills = extract_video_stills(
+                cfg.input_dir, stills_dir, enabled=True
+            )
+            print(f"  Video-/Live-Photo-Standbilder: {len(extra_stills)}")
+        photos = scan_photos(
+            cfg.input_dir,
+            timezone_offset_hours=cfg.timezone_offset_hours,
+            apply_exif_offset=cfg.apply_exif_offset,
+            extra_paths=extra_stills,
+            exclude_dirs=([cfg.output_dir] if cfg.output_dir.resolve().is_relative_to(
+                cfg.input_dir.resolve()) else []),
         )
-        print(f"  Video-/Live-Photo-Standbilder: {len(extra_stills)}")
-    photos = scan_photos(
-        cfg.input_dir,
-        timezone_offset_hours=cfg.timezone_offset_hours,
-        apply_exif_offset=cfg.apply_exif_offset,
-        extra_paths=extra_stills,
-    )
-    print(f"  {len(photos)} Bilder gefunden")
-    from .selection_draft import restore_favorites
-    favorite_count = restore_favorites(photos, cfg.output_dir)
-    if favorite_count:
-        print(f"  Geschützte Favoriten übernommen: {favorite_count}")
-    if cfg.timezone_offset_hours:
-        print(f"  Zeitzone: +{cfg.timezone_offset_hours:g} h Korrektur")
+        print(f"  {len(photos)} Bilder gefunden")
+        if not photos:
+            raise RuntimeError("Keine unterstützten Bilder im Eingabeordner gefunden")
+        from .selection_draft import restore_favorites
+        favorite_count = restore_favorites(photos, cfg.output_dir)
+        if favorite_count:
+            print(f"  Geschützte Favoriten übernommen: {favorite_count}")
+        if cfg.timezone_offset_hours:
+            print(f"  Zeitzone: +{cfg.timezone_offset_hours:g} h Korrektur")
 
-    # Ein Decode pro Foto für Qualität + Dokumente + pHash + Faces + Finger + …
-    report("Lokale Analyse…", 0.08, "quality")
-    local = run_local_analysis(
-        photos,
-        LocalAnalysisOptions(
-            enable_documents=cfg.enable_document_aside,
-            enable_faces=cfg.enable_faces,
-            enable_finger=cfg.enable_finger_filter,
-            enable_accidental=cfg.enable_accidental_filter,
-            enable_weak_night=cfg.enable_weak_night_filter,
-            enable_embeddings=cfg.enable_content_clusters,
-            enable_local_aesthetic=cfg.enable_local_aesthetic and not cfg.ai_review,
-        ),
-        cache=analysis_cache,
-        progress=lambda f: report(
-            "Lokale Analyse…",
-            0.08 + 0.45 * float(max(0.0, min(1.0, f))),
-            "quality",
-        ),
-    )
-    for note in local.notes:
-        print(f"  {note}")
-    print(f"  Decode-Durchläufe: {local.decoded}/{len(photos)} (fusioniert)")
-
-    if cfg.enable_document_aside:
-        report("Dokumente…", 0.54, "documents")
-        print(f"  {local.aside_count} Screenshots/Dokumente -> Optional-Pool (nicht Auto-Kapitel)")
-    else:
-        print("  Dokumente/Screenshots-Trennung übersprungen")
-
-    report("pHash…", 0.56, "phash")
-    report("Duplikate…", 0.58, "duplicates")
-    dup_count, burst_from_dup = mark_duplicates(
-        photos,
-        burst_seconds=cfg.burst_max_seconds if cfg.enable_bursts else 0.0,
-        keep_per_burst=cfg.burst_keep if cfg.enable_bursts else 1,
-        min_burst_size=cfg.burst_min_size if cfg.enable_bursts else 10**9,
-        cache=analysis_cache,
-        compute_hashes=False,
-    )
-    print(f"  {dup_count} Duplikate markiert")
-
-    content_dup = 0
-    if cfg.enable_content_clusters and local.embeddings:
-        report("Inhalts-Cluster…", 0.60, "content")
-        content_dup = mark_content_clusters(
+        # Ein Decode pro Foto für Qualität + Dokumente + pHash + Faces + Finger + …
+        report("Lokale Analyse…", 0.08, "quality")
+        local = run_local_analysis(
             photos,
-            local.embeddings,
-            similarity=cfg.content_cluster_similarity,
+            LocalAnalysisOptions(
+                enable_documents=cfg.enable_document_aside,
+                enable_faces=cfg.enable_faces,
+                enable_finger=cfg.enable_finger_filter,
+                enable_accidental=cfg.enable_accidental_filter,
+                enable_weak_night=cfg.enable_weak_night_filter,
+                enable_embeddings=cfg.enable_content_clusters,
+                enable_local_aesthetic=cfg.enable_local_aesthetic and not cfg.ai_review,
+            ),
+            cache=analysis_cache,
+            progress=lambda f: report(
+                "Lokale Analyse…",
+                0.08 + 0.45 * float(max(0.0, min(1.0, f))),
+                "quality",
+            ),
         )
-        print(f"  Inhalts-ähnliche Motive: {content_dup} zusätzlich aussortiert")
+        for note in local.notes:
+            print(f"  {note}")
+        print(f"  Decode-Durchläufe: {local.decoded}/{len(photos)} (fusioniert)")
 
-    if analysis_cache is not None:
-        analysis_cache.save()
-        print(f"  Analyse-Cache: {analysis_cache.cache_path}")
+        if cfg.enable_document_aside:
+            report("Dokumente…", 0.54, "documents")
+            print(f"  {local.aside_count} Screenshots/Dokumente -> Optional-Pool (nicht Auto-Kapitel)")
+        else:
+            print("  Dokumente/Screenshots-Trennung übersprungen")
 
-    if cfg.enable_faces:
-        report("Gesichter…", 0.62, "faces")
-        print(f"  Gesichtserkennung: {local.face_backend}")
-        print(
-            f"  Gesichtsqualität: {local.face_quality_backend} "
-            f"({local.closed_eyes} Augen zu, {local.bad_faces} problematisch, "
-            f"{local.smiling_hits} Lächeln, {local.looking_hits} Blick zur Kamera)"
-        )
-    else:
-        print("  Gesichtserkennung übersprungen")
-
-    if cfg.enable_finger_filter:
-        report("Finger-Check…", 0.64, "finger")
-        print(
-            f"  Finger vor Linse: {local.finger_backend} "
-            f"({local.finger_hits} aussortiert)"
-        )
-    if cfg.enable_accidental_filter or cfg.enable_weak_night_filter:
-        print(
-            f"  Fehlaufnahmen: {local.accidental_hits} · "
-            f"schwache Nacht: {local.weak_night_hits}"
-        )
-
-    if cfg.people_balance_intensity > 0:
-        report("Personen-Balance…", 0.66, "people")
-        pb_backend = analyze_people_clusters(photos)
-        n_clustered = sum(1 for p in photos if p.person_cluster_ids)
-        n_people = len({pid for p in photos for pid in p.person_cluster_ids})
-        print(
-            f"  Personen-Balance: {pb_backend} "
-            f"({n_people} Personen-Cluster in {n_clustered} Fotos, "
-            f"Stärke {cfg.people_balance_intensity:.0%})"
-        )
-    if cfg.enable_bursts:
-        report("Serien…", 0.68, "bursts")
-        burst_extra = mark_bursts(
+        report("pHash…", 0.56, "phash")
+        report("Duplikate…", 0.58, "duplicates")
+        dup_count, burst_from_dup = mark_duplicates(
             photos,
-            max_seconds=cfg.burst_max_seconds,
-            keep_per_burst=cfg.burst_keep,
-            min_burst_size=cfg.burst_min_size,
+            burst_seconds=cfg.burst_max_seconds if cfg.enable_bursts else 0.0,
+            keep_per_burst=cfg.burst_keep if cfg.enable_bursts else 1,
+            min_burst_size=cfg.burst_min_size if cfg.enable_bursts else 10**9,
+            cache=analysis_cache,
+            compute_hashes=False,
         )
-        burst_rejected = burst_from_dup + burst_extra
-        burst_groups = len({p.burst_group_id for p in photos if p.burst_group_id})
-        print(
-            f"  {burst_groups} Serien erkannt, {burst_rejected} Burst-Bilder aussortiert "
-            f"(je max. {cfg.burst_keep} behalten)"
-        )
-    else:
-        print("  Serien/Burst-Erkennung übersprungen")
-    clear_bgr_cache()  # Analyse-Bilder freigeben vor Geocode/Auswahl
+        print(f"  {dup_count} Duplikate markiert")
 
-    report("Orte & Regionen…", 0.72, "regions")
-    print("=== Phase 2: Orte & Regionen ===")
-    cache = GeocodeCache(cache_path, enabled=cfg.geocode)
-    plan = build_location_plan(
-        photos,
-        cache,
-        eps_meters=cfg.cluster_eps_meters,
-        gps_time_hours=cfg.gps_time_hours,
-    )
-    print(f"  {len(plan.regions)} Regionen: {[r.name for r in plan.regions]}")
-    print(f"  {len(plan.unassigned_indices)} unbestimmt")
+        content_dup = 0
+        if cfg.enable_content_clusters and local.embeddings:
+            report("Inhalts-Cluster…", 0.60, "content")
+            content_dup = mark_content_clusters(
+                photos,
+                local.embeddings,
+                similarity=cfg.content_cluster_similarity,
+            )
+            print(f"  Inhalts-ähnliche Motive: {content_dup} zusätzlich aussortiert")
 
-    report("Transit…", 0.78, "transit")
-    print("=== Phase 3: Transit ===")
-    detect_transits(
-        photos,
-        plan,
-        min_photos=cfg.min_transit_photos,
-        max_transit_quota=cfg.max_transit_quota,
-    )
-    print(f"  {len(plan.transits)} Transit-Abschnitte")
-    for t in plan.transits:
-        print(f"    - {t.name} ({len(t.photo_indices)} Fotos, Quota {t.quota})")
+        if analysis_cache is not None:
+            analysis_cache.save()
+            print(f"  Analyse-Cache: {analysis_cache.cache_path}")
 
-    # Ohne GPS (oder nach Transit übrig): sonst 0 Auswahl trotz analysierter Fotos
-    promoted = promote_unassigned_to_region(photos, plan)
-    if promoted is not None:
-        print(
-            f"  {len(promoted.photo_indices)} Fotos ohne Ortszuordnung -> "
-            f"Kapitel „{promoted.name}“ (Auswahl ohne GPS/KI möglich)"
-        )
+        if cfg.enable_faces:
+            report("Gesichter…", 0.62, "faces")
+            print(f"  Gesichtserkennung: {local.face_backend}")
+            print(
+                f"  Gesichtsqualität: {local.face_quality_backend} "
+                f"({local.closed_eyes} Augen zu, {local.bad_faces} problematisch, "
+                f"{local.smiling_hits} Lächeln, {local.looking_hits} Blick zur Kamera)"
+            )
+        else:
+            print("  Gesichtserkennung übersprungen")
 
-    report("Kandidaten…", 0.82, "candidates")
-    print("=== Kandidatenauswahl ===")
-    candidates = mark_candidates(
-        photos,
-        plan,
-        target_n=cfg.target_n,
-        candidate_factor=cfg.candidate_factor,
-        max_transit_quota=cfg.max_transit_quota,
-    )
-    print(f"  {len(candidates)} Kandidaten (Faktor {cfg.candidate_factor})")
+        if cfg.enable_finger_filter:
+            report("Finger-Check…", 0.64, "finger")
+            print(
+                f"  Finger vor Linse: {local.finger_backend} "
+                f"({local.finger_hits} aussortiert)"
+            )
+        if cfg.enable_accidental_filter or cfg.enable_weak_night_filter:
+            print(
+                f"  Fehlaufnahmen: {local.accidental_hits} · "
+                f"schwache Nacht: {local.weak_night_hits}"
+            )
 
-    ai_stats: dict[str, Any] = {}
-    report("Szenen / KI…", 0.86, "scenes")
-    if cfg.ai_review and cfg.ai_provider and str(cfg.ai_provider).lower() not in (
-        "none",
-        "off",
-        "",
-    ):
-        print(f"=== Phase 4: AI-Review ({cfg.ai_provider}) ===")
-        ai_stats = run_ai_review(
+        if cfg.people_balance_intensity > 0:
+            report("Personen-Balance…", 0.66, "people")
+            pb_backend = analyze_people_clusters(photos)
+            n_clustered = sum(1 for p in photos if p.person_cluster_ids)
+            n_people = len({pid for p in photos for pid in p.person_cluster_ids})
+            print(
+                f"  Personen-Balance: {pb_backend} "
+                f"({n_people} Personen-Cluster in {n_clustered} Fotos, "
+                f"Stärke {cfg.people_balance_intensity:.0%})"
+            )
+        if cfg.enable_bursts:
+            report("Serien…", 0.68, "bursts")
+            burst_extra = mark_bursts(
+                photos,
+                max_seconds=cfg.burst_max_seconds,
+                keep_per_burst=cfg.burst_keep,
+                min_burst_size=cfg.burst_min_size,
+            )
+            burst_rejected = burst_from_dup + burst_extra
+            burst_groups = len({p.burst_group_id for p in photos if p.burst_group_id})
+            print(
+                f"  {burst_groups} Serien erkannt, {burst_rejected} Burst-Bilder aussortiert "
+                f"(je max. {cfg.burst_keep} behalten)"
+            )
+        else:
+            print("  Serien/Burst-Erkennung übersprungen")
+        clear_bgr_cache()  # Analyse-Bilder freigeben vor Geocode/Auswahl
+
+        report("Orte & Regionen…", 0.72, "regions")
+        print("=== Phase 2: Orte & Regionen ===")
+        cache = GeocodeCache(cache_path, enabled=cfg.geocode)
+        plan = build_location_plan(
             photos,
-            candidates,
-            dry_run=cfg.dry_run,
-            concurrency=cfg.ai_concurrency,
-            provider=cfg.ai_provider,
-            model=cfg.ai_model,
+            cache,
+            eps_meters=cfg.cluster_eps_meters,
+            gps_time_hours=cfg.gps_time_hours,
         )
-    else:
-        print("=== Phase 4: AI-Review übersprungen (lokale Heuristik) ===")
-        ensure_scene_types(photos, candidates)
+        print(f"  {len(plan.regions)} Regionen: {[r.name for r in plan.regions]}")
+        print(f"  {len(plan.unassigned_indices)} unbestimmt")
 
-    # Checkpoint: Analyse/KI sichern, bevor Auswahl/Export – Absturz kostet dann keine KI erneut
-    write_csv(photos, cfg.output_dir / "photos_analysis.csv")
-    print(
-        f"  Zwischenstand gespeichert: {cfg.output_dir / 'photos_analysis.csv'} "
-        "(Analyse/KI – später ohne neuen KI-Lauf fortsetzbar)"
-    )
+        report("Transit…", 0.78, "transit")
+        print("=== Phase 3: Transit ===")
+        detect_transits(
+            photos,
+            plan,
+            min_photos=cfg.min_transit_photos,
+            max_transit_quota=cfg.max_transit_quota,
+        )
+        print(f"  {len(plan.transits)} Transit-Abschnitte")
+        for t in plan.transits:
+            print(f"    - {t.name} ({len(t.photo_indices)} Fotos, Quota {t.quota})")
 
-    if cfg.dry_run and cfg.ai_review:
-        report("Fertig (Dry-Run)", 1.0, "done")
+        # Ohne GPS (oder nach Transit übrig): sonst 0 Auswahl trotz analysierter Fotos
+        promoted = promote_unassigned_to_region(photos, plan)
+        if promoted is not None:
+            print(
+                f"  {len(promoted.photo_indices)} Fotos ohne Ortszuordnung -> "
+                f"Kapitel „{promoted.name}“ (Auswahl ohne GPS/KI möglich)"
+            )
+
+        report("Kandidaten…", 0.82, "candidates")
+        print("=== Kandidatenauswahl ===")
+        candidates = mark_candidates(
+            photos,
+            plan,
+            target_n=cfg.target_n,
+            candidate_factor=cfg.candidate_factor,
+            max_transit_quota=cfg.max_transit_quota,
+            coverage_intensity=cfg.coverage_intensity,
+            max_per_day=cfg.max_per_day,
+            max_per_chapter=cfg.max_per_chapter,
+        )
+        print(f"  {len(candidates)} Kandidaten (Faktor {cfg.candidate_factor})")
+
+        ai_stats: dict[str, Any] = {}
+        report("Szenen / KI…", 0.86, "scenes")
+        if cfg.ai_review and cfg.ai_provider and str(cfg.ai_provider).lower() not in (
+            "none",
+            "off",
+            "",
+        ):
+            print(f"=== Phase 4: AI-Review ({cfg.ai_provider}) ===")
+            ai_stats = run_ai_review(
+                photos,
+                candidates,
+                dry_run=cfg.dry_run,
+                concurrency=cfg.ai_concurrency,
+                provider=cfg.ai_provider,
+                model=cfg.ai_model,
+            )
+        else:
+            print("=== Phase 4: AI-Review übersprungen (lokale Heuristik) ===")
+            ensure_scene_types(photos, candidates)
+
+        # Checkpoint: Analyse/KI sichern, bevor Auswahl/Export – Absturz kostet dann keine KI erneut
+        write_csv(photos, cfg.output_dir / "photos_analysis.csv")
+        print(
+            f"  Zwischenstand gespeichert: {cfg.output_dir / 'photos_analysis.csv'} "
+            "(Analyse/KI – später ohne neuen KI-Lauf fortsetzbar)"
+        )
+
+        if cfg.dry_run and cfg.ai_review:
+            report("Fertig (Dry-Run)", 1.0, "done")
+            return {
+                "photos": len(photos),
+                "regions": [r.name for r in plan.regions],
+                "transits": [t.name for t in plan.transits],
+                "candidates": len(candidates),
+                "ai": ai_stats,
+                "dry_run": True,
+            }
+
+        report("Auswahl & Buchstruktur…", 0.90, "selection")
+        print("=== Phase 5: Auswahl & Buchstruktur ===")
+        print(
+            "  Hinweis: Jetzt werden Ähnlichkeiten verglichen. "
+            "Bei vielen Fotos / OneDrive kann das mehrere Minuten dauern – "
+            "das Programm hängt nicht, auch wenn die GUI kurz stockt."
+        )
+        if cfg.coverage_intensity > 0:
+            print(f"  Tages-Abdeckung aktiv (Stärke {cfg.coverage_intensity:.0%})")
+        if cfg.people_balance_intensity > 0:
+            print(f"  Personen-Balance aktiv (Stärke {cfg.people_balance_intensity:.0%})")
+        order = build_book_order(
+            photos,
+            plan,
+            food_ratio=cfg.food_ratio,
+            max_landmarks=cfg.max_landmarks,
+            similarity_threshold=cfg.similarity_threshold,
+            coverage_intensity=cfg.coverage_intensity,
+            people_balance_intensity=cfg.people_balance_intensity,
+            max_per_day=cfg.max_per_day,
+            max_per_chapter=cfg.max_per_chapter,
+        )
+        print(f"  {len(order)} Bilder ausgewählt")
+        if len(order) < cfg.target_n:
+            print("  Zielanzahl unterschritten: Kontingente, Tages-/Kapitelgrenzen oder "
+                  "verfügbare geeignete Bilder begrenzen die Auswahl.")
+        write_csv(photos, cfg.output_dir / "photos_analysis.csv")
+        print("  Auswahl-Zwischenstand in photos_analysis.csv geschrieben")
+
+        map_path = None
+        if cfg.enable_map_preview:
+            report("Karte…", 0.94, "map")
+            map_path = write_chapter_map(photos, plan, cfg.output_dir, order)
+            print(f"  Kapitel-Karte: {map_path}")
+
+        exported = False
+        report("Ausgabe…", 0.96, "export")
+        if cfg.skip_export:
+            print("=== Ausgabe zurückgestellt (Kapitel-Vorschau) ===")
+            write_csv(photos, cfg.output_dir / "photos_analysis.csv")
+            print(f"  CSV: {cfg.output_dir / 'photos_analysis.csv'}")
+        else:
+            print("=== Ausgabe ===")
+            export_book_outputs(
+                photos,
+                plan,
+                order,
+                cfg.output_dir,
+                write_map=False,  # Karte ggf. schon oben geschrieben
+            )
+            exported = True
+
+        report("Fertig", 1.0, "done")
         return {
             "photos": len(photos),
             "regions": [r.name for r in plan.regions],
             "transits": [t.name for t in plan.transits],
+            "selected": len(order),
             "candidates": len(candidates),
             "ai": ai_stats,
-            "dry_run": True,
+            "dry_run": False,
+            "photo_objects": photos,
+            "plan": plan,
+            "order": order,
+            "output_dir": cfg.output_dir,
+            "map_path": map_path,
+            "exported": exported,
+            "enable_map_preview": cfg.enable_map_preview,
         }
-
-    report("Auswahl & Buchstruktur…", 0.90, "selection")
-    print("=== Phase 5: Auswahl & Buchstruktur ===")
-    print(
-        "  Hinweis: Jetzt werden Ähnlichkeiten verglichen. "
-        "Bei vielen Fotos / OneDrive kann das mehrere Minuten dauern – "
-        "das Programm hängt nicht, auch wenn die GUI kurz stockt."
-    )
-    if cfg.coverage_intensity > 0:
-        print(f"  Tages-Abdeckung aktiv (Stärke {cfg.coverage_intensity:.0%})")
-    if cfg.people_balance_intensity > 0:
-        print(f"  Personen-Balance aktiv (Stärke {cfg.people_balance_intensity:.0%})")
-    order = build_book_order(
-        photos,
-        plan,
-        food_ratio=cfg.food_ratio,
-        max_landmarks=cfg.max_landmarks,
-        similarity_threshold=cfg.similarity_threshold,
-        coverage_intensity=cfg.coverage_intensity,
-        people_balance_intensity=cfg.people_balance_intensity,
-    )
-    print(f"  {len(order)} Bilder ausgewählt")
-    write_csv(photos, cfg.output_dir / "photos_analysis.csv")
-    print("  Auswahl-Zwischenstand in photos_analysis.csv geschrieben")
-
-    map_path = None
-    if cfg.enable_map_preview:
-        report("Karte…", 0.94, "map")
-        map_path = write_chapter_map(photos, plan, cfg.output_dir, order)
-        print(f"  Kapitel-Karte: {map_path}")
-
-    exported = False
-    report("Ausgabe…", 0.96, "export")
-    if cfg.skip_export:
-        print("=== Ausgabe zurückgestellt (Kapitel-Vorschau) ===")
-        write_csv(photos, cfg.output_dir / "photos_analysis.csv")
-        print(f"  CSV: {cfg.output_dir / 'photos_analysis.csv'}")
-    else:
-        print("=== Ausgabe ===")
-        export_book_outputs(
-            photos,
-            plan,
-            order,
-            cfg.output_dir,
-            write_map=False,  # Karte ggf. schon oben geschrieben
-        )
-        exported = True
-
-    report("Fertig", 1.0, "done")
-    return {
-        "photos": len(photos),
-        "regions": [r.name for r in plan.regions],
-        "transits": [t.name for t in plan.transits],
-        "selected": len(order),
-        "candidates": len(candidates),
-        "ai": ai_stats,
-        "dry_run": False,
-        "photo_objects": photos,
-        "plan": plan,
-        "order": order,
-        "output_dir": cfg.output_dir,
-        "map_path": map_path,
-        "exported": exported,
-        "enable_map_preview": cfg.enable_map_preview,
-    }
+    finally:
+        clear_bgr_cache()
+        if analysis_cache is not None:
+            analysis_cache.close()

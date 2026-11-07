@@ -29,6 +29,8 @@ jobs:
       - name: Validate release version
         shell: pwsh
         run: |
+          python packaging/build.py --check
+          if ($LASTEXITCODE -ne 0) { throw 'Release metadata versions differ' }
           $version = python -c "from photobook_curator import __version__; print(__version__)"
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid version' }
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and app version differ' }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import os
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -18,13 +19,26 @@ from .utils import (
 )
 
 
-def find_images(input_dir: Path) -> list[Path]:
+def find_images(input_dir: Path, *, exclude_dirs: Iterable[Path] | None = None) -> list[Path]:
+    """Find originals, pruning excluded output trees before descending into them."""
     register_heif()
+    excluded = tuple(Path(p).resolve() for p in (exclude_dirs or ()))
+
+    def excluded_path(path: Path) -> bool:
+        resolved = path.resolve()
+        return any(resolved.is_relative_to(parent) for parent in excluded)
+
+    if excluded_path(input_dir):
+        return []
     paths: list[Path] = []
-    for p in sorted(input_dir.rglob("*")):
-        if p.is_file() and is_image_file(p):
-            paths.append(p)
-    return paths
+    for directory, child_dirs, filenames in os.walk(input_dir, followlinks=False):
+        current = Path(directory)
+        child_dirs[:] = [name for name in child_dirs if not excluded_path(current / name)]
+        for name in filenames:
+            p = current / name
+            if p.is_file() and is_image_file(p) and not excluded_path(p):
+                paths.append(p)
+    return sorted(paths)
 
 
 def _ratio_to_float(ratio) -> Optional[float]:
@@ -230,8 +244,10 @@ def scan_photos(
     timezone_offset_hours: float = 0.0,
     apply_exif_offset: bool = False,
     extra_paths: Iterable[Path] | None = None,
+    exclude_dirs: Iterable[Path] | None = None,
 ) -> list[Photo]:
-    paths = find_images(input_dir)
+    # Explicit extracted video stills remain allowed even when stored in output.
+    paths = find_images(input_dir, exclude_dirs=exclude_dirs)
     if extra_paths:
         seen = {p.resolve() for p in paths}
         for ep in extra_paths:
