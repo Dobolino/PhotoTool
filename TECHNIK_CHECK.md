@@ -24,7 +24,7 @@ Kein Komplettumbau vor der ersten echten Japan-Testauswahl erforderlich.
 | Erneuter Export | Bisheriges Album vor erfolgreichem Kopieren gelöscht | Temporäre Verzeichnisse, Austausch nach Kopierabschluss, Rollback bei Publikationsfehler |
 | CSV/Entwurf/Einstellungen | Teilweise direkte bzw. unzureichend gesicherte Schreibvorgänge | Atomarer Dateiaustausch; CSV und Entwurf zusätzlich fsync |
 | Update | Installation trotz fehlgeschlagener Entwurfssicherung möglich | Fehler verhindert Installerstart und Schliessen der App |
-| Versionsangaben | Paket 0.2.0, App/Installer 0.3.0 | Konsistente 0.3.0, Build prüft Übereinstimmung |
+| Versionsangaben | Paket 0.2.0, App/Installer 0.3.0 | Neue Version 0.3.1, Build prüft Übereinstimmung |
 | Analyse-Cache | Standardfelder konnten übersprungene Analysestufen vortäuschen | Versions-/Options-/Backend-Kennungen, geänderte Filter neu analysieren |
 | Hochauflösende JPEGs | Voller Decode vor Verkleinerung | JPEG-Draft vor Analyse-Resize; kleinerer Bildcache mit Dateiänderungsschlüssel |
 | Inhaltsähnlichkeit | Einfacher Ersatzvektor konnte echte Motive aussortieren | Automatische Gruppierung nur mit neuronalem Embedding; unpassende Dimensionen nicht vergleichen |
@@ -59,10 +59,35 @@ Gemessen mit Python 3.12.14 auf dem Linux-Prüfsystem:
 Der Decoder-Vergleich zeigt hier rund 59 % weniger Spitzen-RAM, kein allgemeines
 Laufzeitversprechen für Windows oder echte Urlaubsbilder.
 
+Zusätzlicher vollständiger Pipeline-Test mit 2.000 physischen 6.000×4.000-JPEGs
+(rund 1 GB), zehn wiederholten geometrischen Vorlagen, 14 EXIF-Aufnahmetagen und
+GPS für Tokyo/Kyoto/Osaka:
+
+- Kalter Analyse-Cache: **36,945 s**, **288,5 MiB** Prozess-Spitzen-RAM; Ziel 80,
+  80 ausgewählt und tatsächlich exportiert, keine unlesbaren Dateien.
+- Wiederverwendeter Cache, Japan-Einstellungen (Ziel 200, Tages-Abdeckung 0,8,
+  Tagesgrenze 18, Kapitelgrenze 60): **5,066 s**, **211,4 MiB**; 177 Bilder
+  ausgewählt und exportiert. Alle 14 Tage vertreten, höchstens 15 Bilder je Tag;
+  Kapitel Tokyo/Kyoto/Osaka: 60/60/57 Bilder. Drei Kapitel mit je maximal 60
+  erlauben höchstens 180 Bilder; 200 sind mit diesen Grenzen unerreichbar.
+- Enthalten: Scan/EXIF, lokale Qualität/Dokument-/Kompositions-/Ästhetikprüfung,
+  pHash/Serien, Orte, Auswahl, CSV, Kopierexport. Ausgeschlossen: Gesichter,
+  Embeddings, externe KI, Netzwerk-Geocoding, HEIC und GUI. Wiederholte Vorlagen
+  vereinfachen die Reduktion; keine Aussage über reale Auswahlqualität.
+
+Reproduktion auf einem Entwicklungscheckout (ca. 1 GB freie Platte zusätzlich
+zum Export einplanen; Verzeichnis ausschliesslich für Testdateien verwenden):
+
+```bash
+python scripts/benchmark_pipeline_scale.py --work-dir /tmp/phototool-benchmark generate
+python scripts/benchmark_pipeline_scale.py --work-dir /tmp/phototool-benchmark run --target 80
+python scripts/benchmark_pipeline_scale.py --work-dir /tmp/phototool-benchmark run --target 200 --coverage 0.8 --max-per-day 18 --max-per-chapter 60
+```
+
 ## Standalone und Updates
 
 Windows-Build: `packaging/build_windows.bat` bzw. GitHub Actions **Windows build**.
-Ergebnis: `PhotoTool-Setup-0.3.0.exe`, portables ZIP, SHA256-Prüfsummen. Der Build
+Ergebnis: `PhotoTool-Setup-0.3.1.exe`, portables ZIP, SHA256-Prüfsummen. Der Build
 enthält einen Starttest des gebündelten EXE. Die CI erstellt bei Pull Requests
 Artefakte; eine Release-Veröffentlichung erfolgt nur bei passenden Versionstags.
 

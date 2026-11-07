@@ -1,0 +1,76 @@
+{
+  "kind": "synthetic_end_to_end_jpeg_no_inference",
+  "photos": 2000,
+  "source_pixels": [
+    6000,
+    4000
+  ],
+  "days": 14,
+  "repeated_templates": 10,
+  "pipeline_seconds": 5.066,
+  "process_peak_rss_mib": 211.4,
+  "cache_existed_before_run": true,
+  "target": 200,
+  "coverage_intensity": 0.8,
+  "max_per_day": 18,
+  "max_per_chapter": 60,
+  "day_counts": {
+    "2026-04-01": 13,
+    "2026-04-02": 12,
+    "2026-04-03": 12,
+    "2026-04-04": 12,
+    "2026-04-05": 11,
+    "2026-04-06": 13,
+    "2026-04-07": 12,
+    "2026-04-08": 12,
+    "2026-04-09": 12,
+    "2026-04-10": 11,
+    "2026-04-11": 15,
+    "2026-04-12": 14,
+    "2026-04-13": 14,
+    "2026-04-14": 14
+  },
+  "chapter_counts": {
+    "01_Tokyo": 60,
+    "02_Kyoto": 60,
+    "03_Osaka": 57
+  },
+  "day_cap_satisfied": true,
+  "chapter_cap_satisfied": true,
+  "selected": 177,
+  "regions": [
+    "Tokyo",
+    "Kyoto",
+    "Osaka"
+  ],
+  "candidates": 280,
+  "unreadable": 0,
+  "duplicates": 0,
+  "burst_rejects": 1720,
+  "selected_files": 177,
+  "csv_exists": true,
+  "overview_exists": true,
+  "enabled": [
+    "scan_EXIF_GPS",
+    "local_quality",
+    "document_filter",
+    "accidental_filter",
+    "weak_night_filter",
+    "local_aesthetic",
+    "pHash",
+    "bursts",
+    "regions",
+    "selection",
+    "CSV",
+    "copy_export"
+  ],
+  "excluded": [
+    "faces",
+    "embeddings",
+    "AI",
+    "geocoding_network",
+    "HEIC",
+    "GUI"
+  ],
+  "exported_count_matches_selection": true
+}

@@ -6,6 +6,11 @@ Lokales Python-CLI-Tool zur Kuratierung eines Urlaubs-Fotobuchs aus einer große
 
 **Einstieg:** siehe [ANLEITUNG.md](ANLEITUNG.md). Unter Windows am einfachsten: `Fotobuch starten.bat` doppelklicken (Fenster-Oberfläche).
 
+Neu in **0.3.1**: Tages-/Kapitelgrenzen, stabileres Speichern und Exportieren,
+korrektes Cache-Verhalten bei geänderten Analyseoptionen sowie weniger RAM beim
+JPEG-Decodieren. Der Updater benötigt erreichbare Release-Dateien; das derzeit
+private Repository bietet noch keine anonyme Update-Verteilung (siehe Technik-Check).
+
 ## Windows-Programm und Updates
 
 GitHub Actions baut einen Installer `PhotoTool-Setup-<Version>.exe` und ein
