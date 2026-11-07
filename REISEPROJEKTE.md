@@ -1,10 +1,10 @@
-# PhotoTool 0.4: Jede Reise, ein eigenes Album
+# PhotoTool 0.4.1: Jede Reise, ein eigenes Album
 
 PhotoTool reduziert eine Fotosammlung für ein Fotobuch. Das endgültige Layout
 entsteht anschliessend in deiner Fotobuchsoftware. Alle Funktionen sind für
 beliebige Reisen gedacht, nicht speziell für Japan.
 
-![Projekt und Album planen](docs/screenshots/phototool-0.4-main.png)
+![Projekt und Album planen](docs/screenshots/phototool-0.4.1-main.png)
 
 ![Album prüfen](docs/screenshots/phototool-0.4-review.png)
 
@@ -25,6 +25,39 @@ beliebige Reisen gedacht, nicht speziell für Japan.
    Motivgruppen sowie die Bildmischung der Kapitel.
 5. **Exportieren:** Ausgewählte Originaldateien werden in Kapitelordner kopiert.
    Zwischenstände lassen sich jederzeit sichern und später fortsetzen.
+
+## Lokal auswählen oder mit KI ergänzen
+
+**Lokale Auswahl erstellen** liefert bereits eine vollständige Auswahl ohne
+KI-Anbieter. Bildqualität, Duplikate, Serien, Tage und Kapitel werden berücksichtigt.
+Danach kannst du die Auswahl prüfen, verändern und exportieren.
+
+KI ist eine optionale zusätzliche Bewertung. Unter **KI optional** kannst du
+später einen Anbieter wählen und einen weiteren Lauf starten; vorhandene lokale
+Analysewerte werden soweit möglich wiederverwendet. Innerhalb eines KI-Laufs ist
+die Reihenfolge: lokale Analyse → Kandidaten → KI-Bewertung → endgültige Auswahl.
+Es werden nicht automatisch alle Originalbilder an einen Anbieter geschickt.
+
+**Nur Kosten schätzen** liefert keine fertige Auswahl und startet keine
+KI-Bewertung. Der Modus, Anbieter und die abweichende Startaktion werden deshalb
+vor dem Start deutlich angezeigt. Kostenpflichtige Anbieter benötigen einen
+Zugangsschlüssel; er wird nicht in der Projektdatei gespeichert.
+
+## Einstellungen und Fortschritt
+
+**Auswahl anpassen** öffnet drei kompakte Bereiche: **Bildqualität**,
+**Abwechslung** und **KI**. Die Hauptansicht wird dadurch nicht zu einem langen
+technischen Formular. Das Seitenbudget findest du auch unter **Seitenbudget planen**.
+Änderungen gelten für den nächsten Analyselauf. Kurze Erklärungen erscheinen direkt
+an der jeweiligen Fragezeichen-Schaltfläche; Escape oder ein Klick daneben schliesst sie.
+
+![Gruppierte Einstellungen](docs/screenshots/phototool-0.4.1-settings.png)
+
+Nach dem Start zeigt eine eigene Ansicht die aktuelle Aufgabe und den Fortschritt.
+**Technische Details anzeigen** öffnet bei Bedarf das Protokoll. Nach Abschluss,
+Abbruch oder Fehler ist die Planung wieder erreichbar.
+
+![Fortschrittsansicht mit ausdrücklich simulierten Demo-Daten](docs/screenshots/phototool-0.4.1-progress-demo.png)
 
 ## Reiseprofile
 
@@ -98,6 +131,6 @@ Quellkopie wird nicht als neuer gemeinsamer Stammordner übernommen.
 Projektdateien gespeichert.
 
 Das Repository ist öffentlich. Stabile Windows-Installer und portable ZIPs werden
-über GitHub Releases verteilt. **Updates** prüft auf eine neuere stabile Version;
+über GitHub Releases verteilt. **Mehr → Updates** prüft auf eine neuere stabile Version;
 Downloads werden anhand Grösse und SHA256 geprüft. Vor der Installation werden
 Review-Entwürfe gesichert. Scheitert die Sicherung, wird die Installation blockiert.

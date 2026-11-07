@@ -527,18 +527,19 @@ class PhotobookApp(tk.Tk):
              if name.casefold() in available),
             tkfont.nametofont("TkDefaultFont").actual("family"),
         )
+        self._font_family = FONT_UI
         from . import ui_widgets
         ui_widgets.FONT_UI = FONT_UI
         for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont"):
-            tkfont.nametofont(name).configure(family=FONT_UI, size=10)
-        self.option_add("*Font", (FONT_UI, 10))
+            tkfont.nametofont(name).configure(family=FONT_UI, size=12)
+        self.option_add("*Font", (FONT_UI, 12))
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
         except tk.TclError:
             pass
 
-        font_ui = (FONT_UI, 10)
+        font_ui = (FONT_UI, 12)
         c = COLORS
         entry_bg = c.get("chip_bg", c["surface"])
 
@@ -573,7 +574,7 @@ class PhotobookApp(tk.Tk):
             "Field.TLabel",
             background=c["surface"],
             foreground=c["muted"],
-            font=(FONT_UI, 9),
+            font=(FONT_UI, 12),
         )
         style.configure(
             "Body.TLabel",
@@ -602,7 +603,7 @@ class PhotobookApp(tk.Tk):
         )
         style.configure(
             "Start.TButton",
-            font=(FONT_UI, 11, "bold"),
+            font=(FONT_UI, 12, "bold"),
             padding=(20, 12),
             background=c["accent"],
             foreground=c.get("hero_fg", "#FFFFFF"),
@@ -680,11 +681,11 @@ class PhotobookApp(tk.Tk):
             "Next.TLabel",
             background=c["bg"],
             foreground=c["accent"],
-            font=(FONT_UI, 10, "bold"),
+            font=(FONT_UI, 12, "bold"),
         )
         style.configure(
             "Help.TButton",
-            font=(FONT_UI, 10, "bold"),
+            font=(FONT_UI, 12, "bold"),
             padding=(14, 9),
             background=c.get("chip_bg", c["surface"]),
             foreground=c["ink"],
@@ -702,572 +703,26 @@ class PhotobookApp(tk.Tk):
             darkcolor=c["accent"],
         )
 
+        style.configure("TNotebook", background=c["bg"], borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure("TNotebook.Tab", background=c["bg"], foreground=c["muted"],
+                        lightcolor=c["bg"], bordercolor=c["line"])
+        style.map("TNotebook.Tab", background=[("selected", c["surface"]), ("active", c["chip_bg"])],
+                  foreground=[("selected", c["ink"]), ("active", c["ink"])])
+        style.configure("TNotebook.Tab", font=(FONT_UI, 12, "bold"), padding=(20, 12))
+        style.configure("Analysis.Horizontal.TProgressbar", thickness=24)
+        for button_style in ("Browse.TButton", "Start.TButton"):
+            border = c["accent"] if button_style == "Start.TButton" else c["line"]
+            style.configure(button_style, relief="flat", borderwidth=1,
+                            bordercolor=border, lightcolor=border, darkcolor=border,
+                            focuscolor=c["accent"])
+        style.map("Browse.TButton", bordercolor=[("focus", c["accent"]), ("active", c["accent"]), ("disabled", c["line"])])
+        for widget_style in ("TEntry", "TCombobox", "AI.TCombobox", "TSpinbox"):
+            style.configure(widget_style, font=(FONT_UI, 12), lightcolor=c["line"], darkcolor=c["line"])
+
     def _build(self) -> None:
-        from .ui_widgets import (
-            AnAusToggle,
-            HelpTip,
-            PaddedButton,
-            card,
-            pill_badge,
-            section_header,
-            soft_banner,
-        )
-
-        c = COLORS
-        root = ttk.Frame(self, style="App.TFrame")
-        root.pack(fill=tk.BOTH, expand=True)
-
-        header = tk.Frame(root, bg=c["bg"], padx=26, pady=18)
-        header.pack(fill=tk.X)
-        wordmark = tk.Frame(header, bg=c["bg"])
-        wordmark.pack(side=tk.LEFT)
-        self._brand_lbl = tk.Label(
-            wordmark, text="PhotoTool", bg=c["bg"], fg=c["ink"],
-            font=(FONT_UI, 23, "bold"), anchor=tk.W,
-        )
-        self._brand_lbl.pack(anchor=tk.W)
-        self._hero_subtitle = tk.Label(
-            wordmark, text=t("workflow_subtitle"), bg=c["bg"], fg=c["muted"],
-            font=(FONT_UI, 10), anchor=tk.W,
-        )
-        self._hero_subtitle.pack(anchor=tk.W, pady=(3, 0))
-        self._settings_btn = PaddedButton(
-            header, t("settings"), c, command=self._open_settings, padx=12, pady=8
-        )
-        self._settings_btn.pack(side=tk.RIGHT)
-        self._help_btn = PaddedButton(
-            header, t("help"), c, command=self._show_help, padx=12, pady=8
-        )
-        self._help_btn.pack(side=tk.RIGHT, padx=(0, 8))
-        from .update_dialog import open_update_dialog
-        self._update_btn = PaddedButton(
-            header, t("update_title"), c, command=lambda: open_update_dialog(self), padx=12, pady=8
-        )
-        self._update_btn.pack(side=tk.RIGHT, padx=(0, 8))
-
-        workflow = tk.Frame(root, bg=c["bg"], padx=26)
-        workflow.pack(fill=tk.X, pady=(0, 14))
-        self._workflow_labels = []
-        for n, key in enumerate(("workflow_import", "workflow_plan", "workflow_review")):
-            workflow.columnconfigure(n, weight=1)
-            label = tk.Label(
-                workflow, text=f"0{n + 1}   {t(key)}", anchor=tk.W,
-                bg=c.get("accent_soft", c["surface"]) if n == 0 else c["surface"],
-                fg=c["ink"] if n == 0 else c["muted"],
-                padx=16, pady=11, font=(FONT_UI, 10, "bold"),
-            )
-            label.grid(row=0, column=n, sticky="ew", padx=(0, 8 if n < 2 else 0))
-            self._workflow_labels.append(label)
-
-        self._footer = tk.Frame(root, bg=c["surface"], padx=20, pady=14)
-        self._footer.pack(fill=tk.X, side=tk.BOTTOM)
-        self._footer_progress_host = ttk.Frame(self._footer, style="Card.TFrame")
-        self._footer_actions_host = tk.Frame(self._footer, bg=c["surface"])
-        self._footer_actions_host.pack(fill=tk.X)
-
-        # Scrollbarer Inhalt (Mausrad → _install_body_wheel)
-        body_host = ttk.Frame(root, style="App.TFrame")
-        body_host.pack(fill=tk.BOTH, expand=True)
-        self._body_host = body_host
-        canvas = tk.Canvas(body_host, bg=c["bg"], highlightthickness=0)
-        self._body_canvas = canvas
-        scroll = ttk.Scrollbar(body_host, orient=tk.VERTICAL, command=canvas.yview)
-        self._body_scroll = scroll
-        body = ttk.Frame(canvas, style="App.TFrame", padding=(22, 4, 22, 12))
-        body.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
-        )
-        self._body_win = canvas.create_window((0, 0), window=body, anchor=tk.NW)
-        canvas.configure(yscrollcommand=scroll.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.bind(
-            "<Configure>",
-            lambda e: canvas.itemconfigure(self._body_win, width=e.width),
-        )
-
-        self._cards_host = ttk.Frame(body, style="App.TFrame")
-        self._cards_host.pack(fill=tk.X)
-        self._cards_host.columnconfigure(0, weight=1, uniform="maincards")
-        self._cards_host.columnconfigure(1, weight=1, uniform="maincards")
-        folder_card = card(self._cards_host, c, padx=22, pady=20)
-        self._folder_card = folder_card
-        folder_inner = folder_card._inner
-        self._translated_label(folder_inner, "import_title", bg=c["surface"], fg=c["ink"],
-                 font=(FONT_UI, 15, "bold"), anchor=tk.W).pack(anchor=tk.W, pady=(0, 5))
-        self._translated_label(folder_inner, "import_hint", bg=c["surface"], fg=c["muted"],
-                 font=(FONT_UI, 9), anchor=tk.W).pack(anchor=tk.W, pady=(0, 18))
-        self._workflow_tools_host = tk.Frame(folder_inner, bg=c["surface"])
-        self._workflow_tools_host.pack(fill=tk.X, pady=(0, 14))
-        self._project_btn = ttk.Button(self._workflow_tools_host, text=t("project_open"),
-                                      style="Browse.TButton", command=self._open_project_manager)
-        self._project_btn.pack(side=tk.LEFT)
-        self._resume_btn = ttk.Button(self._workflow_tools_host, text=t("resume_album"),
-                                     style="Browse.TButton", command=self._open_existing_review)
-        self._resume_btn.pack(side=tk.LEFT, padx=(8, 0))
-
-        self._input_title = self._folder_row(
-            folder_inner, t("photos_folder"), "", self.input_var, self._pick_input
-        )
-        self._found_badge = pill_badge(folder_inner, "", c)
-        self._found_badge.pack(anchor=tk.W, pady=(8, 0))
-        self._found_badge.pack_forget()
-        self.found_var.trace_add("write", lambda *_: self._sync_found_badge())
-
-        tk.Frame(folder_inner, bg=c["line"], height=1).pack(fill=tk.X, pady=14)
-        self._output_title = self._folder_row(
-            folder_inner, t("output_folder"), "", self.output_var, self._pick_output
-        )
-
-        self._project_name_var = tk.StringVar(value=t("project_not_saved"))
-        tk.Label(folder_inner, textvariable=self._project_name_var, bg=c["surface"],
-                 fg=c["muted"], font=(FONT_UI, 9), anchor=tk.W,
-                 wraplength=420).pack(fill=tk.X, pady=(14, 0))
-
-        settings_card = card(self._cards_host, c, padx=22, pady=20)
-        self._settings_card = settings_card
-        settings = settings_card._inner  # type: ignore[attr-defined]
-        self._options_box = settings
-        self._translated_label(settings, "album_title", bg=c["surface"], fg=c["ink"],
-                 font=(FONT_UI, 15, "bold"), anchor=tk.W).pack(anchor=tk.W, pady=(0, 5))
-        self._album_tools_host = tk.Frame(settings, bg=c["surface"])
-        self._album_tools_host.pack(fill=tk.X, pady=(7, 12))
-        self._translated_label(self._album_tools_host, "travel_profile", style="Field.TLabel").pack(side=tk.LEFT)
-        from .travel_profiles import profile_choices
-        self._profile_choices = profile_choices(getattr(self.app_settings, "language", "de"))
-        self._profile_combo = ttk.Combobox(
-            self._album_tools_host, state="readonly", width=23,
-            values=[label for _pid, label in self._profile_choices],
-        )
-        self._profile_combo.pack(side=tk.RIGHT)
-        self._profile_combo.current(0)
-        self._profile_combo.bind("<<ComboboxSelected>>", self._apply_selected_profile)
-
-        target_row = tk.Frame(settings, bg=c["surface"])
-        target_row.pack(fill=tk.X)
-        self._target_lbl = tk.Label(
-            target_row,
-            text=t("target_count"),
-            bg=c["surface"],
-            fg=c["ink"],
-            font=(FONT_UI, 10),
-            anchor=tk.W,
-        )
-        self._target_lbl.pack(side=tk.LEFT)
-        self._help_tips: list[HelpTip] = []
-        tip = HelpTip(target_row, "help_target_count", c, get_text=t)
-        tip.pack(side=tk.LEFT, padx=(4, 0))
-        self._help_tips.append(tip)
-        spin = ttk.Spinbox(
-            target_row,
-            from_=10,
-            to=500,
-            textvariable=self.target_var,
-            width=8,
-            command=self._refresh_cost_estimate,
-        )
-        spin.pack(side=tk.RIGHT)
-        self._target_spin = spin
-        try:
-            self.target_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
-            self.ai_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
-            self.ai_provider_var.trace_add("write", lambda *_: self._refresh_cost_estimate())
-        except Exception:
-            pass
-        tk.Label(
-            settings,
-            textvariable=self.cost_var,
-            bg=c["surface"],
-            fg=c["muted"],
-            font=(FONT_UI, 9),
-            anchor=tk.W,
-        ).pack(anchor=tk.W, pady=(0, 10))
-
-        self._budget_row = tk.Frame(settings, bg=c["surface"])
-        self._budget_row.pack(fill=tk.X, pady=(3, 9))
-        for key, variable, width in (
-            ("book_pages", self.book_pages_var, 5),
-            ("photos_per_page", self.photos_per_page_var, 5),
-        ):
-            cell = tk.Frame(self._budget_row, bg=c["surface"])
-            cell.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            self._translated_label(cell, key, style="Field.TLabel").pack(anchor=tk.W, pady=(0, 4))
-            ttk.Entry(cell, textvariable=variable, width=width).pack(fill=tk.X)
-        self._budget_hint_var = tk.StringVar(value=t("budget_manual_hint"))
-        ttk.Label(settings, textvariable=self._budget_hint_var, style="Field.TLabel",
-                  wraplength=420).pack(fill=tk.X, pady=(0, 8))
-        self.book_pages_var.trace_add("write", self._refresh_page_budget)
-        self.photos_per_page_var.trace_add("write", self._refresh_page_budget)
-        self.reserved_pages_var.trace_add("write", self._refresh_page_budget)
-
-        # One optional panel holds all technical filters. Main choices stay short.
-        self._advanced_host = ttk.Frame(body, style="App.TFrame")
-        self._advanced_host.pack(fill=tk.X, pady=(10, 0))
-        self.advanced_frame = ttk.Frame(self._advanced_host, style="Card.TFrame", padding=20)
-        options_parent = self.advanced_frame
-        self._translated_label(options_parent, "advanced_heading", style="Body.TLabel").pack(anchor=tk.W, pady=(0, 12))
-        story_row = ttk.Frame(options_parent, style="Card.TFrame")
-        story_row.pack(fill=tk.X, pady=(0, 12))
-        self._translated_label(story_row, "storytelling_strength", style="Body.TLabel").pack(side=tk.LEFT)
-        ttk.Scale(story_row, from_=0, to=1, variable=self.storytelling_var).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(16, 0))
-        reserve_row = ttk.Frame(options_parent, style="Card.TFrame")
-        reserve_row.pack(fill=tk.X, pady=(0, 12))
-        self._translated_label(reserve_row, "reserved_pages", style="Field.TLabel").pack(side=tk.LEFT)
-        ttk.Spinbox(reserve_row, from_=0, to=100, width=6, textvariable=self.reserved_pages_var).pack(side=tk.RIGHT)
-        self._core_checks: list[tuple[Any, str]] = []
-        self._toggle_rows: list[tuple[tk.Label, AnAusToggle, str]] = []
-        for key, long_key, var in (
-            ("opt_geocode", "opt_geocode_long", self.geocode_var),
-            ("opt_faces", "opt_faces_long", self.faces_var),
-            ("opt_bursts", "opt_bursts", self.bursts_var),
-            ("opt_aside", "opt_aside", self.aside_var),
-            ("opt_accidental", "opt_accidental", self.accidental_var),
-            ("opt_weak_night", "opt_weak_night", self.weak_night_var),
-            ("opt_content", "opt_content", self.content_var),
-            ("opt_aesthetic", "opt_aesthetic", self.aesthetic_var),
-        ):
-            row = tk.Frame(options_parent, bg=c["surface"])
-            row.pack(fill=tk.X, pady=6)
-            lbl = tk.Label(
-                row,
-                text=t(long_key),
-                bg=c["surface"],
-                fg=c["ink"],
-                font=(FONT_UI, 10),
-                anchor=tk.W,
-            )
-            lbl.pack(side=tk.LEFT)
-            tip = HelpTip(row, f"help_{key}", c, get_text=t)
-            tip.pack(side=tk.LEFT, padx=(4, 8))
-            self._help_tips.append(tip)
-            spacer = tk.Frame(row, bg=c["surface"])
-            spacer.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            tog = AnAusToggle(
-                row,
-                var,
-                c,
-                command=self._sync_dependent_controls,
-                on_text=t("toggle_on"),
-                off_text=t("toggle_off"),
-            )
-            tog.pack(side=tk.RIGHT)
-            self._toggle_rows.append((lbl, tog, long_key))
-            self._core_checks.append((tog, key))
-
-        tz_row = tk.Frame(options_parent, bg=c["surface"])
-        tz_row.pack(fill=tk.X, pady=6)
-        self._tz_lbl = tk.Label(
-            tz_row,
-            text=t("opt_timezone"),
-            bg=c["surface"],
-            fg=c["ink"],
-            font=(FONT_UI, 10),
-            anchor=tk.W,
-        )
-        self._tz_lbl.pack(side=tk.LEFT)
-        tip = HelpTip(tz_row, "help_opt_timezone", c, get_text=t)
-        tip.pack(side=tk.LEFT, padx=(4, 8))
-        self._help_tips.append(tip)
-        spacer = tk.Frame(tz_row, bg=c["surface"])
-        spacer.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.timezone_spin = ttk.Spinbox(
-            tz_row,
-            from_=-14,
-            to=14,
-            increment=0.5,
-            textvariable=self.timezone_offset_var,
-            width=6,
-        )
-        self.timezone_spin.pack(side=tk.RIGHT)
-        opt_row = ttk.Frame(settings, style="Card.TFrame")
-        opt_row.pack(fill=tk.X, pady=(12, 0))
-        self.advanced_toggle = ttk.Button(
-            opt_row,
-            text=t("more_options"),
-            style="Help.TButton",
-            command=self._toggle_advanced,
-        )
-        self.advanced_toggle.pack(side=tk.LEFT)
-
-        self._adv_checks: list[tuple[ttk.Checkbutton, str]] = []
-        for key, var in (
-            ("opt_video", self.video_var),
-            ("opt_finger", self.finger_var),
-            ("opt_coverage", self.coverage_var),
-            ("opt_people", self.people_var),
-            ("opt_map", self.map_preview_var),
-        ):
-            row = ttk.Frame(self.advanced_frame, style="Card.TFrame")
-            row.pack(fill=tk.X, pady=3)
-            chk = ttk.Checkbutton(
-                row,
-                text=t(key),
-                variable=var,
-                command=self._sync_dependent_controls,
-            )
-            chk.pack(side=tk.LEFT)
-            tip = HelpTip(row, f"help_{key}", c, get_text=t)
-            tip.pack(side=tk.LEFT, padx=(6, 0))
-            self._help_tips.append(tip)
-            self._adv_checks.append((chk, key))
-
-        self.coverage_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
-        cov_row = ttk.Frame(self.coverage_block, style="Card.TFrame")
-        cov_row.pack(fill=tk.X, pady=(8, 0))
-        self._coverage_strength_lbl = ttk.Label(
-            cov_row, text=t("coverage_strength"), style="Field.TLabel"
-        )
-        self._coverage_strength_lbl.pack(side=tk.LEFT)
-        self.coverage_label = ttk.Label(cov_row, text="50%", style="Field.TLabel")
-        self.coverage_label.pack(side=tk.RIGHT)
-        self.coverage_scale = ttk.Scale(
-            self.coverage_block,
-            from_=0.1,
-            to=1.0,
-            variable=self.coverage_intensity_var,
-            command=self._on_coverage_scale,
-        )
-        self.coverage_scale.pack(fill=tk.X, pady=(4, 0))
-
-        self._cap_labels: list[tuple[ttk.Label, str]] = []
-        caps_block = ttk.Frame(settings, style="Card.TFrame")
-        caps_block.pack(fill=tk.X, pady=(8, 0))
-        for key, var in (
-            ("max_per_day", self.max_per_day_var),
-            ("max_per_chapter", self.max_per_chapter_var),
-        ):
-            row = ttk.Frame(caps_block, style="Card.TFrame")
-            row.pack(fill=tk.X, pady=3)
-            label = ttk.Label(row, text=t(key), style="Field.TLabel")
-            label.pack(side=tk.LEFT)
-            self._cap_labels.append((label, key))
-            ttk.Spinbox(row, from_=0, to=10000, textvariable=var, width=8).pack(side=tk.RIGHT)
-        self._caps_hint_lbl = ttk.Label(
-            caps_block, text=t("selection_caps_hint"), style="Field.TLabel",
-            wraplength=440,
-        )
-        self._caps_hint_lbl.pack(anchor=tk.W, pady=(3, 0))
-
-        self.people_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
-        people_row = ttk.Frame(self.people_block, style="Card.TFrame")
-        people_row.pack(fill=tk.X, pady=(8, 0))
-        self._people_strength_lbl = ttk.Label(
-            people_row, text=t("people_strength"), style="Field.TLabel"
-        )
-        self._people_strength_lbl.pack(side=tk.LEFT)
-        self.people_label = ttk.Label(people_row, text="50%", style="Field.TLabel")
-        self.people_label.pack(side=tk.RIGHT)
-        self.people_scale = ttk.Scale(
-            self.people_block,
-            from_=0.1,
-            to=1.0,
-            variable=self.people_intensity_var,
-            command=self._on_people_scale,
-        )
-        self.people_scale.pack(fill=tk.X, pady=(4, 0))
-
-        self.ai_block = ttk.Frame(self.advanced_frame, style="Card.TFrame")
-        self._ai_section_lbl = ttk.Label(
-            self.ai_block, text=t("ai_section"), style="Body.TLabel"
-        )
-        self._ai_section_lbl.pack(anchor=tk.W, pady=(12, 2))
-
-        prov_row = ttk.Frame(self.ai_block, style="Card.TFrame")
-        prov_row.pack(fill=tk.X, pady=(4, 0))
-        self._ai_provider_lbl = ttk.Label(
-            prov_row, text=t("ai_provider"), style="Field.TLabel"
-        )
-        self._ai_provider_lbl.pack(side=tk.LEFT)
-        tip = HelpTip(prov_row, "help_ai_provider", c, get_text=t)
-        tip.pack(side=tk.LEFT, padx=(6, 0))
-        self._help_tips.append(tip)
-
-        self._ai_provider_values = self._provider_label_pairs()
-        self.ai_provider_combo = ttk.Combobox(
-            self.ai_block,
-            state="readonly",
-            style="AI.TCombobox",
-            values=[label for _, label in self._ai_provider_values],
-        )
-        self.ai_provider_combo.pack(fill=tk.X, pady=(6, 0), ipady=2)
-        self._sync_ai_provider_combo_display()
-        self.ai_provider_combo.bind("<<ComboboxSelected>>", self._on_ai_provider_selected)
-
-        self.ai_blurb_var = tk.StringVar(value=t("ai_blurb_none"))
-        self._ai_blurb_lbl = ttk.Label(
-            self.ai_block,
-            textvariable=self.ai_blurb_var,
-            style="Field.TLabel",
-            wraplength=440,
-            justify=tk.LEFT,
-        )
-        self._ai_blurb_lbl.pack(anchor=tk.W, fill=tk.X, pady=(8, 0))
-
-        key_row = ttk.Frame(self.ai_block, style="Card.TFrame")
-        self._api_key_lbl = ttk.Label(key_row, text=t("ai_api_key"), style="Field.TLabel")
-        self._api_key_lbl.pack(side=tk.LEFT)
-        self._api_key_link = ttk.Label(
-            key_row,
-            text=t("ai_key_link"),
-            style="Field.TLabel",
-            cursor="hand2",
-        )
-        self._api_key_link.pack(side=tk.RIGHT)
-        self._api_key_link.bind("<Button-1>", self._open_api_key_url)
-        self._key_row = key_row
-        self.api_entry = ttk.Entry(self.ai_block, show="•")
-        self._bind_active_api_entry()
-
-        self._ollama_hint_lbl = ttk.Label(
-            self.ai_block, text=t("ai_ollama_hint"), style="Field.TLabel", wraplength=440
-        )
-        self._ollama_lbl_row = ttk.Frame(self.ai_block, style="Card.TFrame")
-        self._ollama_model_lbl = ttk.Label(
-            self._ollama_lbl_row, text=t("ai_ollama_model"), style="Field.TLabel"
-        )
-        self._ollama_model_lbl.pack(side=tk.LEFT)
-        tip = HelpTip(self._ollama_lbl_row, "help_ai_ollama_model", c, get_text=t)
-        tip.pack(side=tk.LEFT, padx=(6, 0))
-        self._help_tips.append(tip)
-        self.ollama_model_combo = ttk.Combobox(
-            self.ai_block,
-            textvariable=self.ollama_model_var,
-            style="AI.TCombobox",
-            values=list(self._default_ollama_choices()),
-        )
-        self.ollama_model_entry = self.ollama_model_combo
-        self._ollama_row = self._ollama_lbl_row
-
-        dry_row = ttk.Frame(self.ai_block, style="Card.TFrame")
-        self.dry_run_chk = ttk.Checkbutton(
-            dry_row,
-            text=t("opt_dry"),
-            variable=self.dry_run_var,
-            command=self._sync_dependent_controls,
-        )
-        self.dry_run_chk.pack(side=tk.LEFT)
-        tip = HelpTip(dry_row, "help_opt_dry", c, get_text=t)
-        tip.pack(side=tk.LEFT, padx=(6, 0))
-        self._help_tips.append(tip)
-        self._dry_row = dry_row
-        # Ollama-/Key-/Dry-Run-Zeilen werden in _sync_dependent_controls ein-/ausgeblendet
-
-        # Progress remains visible without opening technical details.
-        self._progress_card = ttk.Frame(body, style="App.TFrame")
-        self._progress_card.pack(fill=tk.X, pady=(4, 0))
-        progress_host = self._progress_card
-        self.next_step_var = tk.StringVar(value=t("next_pick_folders"))
-        ttk.Label(progress_host, textvariable=self.next_step_var, style="Next.TLabel").pack(
-            anchor=tk.W, pady=(14, 2)
-        )
-        self.status_var = tk.StringVar(value=t("loading_modules"))
-        ttk.Label(progress_host, textvariable=self.status_var, style="Sub.TLabel").pack(anchor=tk.W)
-
-        prog_row = ttk.Frame(progress_host, style="App.TFrame")
-        prog_row.pack(fill=tk.X, pady=(8, 0))
-        self.phase_var = tk.StringVar(value="")
-        ttk.Label(prog_row, textvariable=self.phase_var, style="Sub.TLabel").pack(anchor=tk.W)
-        ttk.Label(self._footer_progress_host, textvariable=self.phase_var,
-                  style="Field.TLabel").pack(anchor=tk.W)
-        self.progress = ttk.Progressbar(self._footer_progress_host, mode="determinate", maximum=100)
-        self.progress.pack(fill=tk.X, pady=(5, 12))
-
-        self._phase_box = ttk.LabelFrame(
-            progress_host,
-            text=f"  {t('steps_hint')}  ",
-            style="Card.TLabelframe",
-            padding=8,
-        )
-        self._phase_box.pack(fill=tk.X, pady=(10, 0))
-        self._phase_box.pack_forget()
-        self._phase_inner = ttk.Frame(self._phase_box, style="Card.TFrame")
-        self._phase_inner.pack(fill=tk.X)
-        self._build_phase_chips()
-
-        self._details_toggle = ttk.Button(
-            progress_host, text=t("show_details"), style="Help.TButton", command=self._toggle_log
-        )
-        self._details_toggle.pack(anchor=tk.W, pady=(8, 0))
-        self._log_host = ttk.Frame(body, style="App.TFrame")
-        self._log_host.pack(fill=tk.BOTH, expand=True)
-        log_frame = ttk.LabelFrame(
-            self._log_host, text=f"  {t('log')}  ", style="Card.TLabelframe", padding=8
-        )
-        self._log_frame = log_frame
-        log_row = ttk.Frame(log_frame, style="Card.TFrame")
-        log_row.pack(fill=tk.BOTH, expand=True)
-        self.log = tk.Text(
-            log_row,
-            height=8,
-            wrap=tk.WORD,
-            state=tk.DISABLED,
-            bg=c["log_bg"],
-            fg=c["log_fg"],
-            insertbackground=c["log_fg"],
-            relief=tk.FLAT,
-            font=("Consolas", 9),
-            padx=10,
-            pady=8,
-        )
-        self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._log_scroll = ttk.Scrollbar(log_row, command=self.log.yview)
-        self._log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.log.configure(yscrollcommand=self._log_scroll.set)
-
-        # Untere Aktionsleiste (immer sichtbar)
-        actions = self._footer_actions_host
-        self.start_btn = ttk.Button(
-            actions, text=t("start"), style="Start.TButton", command=self._start
-        )
-        self.start_btn.pack(side=tk.RIGHT)
-        self.cancel_btn = ttk.Button(
-            actions,
-            text=t("cancel"),
-            style="Browse.TButton",
-            command=self._cancel,
-            state=tk.DISABLED,
-        )
-        self.cancel_btn.pack(side=tk.RIGHT, padx=(0, 10))
-        self.review_btn = ttk.Button(
-            actions,
-            text=t("review"),
-            style="Browse.TButton",
-            command=self._open_review,
-        )
-        self.review_btn.pack(side=tk.RIGHT, padx=(0, 10))
-        self.map_btn = ttk.Button(
-            self._workflow_tools_host, text=t("map"), style="Help.TButton", command=self._open_map_preview
-        )
-        self.map_btn.pack(side=tk.LEFT, padx=(6, 0))
-        self._relink_btn = ttk.Button(folder_inner, text=t("relink_sources"), style="Help.TButton",
-                                     command=self._open_source_relink)
-        self._relink_btn.pack(anchor=tk.W, pady=(5, 0))
-        self._footer_hint = tk.Label(
-            actions, text=t("footer_safe"), bg=c["surface"], fg=c["muted"],
-            font=(FONT_UI, 9), anchor=tk.W, justify=tk.LEFT,
-        )
-        self._footer_hint.pack(side=tk.LEFT)
-        self._cards_host.bind("<Configure>", self._layout_main_cards)
-        self.bind("<Control-o>", lambda _e: self._open_project_manager())
-        self.bind("<Control-Return>", lambda _e: self._start())
-        self.bind("<F1>", lambda _e: self._show_help())
-
-        self._sync_dependent_controls()
-        self._refresh_cost_estimate()
-        self._install_body_wheel()
-        self._apply_selected_profile()
-        self.output_var.trace_add("write", self._sync_project_actions)
-        self._sync_project_actions()
-        for name in (
-            "target_var", "geocode_var", "faces_var", "bursts_var", "aside_var",
-            "finger_var", "accidental_var", "weak_night_var", "content_var", "aesthetic_var",
-            "video_var", "timezone_offset_var", "coverage_var", "coverage_intensity_var",
-            "people_var", "people_intensity_var", "map_preview_var", "ai_provider_var",
-            "max_per_day_var", "max_per_chapter_var", "book_pages_var", "photos_per_page_var",
-            "reserved_pages_var", "storytelling_var",
-        ):
-            getattr(self, name).trace_add("write", self._mark_profile_custom)
+        from .main_workspace import build_workspace
+        self._translate = t
+        build_workspace(self, COLORS, t)
 
     def _mark_profile_custom(self, *_args) -> None:
         if getattr(self, "_applying_profile", False):
@@ -1284,27 +739,6 @@ class PhotobookApp(tk.Tk):
         state = tk.NORMAL if available and not self._is_analysis_running() else tk.DISABLED
         for button in (self.review_btn, self.map_btn, self._relink_btn):
             button.configure(state=state)
-
-    def _translated_label(self, parent, key: str, **kwargs):
-        factory = ttk.Label if "style" in kwargs else tk.Label
-        label = factory(parent, text=t(key), **kwargs)
-        self._ui_labels[key] = label
-        return label
-
-    def _layout_main_cards(self, event=None) -> None:
-        width = event.width if event is not None else self._cards_host.winfo_width()
-        wide = width >= 1000
-        if wide == self._responsive_wide:
-            return
-        self._responsive_wide = wide
-        self._folder_card.grid_forget()
-        self._settings_card.grid_forget()
-        if wide:
-            self._folder_card.grid(row=0, column=0, sticky="nsew", padx=(0, 9))
-            self._settings_card.grid(row=0, column=1, sticky="nsew", padx=(9, 0))
-        else:
-            self._folder_card.grid(row=0, column=0, columnspan=2, sticky="ew")
-            self._settings_card.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(12, 0))
 
     def _toggle_log(self) -> None:
         self._log_open = not self._log_open
@@ -1414,18 +848,11 @@ class PhotobookApp(tk.Tk):
             if profile_id == project.profile_id:
                 self._profile_combo.current(n)
                 break
-        self._project_name_var.set(f"{project.name} · {project.path.name}")
+        self._project_name_var.set(project.name)
         self._last_photos = self._last_plan = self._last_order = self._last_output = None
         self._update_found_count(str(project.input_dir))
         self._set_next_step(t("project_loaded", name=project.name))
         return True
-
-    def _paint_workflow(self, active: int) -> None:
-        for n, label in enumerate(getattr(self, "_workflow_labels", [])):
-            label.configure(
-                bg=COLORS.get("accent_soft", COLORS["surface"]) if n == active else COLORS["surface"],
-                fg=COLORS["ink"] if n == active else COLORS["muted"],
-            )
 
     def _open_source_relink(self) -> None:
         from .source_relink_dialog import open_source_relink
@@ -1530,11 +957,12 @@ class PhotobookApp(tk.Tk):
             self.ollama_model_var.set(prefer or choices[0])
 
     def _provider_label_pairs(self) -> list[tuple[str, str]]:
+        from .main_workspace import text
         return [
-            ("none", t("ai_provider_none")),
-            ("gemini", t("ai_provider_gemini")),
-            ("anthropic", t("ai_provider_anthropic")),
-            ("ollama", t("ai_provider_ollama")),
+            ("none", text(self, "Lokale Auswahl (kostenlos)", "Local selection (free)")),
+            ("gemini", "Google Gemini"),
+            ("anthropic", "Anthropic Claude"),
+            ("ollama", text(self, "Ollama auf diesem Gerät", "Ollama on this device")),
         ]
 
     def _bind_active_api_entry(self) -> None:
@@ -1594,121 +1022,29 @@ class PhotobookApp(tk.Tk):
         return normalize_ai_provider(self.ai_provider_var.get())
 
     def _sync_dependent_controls(self) -> None:
-        """Regler nur zeigen, wenn die Option an ist; KI-Felder abhängig vom Provider."""
-        # Während des UI-Aufbaus können Widgets noch fehlen
-        if not hasattr(self, "api_entry") or not hasattr(self, "coverage_scale"):
+        self._refresh_run_summary()
+        if not hasattr(self, "api_entry"):
             return
-
-        def enable(widget, on: bool) -> None:
-            try:
-                widget.state(["!disabled"] if on else ["disabled"])
-            except Exception:
-                pass
-
         provider = self._selected_ai_provider()
-        ai_on = provider != "none"
-        self.ai_var.set(ai_on)
-
-        # Blöcke nur einblenden, wenn erweiterte Optionen offen sind
-        if self._advanced_open:
-            if self.coverage_var.get():
-                self.coverage_block.pack(fill=tk.X)
-            else:
-                self.coverage_block.pack_forget()
-            if self.people_var.get():
-                self.people_block.pack(fill=tk.X)
-            else:
-                self.people_block.pack_forget()
-            # KI-Block immer sichtbar in den erweiterten Optionen
-            self.ai_block.pack(fill=tk.X)
-
-        enable(self.ai_provider_combo, True)
-        blurb_key = {
-            "none": "ai_blurb_none",
-            "gemini": "ai_blurb_gemini",
-            "anthropic": "ai_blurb_anthropic",
-            "ollama": "ai_blurb_ollama",
-        }.get(provider, "ai_blurb_none")
-        if hasattr(self, "ai_blurb_var"):
-            self.ai_blurb_var.set(t(blurb_key))
-
-        use_ollama = provider == "ollama"
-        use_gemini = provider == "gemini"
-        use_anthropic = provider == "anthropic"
-        needs_key = use_gemini or use_anthropic
-
-        if hasattr(self, "_api_key_lbl"):
-            if needs_key:
-                key_label = t("ai_api_key_gemini") if use_gemini else t("ai_api_key_anthropic")
-                self._api_key_lbl.configure(text=key_label)
-                self._key_row.pack(fill=tk.X, pady=(8, 0))
-                self.api_entry.pack(fill=tk.X, pady=(4, 0))
-                enable(self.api_entry, True)
-                self._bind_active_api_entry()
-            else:
-                self._key_row.pack_forget()
-                self.api_entry.pack_forget()
-
-        if hasattr(self, "_ollama_row"):
-            if use_ollama:
-                self._refresh_ollama_model_choices()
-                self._ollama_hint_lbl.pack(anchor=tk.W, fill=tk.X, pady=(10, 0))
-                self._ollama_lbl_row.pack(fill=tk.X, pady=(6, 0))
-                self.ollama_model_combo.pack(fill=tk.X, pady=(4, 0), ipady=2)
-                enable(self.ollama_model_combo, True)
-            else:
-                self._ollama_hint_lbl.pack_forget()
-                self._ollama_lbl_row.pack_forget()
-                self.ollama_model_combo.pack_forget()
-
-        if hasattr(self, "dry_run_chk"):
-            # Dry-Run vor allem für Anthropic sinnvoll; bei Gemini optional zum Testen
-            show_dry = use_anthropic or use_gemini
-            if show_dry:
-                self._dry_row.pack(fill=tk.X, pady=(8, 0))
-                enable(self.dry_run_chk, True)
-            else:
-                self._dry_row.pack_forget()
-                self.dry_run_var.set(False)
-
-        enable(self.coverage_scale, bool(self.coverage_var.get()))
-        enable(self.people_scale, bool(self.people_var.get()))
-        # Schritt-Tafel vor dem Start an Optionen anpassen
-        if hasattr(self, "_phase_inner") and not self._is_analysis_running():
-            self._reset_phase_board(self._ui_phase_config())
-
-    def _folder_row(
-        self,
-        parent: tk.Misc,
-        title: str,
-        hint: str,
-        var: tk.StringVar,
-        command,
-    ) -> tk.Label:
-        c = COLORS
-        title_lbl = tk.Label(
-            parent,
-            text=title,
-            bg=c["surface"],
-            fg=c["ink"],
-            font=(FONT_UI, 10),
-            anchor=tk.W,
-        )
-        title_lbl.pack(anchor=tk.W)
-        if hint:
-            tk.Label(
-                parent, text=hint, bg=c["surface"], fg=c["muted"], font=(FONT_UI, 9)
-            ).pack(anchor=tk.W, pady=(0, 4))
-        row = tk.Frame(parent, bg=c["surface"])
-        row.pack(fill=tk.X, pady=(6, 0))
-        entry = ttk.Entry(row, textvariable=var)
-        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=2)
-        browse = ttk.Button(
-            row, text=t("browse"), style="Browse.TButton", command=command
-        )
-        browse.pack(side=tk.LEFT, padx=(10, 0))
-        title_lbl._browse_btn = browse  # type: ignore[attr-defined]
-        return title_lbl
+        self.ai_var.set(provider != "none")
+        self.coverage_scale.state(["!disabled"] if self.coverage_var.get() else ["disabled"])
+        self.people_scale.state(["!disabled"] if self.people_var.get() else ["disabled"])
+        self._key_row.pack_forget()
+        self.api_entry.pack_forget()
+        self._ollama_hint_lbl.pack_forget()
+        self._ollama_lbl_row.pack_forget()
+        self.ollama_model_combo.pack_forget()
+        self._dry_row.pack_forget()
+        if provider in ("gemini", "anthropic"):
+            self._key_row.pack(fill=tk.X, pady=(12, 0))
+            self.api_entry.pack(fill=tk.X, pady=(6, 0))
+            self._bind_active_api_entry()
+        elif provider == "ollama":
+            self._ollama_hint_lbl.pack(fill=tk.X, pady=(12, 0))
+            self._ollama_lbl_row.pack(fill=tk.X, pady=(12, 0))
+            self.ollama_model_combo.pack(fill=tk.X, pady=(6, 0))
+        self._dry_row.pack(fill=tk.X, pady=(18, 0))
+        self.ai_blurb_var.set(self._mode_description_var.get())
 
     def _sync_found_badge(self) -> None:
         text = (self.found_var.get() or "").strip()
@@ -1753,103 +1089,18 @@ class PhotobookApp(tk.Tk):
         )
 
     def _apply_ui_language(self) -> None:
-        """Aktualisiert sichtbare Haupttexte nach Sprachwechsel."""
-        try:
-            self.title(t("app_title"))
-            self._brand_lbl.configure(text="PhotoTool")
-            self._hero_subtitle.configure(text=t("workflow_subtitle"))
-            for key, widget in self._ui_labels.items():
-                widget.configure(text=t(key))
-            for n, key in enumerate(("workflow_import", "workflow_plan", "workflow_review")):
-                self._workflow_labels[n].configure(text=f"0{n + 1}   {t(key)}")
-            for widget, key in ((self._project_btn, "project_open"),
-                                (self._resume_btn, "resume_album"),
-                                (self._relink_btn, "relink_sources"),
-                                (self._footer_hint, "footer_safe")):
-                widget.configure(text=t(key))
-            self._details_toggle.configure(text=t("hide_details" if self._log_open else "show_details"))
-            from .travel_profiles import profile_choices
-            self._profile_choices = profile_choices(self.app_settings.language)
-            self._profile_combo.configure(values=[label for _, label in self._profile_choices])
-            for n, (profile_id, _label) in enumerate(self._profile_choices):
-                if profile_id == self.profile_var.get():
-                    self._profile_combo.current(n)
-                    break
-            self._refresh_page_budget()
-            self._target_lbl.configure(text=t("target_count"))
-            self._phase_box.configure(text=f"  {t('steps_hint')}  ")
-            self._log_frame.configure(text=f"  {t('log')}  ")
-            self.start_btn.configure(text=t("start"))
-            self.cancel_btn.configure(text=t("cancel"))
-            self.review_btn.configure(text=t("review"))
-            self.map_btn.configure(text=t("map"))
-            self._settings_btn.configure(text=t("settings"))
-            self._help_btn.configure(text=t("help"))
-            self.advanced_toggle.configure(
-                text=t("more_options_open") if self._advanced_open else t("more_options")
-            )
-            self._input_title.configure(text=t("photos_folder"))
-            self._output_title.configure(text=t("output_folder"))
-            for lbl in (self._input_title, self._output_title):
-                btn = getattr(lbl, "_browse_btn", None)
-                if btn is not None:
-                    btn.configure(text=t("browse"))
-            for lbl, tog, key in getattr(self, "_toggle_rows", []):
-                lbl.configure(text=t(key))
-                tog.set_labels(t("toggle_on"), t("toggle_off"))
-            if getattr(self, "_tz_lbl", None) is not None:
-                self._tz_lbl.configure(text=t("opt_timezone"))
-            for chk, key in self._adv_checks:
-                chk.configure(text=t(key))
-            if getattr(self, "_coverage_strength_lbl", None) is not None:
-                self._coverage_strength_lbl.configure(text=t("coverage_strength"))
-            for label, key in getattr(self, "_cap_labels", []):
-                label.configure(text=t(key))
-            if getattr(self, "_caps_hint_lbl", None) is not None:
-                self._caps_hint_lbl.configure(text=t("selection_caps_hint"))
-            if getattr(self, "_people_strength_lbl", None) is not None:
-                self._people_strength_lbl.configure(text=t("people_strength"))
-            if getattr(self, "_ai_section_lbl", None) is not None:
-                self._ai_section_lbl.configure(text=t("ai_section"))
-            if getattr(self, "_ai_provider_lbl", None) is not None:
-                self._ai_provider_lbl.configure(text=t("ai_provider"))
-                self._sync_ai_provider_combo_display()
-            if getattr(self, "_api_key_link", None) is not None:
-                self._api_key_link.configure(text=t("ai_key_link"))
-            if getattr(self, "dry_run_chk", None) is not None:
-                self.dry_run_chk.configure(text=t("opt_dry"))
-            if getattr(self, "_ollama_hint_lbl", None) is not None:
-                self._ollama_hint_lbl.configure(text=t("ai_ollama_hint"))
-            if getattr(self, "_ollama_model_lbl", None) is not None:
-                self._ollama_model_lbl.configure(text=t("ai_ollama_model"))
-            self._sync_dependent_controls()
-            self._refresh_cost_estimate()
-            # Hilfe-Popups nutzen get_text=t → nächster Klick auf ? ist in neuer Sprache
-            for tip in getattr(self, "_help_tips", []):
-                try:
-                    tip._close()
-                except Exception:
-                    pass
-            tip_banner = getattr(self, "_tip_banner", None)
-            if tip_banner is not None:
-                for child in tip_banner.winfo_children():
-                    if isinstance(child, tk.Label):
-                        child.configure(text=t("tip_resume"))
-            if self._found_count:
-                self.found_var.set(t("found_photos", n=self._found_count))
-            elif self.found_var.get():
-                # leerer/fehlgeschlagener Ordner neu beschriften
-                cur = self.found_var.get()
-                if "gefunden" in cur.lower() or "found" in cur.lower() or "Keine" in cur:
-                    self.found_var.set(t("found_none"))
-            if not self._is_analysis_running() and self.status_var.get() in (
-                "Lade Erkennungsmodule…",
-                "Loading detection modules…",
-                t("loading_modules"),
-            ):
-                self.status_var.set(t("loading_modules"))
-        except tk.TclError:
-            pass
+        from .main_workspace import refresh_texts
+        refresh_texts(self)
+        from .travel_profiles import profile_choices
+        self._profile_choices = profile_choices(self.app_settings.language)
+        self._profile_combo.configure(values=[name for _, name in self._profile_choices])
+        for n, (profile_id, _label) in enumerate(self._profile_choices):
+            if profile_id == self.profile_var.get():
+                self._profile_combo.current(n)
+                break
+        self._sync_ai_provider_combo_display()
+        self._refresh_page_budget()
+        self._refresh_run_summary()
 
     def _on_coverage_scale(self, _value=None) -> None:
         pct = int(round(float(self.coverage_intensity_var.get()) * 100))
@@ -2050,14 +1301,107 @@ class PhotobookApp(tk.Tk):
         self.next_step_var.set(text)
 
     def _toggle_advanced(self) -> None:
-        self._advanced_open = not self._advanced_open
-        if self._advanced_open:
-            self.advanced_frame.pack(fill=tk.X, pady=(6, 0))
-            self.advanced_toggle.configure(text=t("more_options_open"))
-            self._sync_dependent_controls()
+        self._open_selection_settings("quality")
+
+    def _open_selection_settings(self, section: str = "quality") -> None:
+        if self._is_analysis_running():
+            return
+        from .main_workspace import open_settings_sheet
+        open_settings_sheet(self, section)
+
+    def _close_selection_settings(self) -> None:
+        try:
+            self._selection_caps()
+            if int(self.book_pages_var.get()) > 0:
+                from .story_budget import calculate_book_budget
+                calculate_book_budget(int(self.book_pages_var.get()), float(self.photos_per_page_var.get()),
+                                      int(self.reserved_pages_var.get()))
+        except (ValueError, tk.TclError) as exc:
+            messagebox.showerror(t("album_invalid"), str(exc), parent=self._settings_sheet)
+            return
+        if self._settings_sheet is not None:
+            self._settings_sheet.grab_release()
+            self._settings_sheet.withdraw()
+        self._advanced_open = False
+        self._refresh_run_summary()
+
+    def _refresh_run_summary(self, *_args) -> None:
+        from .main_workspace import text
+        if not hasattr(self, "_mode_title_var"):
+            return
+        for label, variable in self._location_labels:
+            raw = variable.get().strip()
+            label.configure(text=Path(raw).name if raw else text(self, "Noch nicht gewählt", "Not selected"))
+        try:
+            day, chapter = self._selection_caps()
+            parts = []
+            if day:
+                parts.append(text(self, f"Bis zu {day} Fotos je Tag", f"Up to {day} photos per day"))
+            if chapter:
+                parts.append(text(self, f"{chapter} je Kapitel", f"{chapter} per chapter"))
+            parts.append(text(self, "Favoriten bleiben geschützt", "Favorites stay protected"))
+            self._selection_summary_var.set(" · ".join(parts))
+        except (ValueError, tk.TclError):
+            self._selection_summary_var.set(text(self, "Bildgrenzen in den Einstellungen prüfen.", "Check photo limits in settings."))
+        provider = self._selected_ai_provider()
+        names = {"gemini": "Google Gemini", "anthropic": "Anthropic Claude", "ollama": "Ollama"}
+        dry = bool(self.dry_run_var.get())
+        if dry:
+            title = text(self, "Nur Kostenschätzung – keine fertige Auswahl", "Cost estimate only – no finished selection")
+            if provider == "none":
+                description = text(self, "Bitte KI-Anbieter wählen oder die Kostenschätzung ausschalten.", "Choose an AI provider or turn off cost estimation.")
+            else:
+                description = text(self, f"Anbieter: {names.get(provider, provider)}. Es werden Kandidaten gezählt und Kosten geschätzt. Keine KI-Bewertung und kein Album-Export.",
+                                   f"Provider: {names.get(provider, provider)}. Candidates and costs are estimated. No AI review or album export.")
+            action = text(self, "Kosten schätzen" if provider != "none" else "KI-Einstellungen prüfen", "Estimate cost" if provider != "none" else "Check AI settings")
+        elif provider != "none":
+            title = text(self, f"Zusätzlich mit KI · {names.get(provider, provider)}", f"Additional AI review · {names.get(provider, provider)}")
+            description = text(self, "Zuerst lokal analysieren, dann nur Kandidaten mit KI bewerten. Gespeicherte lokale Ergebnisse werden wiederverwendet.",
+                               "Analyze locally first, then review only shortlisted candidates with AI. Saved local results are reused.")
+            action = text(self, "Auswahl mit KI erstellen", "Create selection with AI")
         else:
-            self.advanced_frame.pack_forget()
-            self.advanced_toggle.configure(text=t("more_options"))
+            title = text(self, "Lokale Auswahl · kostenlos und ohne KI", "Local selection · free and without AI")
+            description = text(self, "Qualität, ähnliche Serien und Reisetage werden berücksichtigt. Danach prüfst du die Auswahl und kannst optional KI ergänzen.",
+                               "Quality, similar bursts and travel days are considered. Review the selection afterwards and optionally add AI.")
+            action = text(self, "Lokale Auswahl erstellen", "Create local selection")
+        self._mode_title_var.set(title)
+        self._mode_description_var.set(description)
+        self._mode_label.configure(fg=COLORS["phase_run_bg"] if dry else COLORS["ink"])
+        self._critical_run_mode = dry or provider != "none"
+        if dry:
+            footer_text = text(self, f"Nur Kostenschätzung · {names.get(provider, 'kein KI-Anbieter')}",
+                               f"Cost estimate only · {names.get(provider, 'no AI provider')}")
+        elif provider != "none":
+            footer_text = text(self, f"Mit KI · {names.get(provider, provider)}", f"With AI · {names.get(provider, provider)}")
+        else:
+            footer_text = text(self, "Originale bleiben erhalten.", "Original photographs are preserved.")
+        self._footer_hint.configure(text=footer_text, fg=COLORS["phase_run_bg"] if dry else COLORS["muted"])
+        if not self._is_analysis_running():
+            self.start_btn.configure(text=action)
+        if hasattr(self, "_sheet_mode_var"):
+            self._sheet_mode_var.set(title)
+        if hasattr(self, "_layout_chrome"):
+            self._layout_chrome(getattr(self, "_content_width", self.winfo_width() - 48))
+
+    def _show_main_view(self, view: str = "setup") -> None:
+        self._view_mode = view
+        self._setup_view.pack_forget()
+        self._analysis_view.pack_forget()
+        for widget in (*self._selection_action_widgets, self.cancel_btn):
+            widget.pack_forget()
+        if view == "analysis":
+            self._analysis_view.pack(fill=tk.X)
+            self.cancel_btn.pack(side=tk.LEFT)
+            self._analysis_mode_var.set(self._mode_title_var.get())
+        else:
+            self._setup_view.pack(fill=tk.X)
+            self._footer_hint.pack(side=tk.LEFT, padx=(0, 28))
+            self.review_btn.pack(side=tk.LEFT, padx=(0, 12))
+            self.start_btn.pack(side=tk.LEFT)
+        for widget in self._setup_controls:
+            widget.configure(state=tk.DISABLED if view == "analysis" else tk.NORMAL)
+        self._layout_chrome(getattr(self, "_content_width", self.winfo_width() - 48))
+        self._body_canvas.yview_moveto(0)
 
     def _build_phase_chips(self) -> None:
         for child in self._phase_inner.winfo_children():
@@ -2162,9 +1506,10 @@ class PhotobookApp(tk.Tk):
         self.log.configure(state=tk.DISABLED)
 
     def _set_progress(self, label: str, frac: float, step_id: str | None = None) -> None:
-        self._paint_workflow(2 if step_id == "done" else 1)
         self.phase_var.set(label)
-        self.progress["value"] = max(0, min(100, int(round(frac * 100))))
+        percent = max(0, min(100, int(round(frac * 100))))
+        self.progress["value"] = percent
+        self._percent_var.set(f"{percent} %")
         self._apply_phase_progress(label, step_id)
         if label and label not in ("Fertig", "Abgebrochen", "Fehler") and not str(
             label
@@ -2260,6 +1605,10 @@ class PhotobookApp(tk.Tk):
             messagebox.showinfo("Läuft bereits", "Bitte warten, die Verarbeitung läuft noch.")
             return
 
+        if self.dry_run_var.get() and self._selected_ai_provider() == "none":
+            self._open_selection_settings("ai")
+            return
+
         try:
             max_per_day, max_per_chapter = self._selection_caps()
         except ValueError as exc:
@@ -2308,13 +1657,12 @@ class PhotobookApp(tk.Tk):
         dry_run = bool(self.dry_run_var.get())
         if ai_on and ai_provider == "ollama":
             ai_model = (self.ollama_model_var.get() or "").strip() or None
-            dry_run = False
-            from .ai_review import check_ollama_available
-
-            ok, msg = check_ollama_available()
-            if not ok:
-                messagebox.showerror("Ollama fehlt", msg)
-                return
+            if not dry_run:
+                from .ai_review import check_ollama_available
+                ok, msg = check_ollama_available()
+                if not ok:
+                    messagebox.showerror("Ollama fehlt", msg)
+                    return
         elif ai_on and ai_provider == "gemini" and not dry_run:
             if not (gemini_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
                 messagebox.showerror(
@@ -2409,15 +1757,14 @@ class PhotobookApp(tk.Tk):
             project = project_from_config(cfg, name=name, profile_id=self.profile_var.get())
             save_project(project)
             self._current_project = project
-            self._project_name_var.set(f"{project.name} · {project.path.name}")
+            self._project_name_var.set(project.name)
         except (OSError, ValueError) as exc:
             messagebox.showerror(t("project_save_failed"), str(exc), parent=self)
             return
 
         self._cancel_event.clear()
-        self._paint_workflow(1)
-        self._footer_progress_host.pack(fill=tk.X, before=self._footer_actions_host)
-        self._phase_box.pack(fill=tk.X, pady=(10, 0), before=self._details_toggle)
+        self._result_note_var.set("")
+        self._show_main_view("analysis")
         self.start_btn.configure(state=tk.DISABLED)
         self.cancel_btn.configure(state=tk.NORMAL)
         self.review_btn.configure(state=tk.DISABLED, style="Browse.TButton")
@@ -2485,6 +1832,7 @@ class PhotobookApp(tk.Tk):
                 self._log_queue.put("Abgebrochen – es wurden keine Ordner geschrieben.")
                 self._progress_queue.put(("Abgebrochen", 0.0))
                 self._post_ui(lambda: self.status_var.set("Abgebrochen"))
+                self._post_ui(lambda: self._result_note_var.set("Analyse abgebrochen. Du kannst die Einstellungen anpassen und erneut starten."))
                 self._post_ui(
                     lambda: self._set_next_step(
                         "Abgebrochen. Du kannst die Optionen anpassen und erneut starten."
@@ -2494,6 +1842,7 @@ class PhotobookApp(tk.Tk):
                 self._log_queue.put(f"Fehler: {exc}")
                 self._progress_queue.put(("Fehler", 0.0))
                 self._post_ui(lambda: self.status_var.set("Fehler"))
+                self._post_ui(lambda: self._result_note_var.set("Die Analyse konnte nicht abgeschlossen werden. Details stehen im Fehlerdialog."))
                 self._post_ui(
                     lambda: self._set_next_step(
                         "Fehler aufgetreten – siehe Verlauf. Danach erneut versuchen."
@@ -2508,47 +1857,39 @@ class PhotobookApp(tk.Tk):
             self._post_ui(self._sync_project_actions)
             self._post_ui(lambda: self.review_btn.configure(style="Start.TButton"))
 
+            self._post_ui(self._finish_analysis_view)
+
     def _on_finished(self, result: dict, cfg: Any) -> None:
+        from .main_workspace import text
         self._remember_ai_cost(result)
+        self._show_main_view("setup")
         if result.get("dry_run"):
             ai = result.get("ai") or {}
             usd = float(ai.get("usd_total_estimate") or 0)
-            n = int(ai.get("candidates") or 0)
-            self._set_next_step(
-                f"Kostenschätzung fertig (~${usd:.2f} / {n} Kandidaten). "
-                "Für echten Lauf „Nur Kosten schätzen“ aus und erneut starten."
-            )
-            messagebox.showinfo(
-                "Dry-Run",
-                f"Kostenschätzung fertig:\n\n"
-                f"~ ${usd:.2f} für {n} Kandidatenbilder.\n\n"
-                "Der Betrag bleibt unter der Zielanzahl sichtbar zum Vergleichen.\n"
-                "Für den echten Lauf: „Nur Kosten schätzen“ aus → erneut starten.",
-            )
+            candidates = int(ai.get("candidates") or result.get("candidates") or 0)
+            self._result_note_var.set(text(self,
+                f"Schätzung: ca. ${usd:.2f} für {candidates} Kandidaten. Keine KI-Bewertung und keine fertige Auswahl erstellt.",
+                f"Estimate: about ${usd:.2f} for {candidates} candidates. No AI review or finished selection was created."))
             return
-
+        count = int(result.get("selected") or len(result.get("order") or []))
+        self._result_note_var.set(text(self,
+            f"{count} Fotos sind bereit. Prüfe deine Auswahl und exportiere dein Album.",
+            f"{count} photos are ready. Review your selection and export your album."))
         if cfg.enable_map_preview and not result.get("exported"):
             from .map_preview import open_map_preview
+            open_map_preview(self, result.get("photo_objects") or [], result.get("plan"), cfg.output_dir,
+                             order=result.get("order"), await_export=True,
+                             on_confirm=lambda: self._confirm_export_after_preview(result, cfg),
+                             on_cancel=lambda: self._cancel_export_after_preview(cfg))
 
-            self._set_next_step(
-                "Nächster Schritt: Kapitel-/Karten-Vorschau bestätigen, danach „Auswahl prüfen“."
-            )
-            open_map_preview(
-                self,
-                result.get("photo_objects") or [],
-                result.get("plan"),
-                cfg.output_dir,
-                order=result.get("order"),
-                await_export=True,
-                on_confirm=lambda: self._confirm_export_after_preview(result, cfg),
-                on_cancel=lambda: self._cancel_export_after_preview(cfg),
-            )
-            return
-
-        self._set_next_step(
-            "Fertig. Nächster Schritt: „Auswahl prüfen“ klicken (oder im Dialog bestätigen)."
-        )
-        self._ask_open_review(cfg)
+    def _finish_analysis_view(self) -> None:
+        self._worker = None
+        self._show_main_view("setup")
+        self.start_btn.configure(state=tk.NORMAL)
+        self.cancel_btn.configure(state=tk.DISABLED)
+        self._sync_project_actions()
+        self._refresh_run_summary()
+        self.review_btn.configure(style="Start.TButton")
 
     def _confirm_export_after_preview(self, result: dict, cfg: PipelineConfig) -> None:
         from .pipeline import export_book_outputs
@@ -2583,23 +1924,12 @@ class PhotobookApp(tk.Tk):
             f"Analyse-CSV liegt ggf. unter:\n{cfg.output_dir / 'photos_analysis.csv'}",
         )
 
-    def _ask_open_review(self, cfg: PipelineConfig) -> None:
-        self._set_next_step(
-            "Nächster Schritt: „Auswahl prüfen“ – Thumbnails durchgehen, dann speichern."
-        )
-        open_review = messagebox.askyesno(
-            "Fertig – nächster Schritt",
-            f"Auswahl erstellt in:\n{cfg.output_dir}\n\n"
-            "Nächster Schritt: Auswahl prüfen.\n"
-            "Bilder als Vorschau ansehen und einzelne rausnehmen oder hinzufügen?",
-        )
-        if open_review:
-            self._open_review()
-        else:
-            self._set_next_step(
-                "Auswahl liegt bereit. Später „Auswahl prüfen“ klicken "
-                "(braucht photos_analysis.csv im Ausgabeordner)."
-            )
+    def _ask_open_review(self, cfg: Any) -> None:
+        from .main_workspace import text
+        self._show_main_view("setup")
+        self._result_note_var.set(text(self, "Deine Auswahl ist bereit. Jetzt prüfen und das Album exportieren.",
+                                       "Your selection is ready. Review it and export the album."))
+        self._sync_project_actions()
 
     def _open_map_preview(self) -> None:
         from .map_preview import open_map_preview

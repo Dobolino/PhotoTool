@@ -65,6 +65,7 @@ def test_empty_directory_fields_do_not_start_analysis(input_path, output_path, m
     monkeypatch.setattr("photobook_curator.gui.messagebox.showerror", lambda *args, **kwargs: errors.append(args))
     app = SimpleNamespace(
         _worker=None,
+        dry_run_var=_variable(False),
         _selection_caps=lambda: (0, 0),
         input_var=_variable(input_path),
         output_var=_variable(output_path),
@@ -79,6 +80,7 @@ def test_identical_directories_do_not_start_analysis(tmp_path, monkeypatch):
     monkeypatch.setattr("photobook_curator.gui.messagebox.showerror", lambda *args, **kwargs: errors.append(args))
     app = SimpleNamespace(
         _worker=None,
+        dry_run_var=_variable(False),
         _selection_caps=lambda: (0, 0),
         input_var=_variable(str(tmp_path)),
         output_var=_variable(str(tmp_path / ".")),

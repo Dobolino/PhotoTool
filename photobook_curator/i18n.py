@@ -260,25 +260,24 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Ordner optional_dokumente/ (später manuell reinnehmbar)."
         ),
         "help_opt_accidental": (
-            "Typische Auslöser-Misses: viel Boden/Himmel, Motiv am Rand, "
-            "starke Schräglage – werden nicht ins Buch genommen."
+            "Sortiert Bilder aus, die wie versehentliche Aufnahmen wirken. "
+            "Für die erste Auswahl besser ausgeschaltet lassen und später selbst prüfen."
         ),
         "help_opt_weak_night": (
-            "Dunkle, weiche, „schwummerige“ Nachtbilder aussortieren."
+            "Sortiert sehr dunkle und unscharfe Nachtbilder aus. "
+            "Bei Nachtmärkten und Neon-Szenen zunächst ausgeschaltet lassen."
         ),
         "help_opt_content": (
-            "Erkennt inhaltsgleiche Szenen (nicht nur pixelgleiche Duplikate) "
-            "und behält die besten – nutzt Embeddings und den Analyse-Cache."
+            "Vergleicht ähnliche Motive und reduziert Wiederholungen. "
+            "Entfernte Varianten kannst du bei der Nachkontrolle wieder hinzufügen."
         ),
         "help_opt_aesthetic": (
-            "Teil der lokalen Vorfilterung (ohne Cloud): Schärfe, Belichtung, "
-            "Komposition – schnell und kostenlos. Deckt ca. den Großteil der "
-            "Aussortierung zusammen mit Gesichtern/Duplikaten. "
-            "Bei KI-Bewertung wird diese lokale Ästhetik übersprungen."
+            "Bewertet Bildaufbau und Licht auf deinem Computer, ohne Fotos zu versenden. "
+            "Wird bei einer KI-Bewertung nicht zusätzlich verwendet."
         ),
         "help_opt_timezone": (
-            "Verschiebt alle EXIF-Zeiten um X Stunden (z. B. +9, wenn die Kamera "
-            "noch auf Heimatzeit stand)."
+            "Korrigiert eine falsch eingestellte Kamerauhr. Sonst auf 0 lassen; "
+            "die Zeitzone des Reiseziels ist nicht automatisch die richtige Korrektur."
         ),
         "help_opt_video": (
             "Extrahiert den schärfsten Frame aus kurzen Videos ohne Schwester-JPG/HEIC "
@@ -288,37 +287,30 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Typische Fehlaufnahmen mit Finger/Hand vor der Kamera aussortieren."
         ),
         "help_opt_coverage": (
-            "Verhindert, dass fast alles vom ersten Tag kommt. "
-            "Stärke: sanft bis stark gleichmäßig über die Tage."
+            "Verteilt die Auswahl auf möglichst viele Reisetage. "
+            "Je höher die Stärke, desto gleichmässiger werden die Tage berücksichtigt."
         ),
         "help_opt_people": (
-            "Verhindert, dass immer dieselbe Person das Album dominiert."
+            "Berücksichtigt, welche Personen häufig vorkommen, und bevorzugt "
+            "eine ausgewogenere Mischung. Besonders nützlich bei Gruppenreisen."
         ),
         "help_opt_map": (
             "Vor dem Kopieren Kapitel und Karte zeigen, dann bestätigen."
         ),
         "help_opt_ai": (
-            "Optionaler Feinschliff nach der lokalen Vorfilterung "
-            "(Gesichter, Schärfe, Duplikate, Ästhetik decken schon ~90 % ab). "
-            "Anbieter wählst du unter „KI wählen“."
+            "Optional: Ein KI-Anbieter bewertet Bildvorschauen zusätzlich. "
+            "Für den ersten Durchlauf reicht die lokale Auswahl."
         ),
         "help_ai_provider": (
-            "Welche KI?\n\n"
-            "• Keine KI: 100 % lokal, schnell – nur OpenCV/MediaPipe/pHash. "
-            "Kein API-Key, kein Internet für die Bewertung.\n\n"
-            "• Google Gemini 1.5 Flash (Gratis/Free Tier): bis ca. 1.500 Bilder/Tag "
-            "kostenlos. Sehr gut für Bildästhetik, Motiverkennung und Text auf "
-            "Schildern/Speisekarten. Braucht Gemini-API-Key + Internet.\n\n"
-            "• Anthropic Claude (kostenpflichtig): Pay-per-Use, höchste Präzision "
-            "bei künstlerischer Komposition, Stimmungen und feinen Nuancen.\n\n"
-            "• Ollama (lokal): privat & offline, braucht starke GPU; Qualität "
-            "meist unter Cloud-Modellen, bei großen Mengen oft langsam.\n\n"
-            "Bereits bewertete Fotos (Cache/CSV) werden nicht erneut gesendet. "
-            "Bei API-Fehlern greift die lokale Heuristik."
+            "Keine KI: empfohlener Start. Die Bewertung läuft auf deinem Computer.\n\n"
+            "Gemini oder Claude: Bildvorschauen werden an den Anbieter gesendet. "
+            "Benötigt Internet und einen API-Schlüssel; es können Kosten entstehen.\n\n"
+            "Ollama: zusätzliche KI auf deinem Computer. Dafür muss Ollama mit "
+            "einem passenden Bildmodell eingerichtet sein."
         ),
         "help_opt_dry": (
-            "Kein echter API-Aufruf: zählt nur Kandidaten und schätzt Kosten/Limits. "
-            "Sinnvoll bei Gemini/Anthropic; bei Ollama/Keine KI ausgeblendet."
+            "Bei eingeschalteter KI wird nur eine Schätzung der Kandidaten und Kosten "
+            "erstellt. Es werden keine Bilder an die KI gesendet und kein Album exportiert."
         ),
         "help_ai_ollama_model": (
             "Name des Vision-Modells in Ollama (z. B. llava oder llama3.2-vision). "
@@ -580,24 +572,24 @@ _STRINGS: dict[str, dict[str, str]] = {
             "optional_dokumente/ (you can add them later)."
         ),
         "help_opt_accidental": (
-            "Typical trigger misses: mostly ground/sky, subject at the edge, "
-            "strong tilt – excluded from the book."
+            "Filters photos that appear accidental. For your first selection, "
+            "leave this off and review these pictures yourself later."
         ),
         "help_opt_weak_night": (
-            "Remove dark, soft, mushy night shots."
+            "Filters very dark, blurry night photos. Leave this off initially "
+            "for night markets and neon scenes."
         ),
         "help_opt_content": (
-            "Finds near-duplicate scenes (not only pixel duplicates) and keeps "
-            "the best – uses embeddings and the analysis cache."
+            "Compares similar subjects and reduces repetition. You can add "
+            "removed alternatives back during review."
         ),
         "help_opt_aesthetic": (
-            "Part of the local prefilter (no cloud): sharpness, exposure, composition – "
-            "fast and free. Together with faces/duplicates this covers most culling. "
-            "Skipped when AI review is on."
+            "Rates composition and light on your computer without sending photos. "
+            "Not used in addition to AI review."
         ),
         "help_opt_timezone": (
-            "Shift all EXIF times by X hours (e.g. +9 if the camera was still "
-            "on home time)."
+            "Corrects an incorrectly set camera clock. Otherwise leave at 0; "
+            "the destination's time zone is not automatically the right correction."
         ),
         "help_opt_video": (
             "Extract the sharpest frame from short videos without a sibling JPG/HEIC "
@@ -607,37 +599,30 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Filter typical finger/hand-over-lens shots."
         ),
         "help_opt_coverage": (
-            "Avoids almost everything coming from day one. "
-            "Strength: gentle to strongly even across days."
+            "Includes as many travel days as possible. A higher strength "
+            "distributes the selection more evenly across days."
         ),
         "help_opt_people": (
-            "Avoids one person dominating the whole album."
+            "Considers how often people appear and favours a more balanced mix. "
+            "Especially useful for group trips."
         ),
         "help_opt_map": (
             "Show chapters and map before copying files, then confirm."
         ),
         "help_opt_ai": (
-            "Optional fine-tuning after local prefiltering "
-            "(faces, sharpness, duplicates, aesthetic already cover ~90%). "
-            "Pick the provider under “Choose AI”."
+            "Optional: an AI provider additionally rates picture previews. "
+            "Local selection is enough for a first run."
         ),
         "help_ai_provider": (
-            "Which AI?\n\n"
-            "• No AI: 100% local, fast – OpenCV/MediaPipe/pHash only. "
-            "No API key, no internet for scoring.\n\n"
-            "• Google Gemini 1.5 Flash (free tier): ~1,500 images/day free. "
-            "Strong on aesthetics, subjects, and text on signs/menus. "
-            "Needs Gemini API key + internet.\n\n"
-            "• Anthropic Claude (paid): pay-per-use, highest precision for "
-            "artistic composition, mood, and fine nuance.\n\n"
-            "• Ollama (local): private & offline, needs a strong GPU; quality "
-            "usually below cloud models, often slow on large batches.\n\n"
-            "Already scored photos (cache/CSV) are not resent. "
-            "On API errors the local heuristic is used."
+            "No AI: the recommended starting point. Rating runs on your computer.\n\n"
+            "Gemini or Claude: picture previews are sent to the provider. Requires "
+            "internet and an API key; charges may apply.\n\n"
+            "Ollama: additional AI on your computer. Requires an installed Ollama "
+            "service with a suitable image model."
         ),
         "help_opt_dry": (
-            "No real API call: counts candidates and estimates cost/limits only. "
-            "Useful for Gemini/Anthropic; hidden for Ollama/No AI."
+            "With AI enabled, only an estimate of candidates and cost is produced. "
+            "No pictures are sent to AI and no album is exported."
         ),
         "help_ai_ollama_model": (
             "Vision model name in Ollama (e.g. llava or llama3.2-vision). "

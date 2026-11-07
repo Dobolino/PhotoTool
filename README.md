@@ -6,7 +6,12 @@ Lokales Python-CLI-Tool zur Kuratierung eines Urlaubs-Fotobuchs aus einer große
 
 **Einstieg:** siehe [ANLEITUNG.md](ANLEITUNG.md). Unter Windows am einfachsten: `Fotobuch starten.bat` doppelklicken (Fenster-Oberfläche).
 
-Neu in **0.4.0**: moderne Projekt- und Albumplanung, Reiseprofile, Seitenbudget,
+Neu in **0.4.1**: kompakte Startansicht mit begrenzter Inhaltsbreite, lesbarere
+Schrift und klarer Auswahlart vor dem Start. Bildqualität, Abwechslung und KI
+stehen in einem eigenen Einstellungsfenster; die Analyse hat eine eigene
+Fortschrittsansicht. Kurze Hilfen öffnen direkt an der jeweiligen Einstellung.
+
+Seit **0.4.0**: moderne Projekt- und Albumplanung, Reiseprofile, Seitenbudget,
 dauerhafte Behalten-/Ausschliessen-Entscheidungen, Originale neu verknüpfen und ein
 Prüf-Assistent mit Motivgruppen und Erzählmix. Siehe [Reiseprojekte und Bedienung](REISEPROJEKTE.md).
 Die Verbesserungen aus 0.3.1 (Caps, sicheres Speichern und effizientere JPEG-Analyse)

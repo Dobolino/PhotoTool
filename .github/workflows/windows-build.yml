@@ -26,6 +26,16 @@ jobs:
         run: python -m pip install -r packaging/requirements-build.txt -c packaging/constraints-windows.txt pytest
       - name: Tests
         run: python -m pytest -q
+      - name: Capture native Windows layouts
+        timeout-minutes: 1
+        run: python packaging/capture_ui.py --output artifacts/windows-ui
+      - name: Upload native Windows UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoTool-windows-ui
+          path: artifacts/windows-ui/
+          if-no-files-found: warn
       - name: Validate release version
         shell: pwsh
         run: |

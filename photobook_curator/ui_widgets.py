@@ -8,6 +8,7 @@ from typing import Callable, Optional
 
 
 FONT_UI = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
+BODY_FONT_SIZE = 12
 
 
 def section_header(parent: tk.Misc, text: str, colors: dict[str, str]) -> tk.Label:
@@ -254,7 +255,7 @@ def pill_badge(parent: tk.Misc, text: str, colors: dict[str, str]) -> tk.Label:
 
 
 class HelpTip(tk.Label):
-    """Kleines „?“ neben einer Option – öffnet ein echtes Hilfefenster mit Schließen (X)."""
+    """Compact contextual help, anchored to its control rather than a modal window."""
 
     _open_tip: Optional["HelpTip"] = None
 
@@ -273,23 +274,29 @@ class HelpTip(tk.Label):
         self.colors = colors
         self._get_text = get_text
         self._popup: tk.Toplevel | None = None
+        self._outside_bindings: list[tuple[tk.Misc, str]] = []
+        self._focus_out_job: str | None = None
         super().__init__(
             parent,
-            text=" ?",
+            text=" ? ",
             bg=colors.get("surface", colors.get("bg", "#111")),
             fg=colors.get("muted", "#888"),
-            font=(FONT_UI, 10, "bold"),
+            font=(FONT_UI, BODY_FONT_SIZE, "bold"),
             cursor="question_arrow",
-            padx=4,
-            pady=0,
+            padx=3,
+            pady=2,
             **kwargs,
         )
+        self.configure(takefocus=True, highlightthickness=1,
+                       highlightbackground=colors.get("surface", colors.get("bg", "#111")),
+                       highlightcolor=colors.get("accent", "#7B6CFF"))
         self.bind("<Button-1>", self._toggle)
-        self.configure(takefocus=True)
         self.bind("<Return>", self._toggle)
         self.bind("<space>", self._toggle)
+        self.bind("<Escape>", lambda _e: self._close(restore_focus=True))
         self.bind("<Enter>", lambda _e: self.configure(fg=colors.get("accent", "#7B6CFF")))
         self.bind("<Leave>", lambda _e: self.configure(fg=colors.get("muted", "#888")))
+        self.bind("<Destroy>", self._owner_destroyed)
 
     def set_help_key(self, help_key: str) -> None:
         self.help_key = help_key
@@ -306,126 +313,157 @@ class HelpTip(tk.Label):
 
     def _root_window(self) -> tk.Misc:
         w: tk.Misc = self
-        while True:
-            master = getattr(w, "master", None)
-            if master is None:
-                return w
-            w = master
+        while getattr(w, "master", None) is not None:
+            w = w.master
+        return w
 
-    def _toggle(self, _event=None) -> None:
+    def _toggle(self, _event=None) -> str:
         if self._popup is not None and self._popup.winfo_exists():
+            self._close(restore_focus=True)
+            return "break"
+        if HelpTip._open_tip is not None and HelpTip._open_tip is not self:
+            HelpTip._open_tip._close()
+        self._show()
+        return "break"
+
+    @staticmethod
+    def _inside(widget, parent: tk.Misc) -> bool:
+        return widget is parent or str(widget).startswith(str(parent) + ".")
+
+    def _outside_click(self, event) -> None:
+        popup = self._popup
+        if popup is not None and event.widget is not self and not self._inside(event.widget, popup):
+            self._close()
+
+    def _focus_left(self, _event=None) -> None:
+        popup = self._popup
+        if popup is None:
+            return
+        if self._focus_out_job is not None:
             try:
-                self._popup.lift()
-                self._popup.focus_force()
+                self.after_cancel(self._focus_out_job)
+            except tk.TclError:
+                pass
+        self._focus_out_job = self.after(80, self._check_focus)
+
+    def _check_focus(self) -> None:
+        self._focus_out_job = None
+        popup = self._popup
+        if popup is not None:
+            try:
+                focus = self.focus_get()
+                if focus is None or not self._inside(focus, popup):
+                    self._close()
             except tk.TclError:
                 self._close()
-                self._show()
-            return
-        if HelpTip._open_tip is not None and HelpTip._open_tip is not self:
-            try:
-                HelpTip._open_tip._close()
-            except Exception:
-                pass
-        self._show()
 
     def _show(self) -> None:
         text = (self._resolve_text() or "").strip()
         if not text:
             return
         c = self.colors
-        tip = tk.Toplevel(self._root_window())
+        host = self.winfo_toplevel()
+        tip = tk.Toplevel(host)
+        tip.withdraw()
         tip.title(self._resolve_title())
-        tip.configure(bg=c.get("bg", "#111"))
-        try:
-            tip.transient(self._root_window())
-        except tk.TclError:
-            pass
-        tip.resizable(True, True)
-
-        outer = tk.Frame(tip, bg=c.get("bg", "#111"), padx=16, pady=14)
+        tip.transient(host)
+        tip.overrideredirect(True)
+        tip.configure(bg=c.get("line", "#374151"), padx=1, pady=1)
+        tip.resizable(False, False)
+        surface = c.get("surface", "#1a1a22")
+        outer = tk.Frame(tip, bg=surface, padx=18, pady=14)
         outer.pack(fill=tk.BOTH, expand=True)
-
-        body = tk.Frame(outer, bg=c.get("surface", "#1a1a22"), padx=14, pady=12)
-        body.pack(fill=tk.BOTH, expand=True)
-
-        text_wrap = tk.Frame(body, bg=c.get("surface", "#1a1a22"))
-        text_wrap.pack(fill=tk.BOTH, expand=True)
-        scroll = tk.Scrollbar(text_wrap)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        txt = tk.Text(
-            text_wrap,
-            wrap=tk.WORD,
-            height=14,
-            width=52,
-            bg=c.get("surface", "#1a1a22"),
-            fg=c.get("ink", "#eee"),
-            relief=tk.FLAT,
+        header = tk.Frame(outer, bg=surface)
+        header.pack(fill=tk.X, pady=(0, 9))
+        tk.Label(header, text=self._resolve_title(), bg=surface,
+                 fg=c.get("ink", "#eee"), font=(FONT_UI, BODY_FONT_SIZE, "bold"),
+                 anchor=tk.W).pack(side=tk.LEFT)
+        close_text = self._get_text("help_tip_close") if self._get_text else "Schliessen"
+        self._close_button = tk.Button(
+            header, text=close_text, command=lambda: self._close(restore_focus=True),
+            bg=c.get("chip_bg", surface), fg=c.get("muted", "#aaa"),
+            activebackground=c.get("accent_soft", surface), activeforeground=c.get("ink", "#eee"),
+            relief=tk.FLAT, bd=0, padx=8, pady=4, cursor="hand2", takefocus=True,
             font=(FONT_UI, 10),
-            padx=4,
-            pady=4,
-            yscrollcommand=scroll.set,
-            highlightthickness=0,
         )
-        txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.configure(command=txt.yview)
-        txt.insert("1.0", text)
-        txt.configure(state=tk.DISABLED)
-
-        btn_row = tk.Frame(outer, bg=c.get("bg", "#111"))
-        btn_row.pack(fill=tk.X, pady=(12, 0))
-        close_lbl = "Schließen"
-        if self._get_text is not None:
-            close_lbl = self._get_text("help_tip_close")
-        close_btn = tk.Button(
-            btn_row,
-            text=f"✕  {close_lbl}",
-            command=self._close,
-            bg=c.get("chip_bg", c.get("surface", "#222")),
-            fg=c.get("ink", "#eee"),
-            activebackground=c.get("line", "#333"),
-            activeforeground=c.get("ink", "#eee"),
-            relief=tk.FLAT,
-            font=(FONT_UI, 10, "bold"),
-            padx=14,
-            pady=8,
-            cursor="hand2",
-        )
-        close_btn.pack(side=tk.RIGHT)
-
-        tip.bind("<Escape>", lambda _e: self._close())
-        tip.protocol("WM_DELETE_WINDOW", self._close)
-
+        self._close_button.pack(side=tk.RIGHT, padx=(14, 0))
+        # A short explanation determines its own height. Only genuinely long help
+        # gets a bounded, scrollable text area, rather than a large empty modal.
+        wrap_width = min(380, max(220, self.winfo_screenwidth() - 64))
+        label = tk.Label(outer, text=text, wraplength=wrap_width, justify=tk.LEFT,
+                         anchor=tk.NW, bg=surface, fg=c.get("ink", "#eee"),
+                         font=(FONT_UI, BODY_FONT_SIZE))
+        label.pack(fill=tk.X)
         tip.update_idletasks()
-        try:
-            tw = max(420, tip.winfo_reqwidth())
-            th = max(320, tip.winfo_reqheight())
-            root = self._root_window()
-            rx = int(root.winfo_rootx())
-            ry = int(root.winfo_rooty())
-            rw = int(root.winfo_width())
-            rh = int(root.winfo_height())
-            x = rx + max(24, (rw - tw) // 2)
-            y = ry + max(24, (rh - th) // 3)
-            tip.geometry(f"{tw}x{th}+{x}+{y}")
-            tip.minsize(360, 260)
-        except tk.TclError:
-            tip.geometry("480x360")
-
+        max_body_height = max(100, min(340, int(self.winfo_screenheight() * 0.4)))
+        if label.winfo_reqheight() > max_body_height:
+            label.destroy()
+            body = tk.Frame(outer, bg=surface)
+            body.pack(fill=tk.BOTH, expand=True)
+            import tkinter.font as tkfont
+            line_height = tkfont.Font(tip, font=(FONT_UI, BODY_FONT_SIZE)).metrics("linespace")
+            txt = tk.Text(body, wrap=tk.WORD, height=max(3, max_body_height // max(1, line_height)),
+                          width=max(24, int(wrap_width / max(1, tkfont.Font(tip, font=(FONT_UI, BODY_FONT_SIZE)).measure("n")))),
+                          bg=surface, fg=c.get("ink", "#eee"), relief=tk.FLAT,
+                          font=(FONT_UI, BODY_FONT_SIZE), padx=0, pady=0, highlightthickness=0)
+            scroll = tk.Scrollbar(body, command=txt.yview)
+            txt.configure(yscrollcommand=scroll.set)
+            scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            txt.insert("1.0", text)
+            txt.configure(state=tk.DISABLED)
+        tip.update_idletasks()
+        width, height = tip.winfo_reqwidth(), tip.winfo_reqheight()
+        # Keep the hint next to the setting, and above it if the bottom edge is near.
+        x = self.winfo_rootx()
+        y = self.winfo_rooty() + self.winfo_height() + 8
+        if y + height > self.winfo_screenheight() - 12:
+            y = self.winfo_rooty() - height - 8
+        x = max(12, min(x, self.winfo_screenwidth() - width - 12))
+        y = max(12, min(y, self.winfo_screenheight() - height - 12))
+        tip.geometry(f"{width}x{height}+{x}+{y}")
+        tip.bind("<Escape>", lambda _e: self._close(restore_focus=True))
+        tip.bind("<FocusOut>", self._focus_left)
+        tip.protocol("WM_DELETE_WINDOW", self._close)
         self._popup = tip
         HelpTip._open_tip = self
-        try:
-            tip.focus_force()
-        except tk.TclError:
-            pass
+        # Toplevel bindtags catch clicks elsewhere in the settings dialog without
+        # replacing the app's existing handlers. Unbind just our own callback.
+        for parent in dict.fromkeys((host, self._root_window())):
+            binding = parent.bind("<ButtonPress-1>", self._outside_click, add="+")
+            self._outside_bindings.append((parent, binding))
+        tip.deiconify()
+        tip.lift()
+        self._close_button.focus_force()
 
-    def _close(self) -> None:
-        tip = self._popup
-        self._popup = None
+    def _owner_destroyed(self, event) -> None:
+        if event.widget is self:
+            self._close()
+
+    def _close(self, *, restore_focus: bool = False) -> None:
+        tip, self._popup = self._popup, None
+        if self._focus_out_job is not None:
+            try:
+                self.after_cancel(self._focus_out_job)
+            except tk.TclError:
+                pass
+            self._focus_out_job = None
+        for parent, binding in self._outside_bindings:
+            try:
+                parent.unbind("<ButtonPress-1>", binding)
+            except tk.TclError:
+                pass
+        self._outside_bindings.clear()
         if HelpTip._open_tip is self:
             HelpTip._open_tip = None
         if tip is not None:
             try:
                 tip.destroy()
+            except tk.TclError:
+                pass
+        if restore_focus:
+            try:
+                self.focus_force()
             except tk.TclError:
                 pass
 

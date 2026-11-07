@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import tkinter as tk
 import threading
+import time
 
 import pytest
 
@@ -28,27 +29,75 @@ def app(tmp_path, monkeypatch):
     window.destroy()
 
 
-def test_main_actions_and_responsive_cards_remain_accessible(app):
-    def assert_actual_layout():
-        wide = app._cards_host.winfo_width() >= 1000
-        assert app._settings_card.grid_info()["column"] == (1 if wide else 0)
-        assert app._settings_card.grid_info()["row"] == (0 if wide else 1)
-
-    assert app._folder_card.grid_info()["column"] == 0
-    assert_actual_layout()
-    assert not app.advanced_frame.winfo_ismapped()
-    assert not app._log_frame.winfo_ismapped()
+def test_planning_stays_compact_and_extra_settings_open_in_grouped_sheet(app):
+    assert app._setup_view.winfo_ismapped()
+    assert not app._analysis_view.winfo_ismapped()
     assert app.start_btn.winfo_ismapped()
     assert app.review_btn.winfo_ismapped()
     assert app.start_btn.winfo_rooty() + app.start_btn.winfo_height() <= app.winfo_rooty() + app.winfo_height()
-    app.geometry("900x720")
+    setup_height = app._setup_view.winfo_height()
+    app.advanced_toggle.invoke()
     app.update()
-    # Windows DPI and the runner's physical screen may clamp requested sizes.
-    # Validate the layout against the actual available space in both requests.
-    assert_actual_layout()
-    app._toggle_advanced()
+    assert app._settings_sheet.winfo_ismapped()
+    assert app._setup_view.winfo_height() == setup_height
+    tabs = [app._settings_notebook.tab(tab, "text") for tab in app._settings_notebook.tabs()]
+    assert tabs == ["Bildqualität", "Abwechslung", "KI"]
+    app._close_selection_settings()
     app.update()
-    assert app.advanced_frame.winfo_ismapped()
+    assert not app._settings_sheet.winfo_ismapped()
+
+
+def test_maximized_workspace_has_bounded_centered_content(app):
+    app.geometry(f"{app.winfo_screenwidth() - 60}x{app.winfo_screenheight() - 100}+20+20")
+    app.update()
+    scale = float(app.tk.call("tk", "scaling")) / (96 / 72)
+    assert app._content_frame.winfo_width() <= round(1100 * scale) + 2
+    available = app._body_canvas.winfo_width()
+    left = app._content_frame.winfo_rootx() - app._body_canvas.winfo_rootx()
+    right = available - left - app._content_frame.winfo_width()
+    assert abs(left - right) <= 4
+
+
+def test_saved_ai_estimate_mode_is_prominent_before_start(app):
+    app.ai_provider_var.set("anthropic")
+    app.dry_run_var.set(True)
+    assert "Kostenschätzung" in app._mode_title_var.get()
+    assert "keine fertige Auswahl" in app._mode_title_var.get()
+    assert "Anthropic Claude" in app._mode_description_var.get()
+    assert app.start_btn.cget("text") == "Kosten schätzen"
+    app._open_selection_settings("ai")
+    app.update()
+    assert app._settings_notebook.select() == str(app._settings_tabs["ai"])
+    assert app.dry_run_var.get() is True
+    app._close_selection_settings()
+
+
+@pytest.mark.parametrize("scale_factor", [1.0, 1.5])
+def test_primary_actions_and_settings_fit_narrow_window_at_display_scaling(app, scale_factor):
+    original_scaling = float(app.tk.call("tk", "scaling"))
+    try:
+        app.tk.call("tk", "scaling", (96 / 72) * scale_factor)
+        app._setup_style()
+        app.geometry("1024x768+10+10")
+        app.ai_provider_var.set("anthropic")
+        app.dry_run_var.set(True)
+        app.update()
+        for action in (app.start_btn, app.review_btn):
+            assert action.winfo_ismapped()
+            assert action.winfo_rootx() >= app.winfo_rootx()
+            assert action.winfo_rootx() + action.winfo_width() <= app.winfo_rootx() + app.winfo_width()
+        assert app._footer_hint.winfo_ismapped()
+        assert "Kostenschätzung" in app._footer_hint.cget("text")
+        app._open_selection_settings("ai")
+        app.update()
+        sheet = app._settings_sheet
+        assert sheet.winfo_width() <= sheet.winfo_screenwidth()
+        assert sheet.winfo_height() <= sheet.winfo_screenheight()
+        assert sheet.winfo_rooty() >= 0
+        app._close_selection_settings()
+    finally:
+        app.tk.call("tk", "scaling", original_scaling)
+        app._setup_style()
 
 
 def test_backend_warmup_updates_status_through_main_queue_without_worker_tk_calls(app, monkeypatch):
@@ -129,14 +178,57 @@ def test_start_saves_full_profile_and_page_budget_before_analysis(app, tmp_path,
     monkeypatch.setattr("photobook_curator.gui.threading.Thread", NoopWorker)
     app._start()
     app.update()
+    assert app._analysis_view.winfo_ismapped()
+    assert not app._setup_view.winfo_ismapped()
     assert app.progress.winfo_ismapped()
-    assert app.progress.winfo_rooty() + app.progress.winfo_height() < app.start_btn.winfo_rooty()
+    assert app.cancel_btn.winfo_ismapped()
+    assert not app.start_btn.winfo_ismapped()
+    assert not app._log_frame.winfo_ismapped()
+    app._set_progress("Lokale Analyse", 0.42, "quality")
+    assert app._percent_var.get() == "42 %"
+    app._finish_analysis_view()
+    app.update()
+    assert app._setup_view.winfo_ismapped()
+    assert not app._analysis_view.winfo_ismapped()
     saved = load_project(output, remember=False)
     assert saved.settings["target_n"] == 150
     assert saved.settings["book_pages"] == 64
     assert saved.settings["burst_keep"] == 1
     assert saved.settings["food_ratio"] == 0.1
     assert saved.profile_id == "custom"  # page budget customizes the beach preset
+
+
+def test_real_local_run_returns_to_review_ready_planning(app, tmp_path, monkeypatch):
+    from PIL import Image, ImageDraw
+    source = tmp_path / "photos"
+    source.mkdir()
+    for n, color in enumerate(("red", "blue")):
+        image = Image.new("RGB", (160, 120), color)
+        ImageDraw.Draw(image).rectangle((n * 30, 20, 90, 80), fill="yellow")
+        image.save(source / f"photo-{n}.jpg")
+    app.input_var.set(str(source))
+    app.output_var.set(str(tmp_path / "album"))
+    app._apply_config_settings({
+        "target_n": 2, "geocode": False, "enable_faces": False,
+        "enable_content_clusters": False, "enable_document_aside": False,
+        "enable_local_aesthetic": False, "enable_accidental_filter": False,
+        "enable_weak_night_filter": False, "max_per_day": 0,
+    })
+    errors = []
+    monkeypatch.setattr(app, "report_callback_exception", lambda _kind, exc, _tb: errors.append(exc))
+    monkeypatch.setattr("photobook_curator.gui.messagebox.showerror", lambda *args, **kwargs: errors.append(args))
+    app._start()
+    assert app._view_mode == "analysis"
+    deadline = time.monotonic() + 15
+    while app._view_mode == "analysis" and time.monotonic() < deadline:
+        app.update()
+        time.sleep(0.01)
+    assert errors == []
+    assert app._view_mode == "setup"
+    assert app._setup_view.winfo_ismapped()
+    assert "Fotos sind bereit" in app._result_note_var.get()
+    assert "disabled" not in app.review_btn.state()
+    assert (tmp_path / "album" / "selected").is_dir()
 
 
 def test_failed_review_autosave_blocks_project_switching():
