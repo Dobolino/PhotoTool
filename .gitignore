@@ -13,6 +13,7 @@ output/
 *.jpg
 *.jpeg
 *.png
+!photobook_curator/assets/*.png
 *.heic
 !docs/**
 
