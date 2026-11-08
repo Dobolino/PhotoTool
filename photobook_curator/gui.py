@@ -596,8 +596,8 @@ class PhotobookApp(tk.Tk):
         )
         style.configure(
             "Browse.TButton",
-            font=font_ui,
-            padding=(14, 9),
+            font=(FONT_UI, 13),
+            padding=(16, 10),
             background=c.get("chip_bg", c["surface"]),
             foreground=c["ink"],
         )
@@ -608,8 +608,8 @@ class PhotobookApp(tk.Tk):
         )
         style.configure(
             "Start.TButton",
-            font=(FONT_UI, 12, "bold"),
-            padding=(20, 12),
+            font=(FONT_UI, 13, "bold"),
+            padding=(24, 13),
             background=c.get("cta", c["accent"]),
             foreground=c.get("cta_ink", c.get("hero_fg", "#FFFFFF")),
         )
@@ -722,12 +722,18 @@ class PhotobookApp(tk.Tk):
                             focuscolor=c["accent"])
         style.map("Browse.TButton", bordercolor=[("focus", c["accent"]), ("active", c["accent"]), ("disabled", c["line"])])
         for widget_style in ("TEntry", "TCombobox", "AI.TCombobox", "TSpinbox"):
-            style.configure(widget_style, font=(FONT_UI, 12), lightcolor=c["line"], darkcolor=c["line"])
+            style.configure(widget_style, font=(FONT_UI, 13), lightcolor=c["line"], darkcolor=c["line"])
 
     def _build(self) -> None:
         from .main_workspace import build_workspace
         self._translate = t
         build_workspace(self, COLORS, t)
+        from .branding import make_logo_label
+        scale = float(self.tk.call("tk", "scaling")) / (96 / 72)
+        self._workspace_brand_label = make_logo_label(
+            self._workspace_brand_host, size=min(512, round(56 * scale)), background=COLORS["bg"])
+        self._workspace_brand_label.pack(side=tk.LEFT, before=self._workspace_brand_text_host,
+                                        padx=(0, round(14 * scale)))
 
     def _mark_profile_custom(self, *_args) -> None:
         if getattr(self, "_applying_profile", False):
@@ -744,6 +750,11 @@ class PhotobookApp(tk.Tk):
         state = tk.NORMAL if available and not self._is_analysis_running() else tk.DISABLED
         for button in (self.review_btn, self.map_btn, self._relink_btn):
             button.configure(state=state)
+        # Existing work should lead back into review, without suggesting that
+        # another (potentially paid) analysis is required to continue.
+        resume = available and state == tk.NORMAL
+        self.review_btn.configure(style="Start.TButton" if resume else "Browse.TButton")
+        self.start_btn.configure(style="Browse.TButton" if resume else "Start.TButton")
 
     def _toggle_log(self) -> None:
         self._log_open = not self._log_open
@@ -895,22 +906,9 @@ class PhotobookApp(tk.Tk):
             messagebox.showerror(t("relink_sources"), str(exc), parent=self)
 
     def _set_icon(self) -> None:
-        """Ersetzt das Standard-Tk-Icon (blaue Feder) durch ein eigenes."""
-        try:
-            from PIL import Image, ImageDraw, ImageTk
-
-            n = 64
-            img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-            d = ImageDraw.Draw(img)
-            d.rounded_rectangle([2, 2, n - 3, n - 3], radius=14, fill="#7B6CFF")
-            d.rectangle([14, 18, 50, 46], fill="#E8EAF2")
-            d.polygon([(18, 44), (28, 30), (36, 44)], fill="#5C6B8A")
-            d.polygon([(32, 44), (40, 34), (48, 44)], fill="#3D4A6B")
-            d.ellipse([40, 22, 47, 29], fill="#C8C4FF")
-            self._icon_img = ImageTk.PhotoImage(img)
-            self.iconphoto(True, self._icon_img)
-        except Exception:
-            pass
+        """Use the same packaged brand in the window, taskbar and workspace."""
+        from .branding import set_window_icon
+        set_window_icon(self)
 
     def _ui_phase_config(self) -> Any:
         """Leichte Config-Ansicht aus den Checkboxen (für Schritt-Vorschau)."""
@@ -1869,7 +1867,6 @@ class PhotobookApp(tk.Tk):
             self._post_ui(lambda: self.cancel_btn.configure(state=tk.DISABLED))
             # Nächster sinnvoller Schritt: „Auswahl prüfen“ optisch hervorheben
             self._post_ui(self._sync_project_actions)
-            self._post_ui(lambda: self.review_btn.configure(style="Start.TButton"))
 
             self._post_ui(self._finish_analysis_view)
 
@@ -1905,7 +1902,6 @@ class PhotobookApp(tk.Tk):
         self.cancel_btn.configure(state=tk.DISABLED)
         self._sync_project_actions()
         self._refresh_run_summary()
-        self.review_btn.configure(style="Start.TButton")
 
     def _confirm_export_after_preview(self, result: dict, cfg: PipelineConfig) -> None:
         from .pipeline import export_book_outputs
@@ -2205,6 +2201,8 @@ def _report_startup_error() -> None:
 
 
 def main() -> int:
+    from .branding import set_windows_app_id
+    set_windows_app_id()
     try:
         from .utils import ensure_utf8_stdio
 

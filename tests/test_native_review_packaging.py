@@ -63,6 +63,19 @@ def test_native_fixture_is_real_local_images_with_explicit_synthetic_evidence(tm
     assert len(plan.regions) == 2
 
 
+def test_native_release_fixture_covers_long_chapter_list_and_portrait_images(tmp_path):
+    helper = runpy.run_path(str(ROOT / "packaging" / "native_review_smoke.py"))
+    photos, plan, output = helper["create_fixture"](tmp_path, stress=True)
+    assert len(photos) == 92 and len(plan.regions) == 44
+    assert len({photo.chapter_folder.split("/")[0] for photo in photos}) == 44
+    assert any(len(photo.region) > 60 for photo in photos)
+    assert any(photo.height > photo.width for photo in photos)
+    assert any(photo.width > photo.height for photo in photos)
+    assert sum(photo.is_selected for photo in photos) == 3
+    assert all(photo.path.is_file() for photo in photos)
+    assert (output / "photos_analysis.csv").is_file()
+
+
 @pytest.mark.parametrize("render_ok", [True, False])
 def test_native_smoke_closes_the_session_server_on_success_and_render_failure(monkeypatch, tmp_path, render_ok):
     helper = runpy.run_path(str(ROOT / "packaging" / "native_review_smoke.py"))
@@ -145,8 +158,47 @@ def test_native_probe_uses_raw_scripts_and_real_transport_without_eval(monkeypat
         assert payload["native_close_verified"]
         assert payload["frontend"]["photo_count"] == 8
         assert payload["frontend"]["theme"] == "dark"
-        assert layouts == ["B", "A", "B", "C", "destroy"]
+        assert payload["frontend"]["geometry_verified"]
+        assert payload["frontend"]["layouts_verified"] == ["A", "B", "C"]
+        assert layouts == ["A", "A", "B", "B", "C", "C", "destroy"]
         assert all((captures / name).is_file() for name in payload["captures"])
+    finally:
+        server.close()
+
+
+def test_native_probe_rejects_existing_layout_without_fresh_geometry_ack(monkeypatch, tmp_path):
+    """A loaded but off-screen photo must not pass by matching the old layout."""
+    from photobook_curator import modern_review
+    from photobook_curator.modern_review_session import ReviewSession
+    helper = runpy.run_path(str(ROOT / "packaging" / "native_review_smoke.py"))
+    session = ReviewSession(*helper["create_fixture"](tmp_path))
+    server = modern_review.ReviewServer(session)
+    checks = []
+    class ClosingEvent:
+        def __iadd__(self, handler):
+            self.handler = handler
+            return self
+    class Window:
+        events = SimpleNamespace(closing=ClosingEvent())
+        def run_js(self, script):
+            checks.append("requireGeometry=true" in script)
+            if "requireGeometry=false" in script:
+                session.action({"action": "view", "view": {"layout": "A"}})
+            # Invalid geometry: the actual DOM guard must withhold its click.
+        def destroy(self):
+            assert self.events.closing.handler() is True
+    ticks = iter(range(1000))
+    monkeypatch.setattr(modern_review, "time", SimpleNamespace(
+        monotonic=lambda: next(ticks), sleep=lambda seconds: None))
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(
+        create_window=lambda *args, **kwargs: Window(), start=lambda callback, **kwargs: callback()))
+    result = tmp_path / "bad-layout.json"
+    try:
+        assert modern_review.run_native_window(server.start(), smoke_result=result) == 1
+        payload = json.loads(result.read_text())
+        assert not payload["success"]
+        assert "passt nicht ins Fenster: A" in payload["error"]
+        assert checks[0] is False and any(checks)
     finally:
         server.close()
 

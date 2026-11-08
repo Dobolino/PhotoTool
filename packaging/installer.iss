@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.5.0"
+  #define AppVersion "0.5.1"
 #endif
 
 [Setup]
@@ -18,6 +18,7 @@ OutputBaseFilename=PhotoTool-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\photobook_curator\assets\phototool.ico
 CloseApplications=yes
 RestartApplications=no
 UninstallDisplayIcon={app}\Fotobuch.exe
@@ -33,7 +34,7 @@ Source: "..\dist\Fotobuch\*"; DestDir: "{app}"; Flags: ignoreversion recursesubd
 Source: "..\dist\prerequisites\MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy
 
 [Icons]
-Name: "{group}\PhotoTool"; Filename: "{app}\Fotobuch.exe"
+Name: "{group}\PhotoTool"; Filename: "{app}\Fotobuch.exe"; AppUserModelID: "Dobolino.PhotoTool"
 
 [Run]
 Filename: "{app}\Fotobuch.exe"; Description: "PhotoTool"; Flags: nowait runasoriginaluser

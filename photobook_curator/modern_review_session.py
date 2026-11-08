@@ -8,11 +8,13 @@ from __future__ import annotations
 from collections import Counter, OrderedDict, defaultdict
 from copy import deepcopy
 from dataclasses import asdict, replace
+from functools import lru_cache
 import math
 from pathlib import Path
 import re
 import threading
 from typing import Any, Callable
+import unicodedata
 from uuid import uuid4
 
 from .models import BookPlan, Photo, set_manual_decision
@@ -52,6 +54,44 @@ def _chapter_name(value: str) -> str:
     return re.sub(r"^\d+[a-z]?[_\s]+", "", value).replace("_", " ")
 
 
+def _automatic_chapter_slug(photo: Photo) -> str:
+    if photo.region and photo.region.startswith("Transit:"):
+        start, separator, end = photo.region.split(":", 1)[1].partition("->")
+        if separator and start.strip() and end.strip():
+            return f"Transit_{slugify(start)}-{slugify(end)}"
+    return slugify(photo.region or "Unbestimmt")
+
+
+def _place_words(value: str) -> str:
+    plain = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", " ", plain.casefold()).strip()
+
+
+@lru_cache(maxsize=1)
+def _catalog_city_patterns() -> tuple[tuple[str, re.Pattern], ...]:
+    # Reuse the existing offline catalogue. Import only if an actual description
+    # needs checking; this does not geocode or contact a service.
+    from .geocoding import OFFLINE_CITIES
+    return tuple((city["city"], re.compile(r"(?:^| )" + re.escape(_place_words(city["city"])) + r"(?= |$)"))
+                 for city in OFFLINE_CITIES)
+
+
+def _location_review_reason(photo: Photo, location: dict) -> str | None:
+    """Flag inconsistent/unverified labels, without treating AI text as proof."""
+    if photo.landmark and photo.region:
+        description, region = _place_words(photo.landmark), _place_words(photo.region)
+        mentioned = {city for city, pattern in _catalog_city_patterns() if pattern.search(description)}
+        assigned = {city for city, pattern in _catalog_city_patterns() if pattern.search(region)}
+        if len(mentioned) == len(assigned) == 1 and mentioned != assigned:
+            return "description_conflict"
+    if location.get("warning") or location.get("source") == "unknown":
+        return "location_warning"
+    if (photo.region and photo.region not in {"Album", "Optional", "Unbestimmt"}
+            and location.get("source") in {None, "legacy"}):
+        return "legacy_unverified"
+    return None
+
+
 def _canonical_chapters(photos: list[Photo]) -> list[str]:
     """Attach reserves to one evidenced automatic chapter, without renaming any.
 
@@ -70,7 +110,7 @@ def _canonical_chapters(photos: list[Photo]) -> list[str]:
             continue
         root = photo.chapter_folder.replace("\\", "/").split("/", 1)[0]
         match = re.match(r"^\d+[a-z]?_(.+)$", root)
-        if not match or not photo.region or match.group(1).casefold() != slugify(photo.region).casefold():
+        if not match or not photo.region or match.group(1).casefold() != _automatic_chapter_slug(photo).casefold():
             continue
         region = photo.region.strip().casefold()
         country = (photo.country or "").strip().casefold()
@@ -257,6 +297,7 @@ class ReviewSession:
                 chapters[chapter]["selected"] += index in self.kept
                 at = photo.datetime_taken
                 location = normalize_location_evidence(photo.location_evidence)
+                review_reason = _location_review_reason(photo, location)
                 records.append({"id": index, "filename": photo.filename, "chapter": chapter,
                     "chapter_folder": photo.chapter_folder, "region": photo.region,
                     "date": at.date().isoformat() if at else None,
@@ -268,6 +309,8 @@ class ReviewSession:
                     "technical_score": _finite(photo.technical_score), "final_score": _finite(photo.final_score),
                     "scene_type": photo.scene_type, "landmark": photo.landmark,
                     "location_source": location.get("source"), "location_warning": location.get("warning"),
+                    "location_review_required": review_reason is not None,
+                    "location_review_reason": review_reason,
                     "flags": list(photo.flags), "burst_group_id": photo.burst_group_id,
                     "content_cluster_id": photo.content_cluster_id, "duplicate_of": photo.duplicate_of})
             names = Counter(chapter["name"] for chapter in chapters.values())
@@ -351,13 +394,17 @@ class ReviewSession:
         photo.add_flag("manual_add")
         if folder:
             photo.chapter_folder = folder
-            photo.chapter_type = "Essen" if folder.endswith("/essen") else "Hauptteil"
+            photo.chapter_type = ("Transit" if re.fullmatch(r"(?:\d+[a-z]?_)?Transit_[^/\\]+", folder)
+                                  else "Essen" if folder.endswith("/essen") else "Hauptteil")
             photo.add_flag("manual_chapter")
         else:
             if not photo.chapter_folder:
                 root = _canonical_chapters(self.photos)[index]
-                part = "essen" if photo.scene_type == "essen" or photo.chapter_type == "Essen" else "hauptteil"
-                photo.chapter_folder = f"{root}/{part}"
+                if photo.region and photo.region.startswith("Transit:"):
+                    photo.chapter_folder, photo.chapter_type = root, "Transit"
+                else:
+                    part = "essen" if photo.scene_type == "essen" or photo.chapter_type == "Essen" else "hauptteil"
+                    photo.chapter_folder = f"{root}/{part}"
             photo.chapter_type = photo.chapter_type or ("Essen" if photo.scene_type == "essen" else "Hauptteil")
         photo.book_position = position if position is not None else max(
             (self.photos[i].book_position or 0 for i in self.kept if i != index), default=0) + 1

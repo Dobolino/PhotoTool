@@ -28,7 +28,7 @@ in `constraints-windows.txt` auf die getesteten Versionen begrenzt.
 
 Für eine Veröffentlichung zuerst `photobook_curator/__init__.py`, `pyproject.toml`
 und den Default in `installer.iss` auf dieselbe Version setzen. Nach Prüfung und Merge
-einen Tag wie `v0.5.0` auf diesen Commit pushen. Tag und App-Version müssen übereinstimmen.
+einen Tag wie `v0.5.1` auf diesen Commit pushen. Tag und App-Version müssen übereinstimmen.
 `python packaging/build.py --check` prüft die drei Versionsangaben ohne Build;
 auch jeder Bundle-Build und der Windows-Workflow brechen bei Abweichungen ab.
 Erst nach erfolgreichem Test, EXE-Smoke-Test, Installer-Build und nativem
@@ -48,6 +48,13 @@ Der native Windows-Host nutzt pywebview 6.2.1 und Microsoft Edge WebView2. Fotos
 werden darüber nicht ins Internet übertragen. Vorschauen und Projektentscheidungen
 bleiben in den bestehenden Python-Diensten; der Browserteil enthält keinen
 zweiten Auswahldatensatz.
+
+Das Programmsymbol liegt zusammen mit dem Logo in `photobook_curator/assets/`.
+PyInstaller, Installer, Tk-Fenster und WebView2 nutzen dieselbe Bildmarke;
+das ICO enthält die üblichen Windows-Grössen bis 256 Pixel. Paketdaten werden
+über `importlib.resources` geladen, damit ein anderer Arbeitsordner oder ein
+installierter Startmenü-Aufruf keine Symbole verschwinden lässt. Der native
+EXE-Smoke öffnet beide Bilddateien und sperrt Releases bei fehlenden Ressourcen.
 
 `prepare_webview2.ps1` lädt den Evergreen-Bootstrapper ausschliesslich von
 Microsofts offiziellem Endpunkt und akzeptiert ihn nur mit gültiger Microsoft-
@@ -107,7 +114,7 @@ Release veröffentlichen; ein Actions-Artefakt allein wird nicht als Update ange
 Ein HTTP 404 wird als nicht verfügbare Release-Quelle gemeldet, nicht als
 erfolgreicher Versionsvergleich. Es wird kein GitHub-Token in die EXE eingebaut.
 
-Beim Update von 0.4.x auf 0.5.0 bleiben Installer-ID und Installationspfad gleich.
+Beim Update von 0.4.x auf 0.5.x bleiben Installer-ID und Installationspfad gleich.
 Bestehende Projekte verwenden weiterhin Projektformat 1; Ausgabeordner,
 Auswahlentwürfe, Favoriten und Originalbilder werden vom Installer nicht ersetzt.
 Das Projekt kann nach dem Update über **Projekt öffnen** fortgesetzt werden.

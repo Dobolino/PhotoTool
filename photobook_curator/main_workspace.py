@@ -10,11 +10,16 @@ from tkinter import ttk
 from pathlib import Path
 
 
+# Readable on a normal desktop without turning the two planning cards into a
+# narrow island when the user maximizes the window.
+WORKSPACE_MAX_WIDTH = 1360
+
+
 def text(app, de: str, en: str) -> str:
     return en if getattr(app.app_settings, "language", "de") == "en" else de
 
 
-def label(app, parent, de, en, *, size=12, bold=False, muted=False, **kwargs):
+def label(app, parent, de, en, *, size=13, bold=False, muted=False, **kwargs):
     from . import ui_widgets
     widget = tk.Label(
         parent, text=text(app, de, en), bg=parent.cget("background"),
@@ -33,7 +38,7 @@ def button(app, parent, de, en, command, *, primary=False):
     return widget
 
 
-def card(app, parent, *, padding=22):
+def card(app, parent, *, padding=24):
     c = app._workspace_colors
     outer = tk.Frame(parent, bg=c["surface"], highlightbackground=c["line"],
                      highlightcolor=c["line"], highlightthickness=1)
@@ -41,6 +46,16 @@ def card(app, parent, *, padding=22):
     inner.pack(fill="both", expand=True)
     outer.inner = inner
     return outer
+
+
+def step_heading(app, parent, number, de, en):
+    """A visual step marker; the actual actions remain ordinary native buttons."""
+    c = app._workspace_colors
+    row = tk.Frame(parent, bg=c["surface"])
+    tk.Label(row, text=number, bg=c["accent_soft"], fg=c["accent"],
+             font=(app._font_family, 12, "bold"), padx=10, pady=7).pack(side="left", padx=(0, 12))
+    label(app, row, de, en, size=18, bold=True).pack(side="left")
+    return row
 
 
 def build_workspace(app, colors, translate):
@@ -78,7 +93,7 @@ def build_workspace(app, colors, translate):
     scrollbar.pack(side="right", fill="y")
     canvas.pack(side="left", fill="both", expand=True)
     canvas.configure(yscrollcommand=scrollbar.set)
-    content = tk.Frame(canvas, bg=c["bg"], pady=24)
+    content = tk.Frame(canvas, bg=c["bg"], pady=30)
     app._content_frame = content
     app._body_win = canvas.create_window((0, 0), window=content, anchor="nw")
     def update_scroll_region(_event=None):
@@ -93,7 +108,7 @@ def build_workspace(app, colors, translate):
 
     def fit_content(event):
         scale = float(app.tk.call("tk", "scaling")) / (96 / 72)
-        width = min(round(1100 * scale), max(320, event.width - round(48 * scale)))
+        width = min(round(WORKSPACE_MAX_WIDTH * scale), max(320, event.width - round(64 * scale)))
         canvas.itemconfigure(app._body_win, width=width)
         canvas.coords(app._body_win, (event.width - width) / 2, 0)
         app._content_width = width
@@ -103,17 +118,32 @@ def build_workspace(app, colors, translate):
         update_scroll_region()
         if hasattr(app, "_layout_chrome"):
             app._layout_chrome(width)
+        compact = event.height < round(780 * scale)
+        if hasattr(app, "_home_header") and getattr(app, "_home_compact", None) != compact:
+            app._home_compact = compact
+            content.configure(pady=20 if compact else 30)
+            app._home_header.pack_configure(pady=(0, 12 if compact else 28))
+            app._home_hero.pack_configure(pady=(0, 16 if compact else 24))
+            app._hero_subtitle.configure(font=(app._font_family, 24 if compact else 28, "bold"))
+            if compact:
+                app._home_intro.pack_forget()
+            else:
+                app._home_intro.pack(anchor="w", pady=(7, 0))
     canvas.bind("<Configure>", fit_content)
 
     header = tk.Frame(content, bg=c["bg"])
-    header.pack(fill="x", pady=(0, 24))
+    app._home_header = header
+    header.pack(fill="x", pady=(0, 28))
     titles = tk.Frame(header, bg=c["bg"])
     titles.pack(side="left")
-    app._brand_lbl = label(app, titles, "PhotoTool", "PhotoTool", size=20, bold=True)
+    # The shared branding helper can insert the app mark before these labels.
+    app._workspace_brand_host = titles
+    brand_text = tk.Frame(titles, bg=c["bg"])
+    brand_text.pack(side="left")
+    app._workspace_brand_text_host = brand_text
+    app._brand_lbl = label(app, brand_text, "PhotoTool", "PhotoTool", size=20, bold=True)
     app._brand_lbl.pack(anchor="w")
-    app._hero_subtitle = label(app, titles, "Deine Reise. Deine Auswahl.",
-                               "Your trip. Your selection.", size=24, bold=True)
-    app._hero_subtitle.pack(anchor="w", pady=(6, 0))
+    label(app, brand_text, "Platz für Erinnerungen.", "Room for memories.", size=11, muted=True).pack(anchor="w", pady=(2, 0))
     tools = tk.Frame(header, bg=c["bg"])
     tools.pack(side="right")
     app._project_btn = button(app, tools, "Projekte", "Projects", app._open_project_manager)
@@ -132,6 +162,17 @@ def build_workspace(app, colors, translate):
     more.configure(menu=menu)
     app._more_menu = menu
 
+    hero = tk.Frame(content, bg=c["bg"])
+    app._home_hero = hero
+    hero.pack(fill="x", pady=(0, 24))
+    app._hero_subtitle = label(app, hero, "Deine Reise. Deine Auswahl.",
+                               "Your trip. Your selection.", size=28, bold=True)
+    app._hero_subtitle.pack(anchor="w")
+    intro = label(app, hero, "Aus vielen Fotos wird dein nächstes Album.",
+                  "Turn a collection of photos into your next album.", muted=True)
+    app._home_intro = intro
+    intro.pack(anchor="w", pady=(7, 0))
+
     setup = tk.Frame(content, bg=c["bg"])
     app._setup_view = setup
     setup.pack(fill="x")
@@ -143,12 +184,19 @@ def build_workspace(app, colors, translate):
     trip = card(app, plans)
     app._folder_card = trip
 
-    top = tk.Frame(trip.inner, bg=c["surface"])
-    top.pack(fill="x", pady=(0, 14))
-    label(app, top, "1  Deine Reisefotos", "1  Your travel photos", size=18, bold=True).pack(side="left")
+    top = step_heading(app, trip.inner, "01", "Deine Reisefotos", "Your travel photos")
+    top.pack(fill="x", pady=(0, 20))
     app._project_name_var = tk.StringVar(value=text(app, "Neue Reise", "New trip"))
-    tk.Label(top, textvariable=app._project_name_var, bg=c["surface"], fg=c["muted"],
-             font=(app._font_family, 12)).pack(side="right")
+    project_name = tk.Label(top, textvariable=app._project_name_var, bg=c["surface"], fg=c["muted"],
+                            font=(app._font_family, 11), anchor="e", justify="right", wraplength=160)
+    def fit_project_name(event):
+        required = sum(child.winfo_reqwidth() for child in top.winfo_children() if child is not project_name)
+        if event.width >= required + project_name.winfo_reqwidth() + 24:
+            if not project_name.winfo_manager():
+                project_name.pack(side="right", padx=(12, 0))
+        elif project_name.winfo_manager():
+            project_name.pack_forget()
+    top.bind("<Configure>", fit_project_name)
     locations = tk.Frame(trip.inner, bg=c["surface"])
     locations.pack(fill="x")
     app._location_labels = []
@@ -156,19 +204,29 @@ def build_workspace(app, colors, translate):
         (app.input_var, "Originalfotos", "Original photos", app._pick_input),
         (app.output_var, "Dein Projektordner", "Your project folder", app._pick_output),
     ):
-        cell = tk.Frame(locations, bg=c["surface"])
-        cell.pack(fill="x", pady=(0, 15))
-        details = tk.Frame(cell, bg=c["surface"])
+        cell = tk.Frame(locations, bg=c["chip_bg"], padx=14, pady=12,
+                        highlightbackground=c["line"], highlightthickness=1)
+        cell.pack(fill="x", pady=(0, 12))
+        details = tk.Frame(cell, bg=c["chip_bg"])
         details.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        label(app, details, title_de, title_en, muted=True).pack(anchor="w")
-        path_label = tk.Label(details, bg=c["surface"], fg=c["ink"], font=(app._font_family, 14, "bold"),
-                              anchor="w", justify="left", wraplength=270)
+        label(app, details, title_de, title_en, size=12, muted=True).pack(anchor="w")
+        # Keep the requested width independent of wrapping. Otherwise the two
+        # uniform grid columns can trade their odd pixel forever at narrow sizes.
+        path_label = tk.Label(details, bg=c["chip_bg"], fg=c["ink"], font=(app._font_family, 15, "bold"),
+                              anchor="w", justify="left", wraplength=270, width=1)
         path_label.pack(fill="x", pady=(5, 0))
         app._location_labels.append((path_label, var))
-        button(app, cell, "Wählen", "Choose", command).pack(side="right")
-    app._found_badge = tk.Label(trip.inner, textvariable=app.found_var, bg=c["surface"], fg=c["accent"],
-                               font=(app._font_family, 12))
-    app._found_badge.pack(anchor="w", pady=(14, 0))
+        choose = button(app, cell, "Wählen", "Choose", command)
+        choose.pack(side="right", padx=(12, 0))
+        cell.bind("<Configure>", lambda event, path=path_label, action=choose:
+                  path.configure(wraplength=max(120, event.width - action.winfo_reqwidth() - 66)))
+    app._found_badge = tk.Label(trip.inner, textvariable=app.found_var, bg=c["accent_soft"], fg=c["accent"],
+                               font=(app._font_family, 13, "bold"), padx=10, pady=7)
+    def show_found_badge(*_args):
+        if app.found_var.get():
+            app._found_badge.pack(anchor="w", pady=(4, 0), before=trip_tools)
+        else:
+            app._found_badge.pack_forget()
     trip_tools = tk.Frame(trip.inner, bg=c["surface"])
     trip_tools.pack(fill="x", pady=(10, 0))
     app._workflow_tools_host = trip_tools
@@ -176,11 +234,13 @@ def build_workspace(app, colors, translate):
     app.map_btn.pack(side="left", padx=(0, 8))
     app._relink_btn = button(app, trip_tools, "Originale finden", "Locate originals", app._open_source_relink)
     app._relink_btn.pack(side="left")
+    app.found_var.trace_add("write", show_found_badge)
+    show_found_badge()
 
     album = card(app, plans)
     app._settings_card = album
 
-    label(app, album.inner, "2  Deine Auswahl", "2  Your selection", size=18, bold=True).pack(anchor="w", pady=(0, 14))
+    step_heading(app, album.inner, "02", "Deine Auswahl", "Your selection").pack(fill="x", pady=(0, 20))
     row = tk.Frame(album.inner, bg=c["surface"])
     row.pack(fill="x")
     app._album_tools_host = row
@@ -198,21 +258,29 @@ def build_workspace(app, colors, translate):
     app._target_lbl = label(app, target, "Wie viele Fotos sollen bleiben?", "How many photos should remain?", muted=True)
     app._target_lbl.pack(side="left", padx=(0, 12))
     app._target_spin = ttk.Spinbox(target, from_=1, to=2000, textvariable=app.target_var, width=8,
-                                  font=(app._font_family, 15, "bold"))
+                                  font=(app._font_family, 18, "bold"))
     app._target_spin.pack(side="right")
     button(app, album.inner, "Seitenbudget planen", "Plan page budget", lambda: app._open_selection_settings("variety")).pack(anchor="w", pady=(10, 0))
     app._budget_hint_var = tk.StringVar()
-    tk.Label(album.inner, textvariable=app._budget_hint_var, bg=c["surface"], fg=c["muted"],
-             font=(app._font_family, 12), anchor="w", wraplength=450).pack(fill="x", pady=(10, 0))
+    budget_hint = tk.Label(album.inner, textvariable=app._budget_hint_var, bg=c["surface"], fg=c["muted"],
+                            font=(app._font_family, 13), anchor="w", justify="left", wraplength=520, width=1)
+    budget_hint.pack(fill="x", pady=(10, 0))
     app._selection_summary_var = tk.StringVar()
-    tk.Label(album.inner, textvariable=app._selection_summary_var, bg=c["surface"], fg=c["muted"],
-             font=(app._font_family, 12), anchor="w", wraplength=450).pack(fill="x", pady=(10, 0))
+    selection_hint = tk.Label(album.inner, textvariable=app._selection_summary_var, bg=c["surface"], fg=c["muted"],
+                               font=(app._font_family, 13), anchor="w", justify="left", wraplength=520, width=1)
+    selection_hint.pack(fill="x", pady=(10, 0))
+    album.inner.bind("<Configure>", lambda event: [widget.configure(wraplength=max(200, event.width - 52))
+                                                    for widget in (budget_hint, selection_hint)])
     app.advanced_toggle = button(app, album.inner, "Auswahl anpassen", "Customize selection", app._toggle_advanced)
     app.advanced_toggle.pack(anchor="w", pady=(12, 0))
 
+    planning_layout = {"wide": None}
     def fit_planning_cards(event):
         scale = float(app.tk.call("tk", "scaling")) / (96 / 72)
         wide = event.width >= round(900 * scale)
+        if planning_layout["wide"] == wide:
+            return
+        planning_layout["wide"] = wide
         trip.grid_forget()
         album.grid_forget()
         trip.grid(row=0, column=0, columnspan=1 if wide else 2, sticky="nsew", padx=(0, 9) if wide else 0)
@@ -228,10 +296,10 @@ def build_workspace(app, colors, translate):
     mode_heading.pack(fill="x")
     button(app, mode_heading, "KI optional", "Optional AI", lambda: app._open_selection_settings("ai")).pack(side="right", padx=(16, 0))
     app._mode_label = tk.Label(mode_heading, textvariable=app._mode_title_var, bg=c["surface"],
-                               fg=c["ink"], font=(app._font_family, 16, "bold"), anchor="w", justify="left", wraplength=760)
+                               fg=c["ink"], font=(app._font_family, 17, "bold"), anchor="w", justify="left", wraplength=960)
     app._mode_label.pack(side="left", fill="x", expand=True)
     app._summary_description = tk.Label(summary.inner, textvariable=app._mode_description_var,
-                                        bg=c["surface"], fg=c["muted"], font=(app._font_family, 12),
+                                        bg=c["surface"], fg=c["muted"], font=(app._font_family, 13),
                                         anchor="w", justify="left", wraplength=980)
     app._summary_description.pack(fill="x", pady=(8, 0))
     app._result_note_var = tk.StringVar()

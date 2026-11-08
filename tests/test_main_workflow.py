@@ -48,10 +48,15 @@ def test_planning_stays_compact_and_extra_settings_open_in_grouped_sheet(app):
 
 
 def test_maximized_workspace_has_bounded_centered_content(app):
+    from photobook_curator.main_workspace import WORKSPACE_MAX_WIDTH
     app.geometry(f"{app.winfo_screenwidth() - 60}x{app.winfo_screenheight() - 100}+20+20")
     app.update()
     scale = float(app.tk.call("tk", "scaling")) / (96 / 72)
-    assert app._content_frame.winfo_width() <= round(1100 * scale) + 2
+    assert app._content_frame.winfo_width() <= round(WORKSPACE_MAX_WIDTH * scale) + 2
+    # Use the available desktop until the readability cap is reached, rather
+    # than retaining the old 1,100px central island on a maximized display.
+    useful_width = min(round(1250 * scale), app._body_canvas.winfo_width() - round(96 * scale))
+    assert app._content_frame.winfo_width() >= useful_width
     available = app._body_canvas.winfo_width()
     left = app._content_frame.winfo_rootx() - app._body_canvas.winfo_rootx()
     right = available - left - app._content_frame.winfo_width()
@@ -257,6 +262,8 @@ def test_open_existing_album_loads_its_own_project_before_review(app, tmp_path, 
     assert app.target_var.get() == 120
     assert app._loaded_config_settings["burst_keep"] == 1
     assert opened == [str(source_b)]
+    assert app.review_btn.cget("style") == "Start.TButton"
+    assert app.start_btn.cget("style") == "Browse.TButton"
 
 
 def test_legacy_album_requires_new_source_instead_of_reusing_previous_trip(app, tmp_path, monkeypatch):

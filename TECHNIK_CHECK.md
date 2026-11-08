@@ -1,6 +1,6 @@
 # Technischer Check und umgesetzte Härtung
 
-Stand 0.5.0. Bedienung: [Reiseprojekte und moderne Fotoansicht](REISEPROJEKTE.md).
+Stand 0.5.1. Bedienung: [Reiseprojekte und moderne Fotoansicht](REISEPROJEKTE.md).
 Die Messungen weiter unten dokumentieren frühere Härtungsläufe und sind ausdrücklich
 synthetisch; es lagen keine privaten Urlaubsbilder vor.
 
@@ -8,6 +8,40 @@ Geprüfter Ausgangspunkt: `codex/review-metadata-fixes`.
 Ziel: grosse Urlaubssammlungen reduzieren, Entscheidungen fortsetzen, als
 Windows-Programm ausliefern. Prüfung anhand von Code, automatisierten Tests und
 synthetischen Messungen; keine privaten Urlaubsbilder lagen vor.
+
+## 0.5.1: Lange Kapitellisten und sichtbare Fotos
+
+Die kurze native Testreise aus 0.5.0 deckte einen Fehler bei langen Kapitellisten
+nicht ab: Die automatische Mindestgrösse der CSS-Grid-Zeile liess die gesamte
+Fotoansicht wachsen. Mit 2.618 erzeugten JPEGs und 43 langen Kapiteln war das
+Dokument bei 1280 × 720 etwa 3.598 Pixel hoch. Bilder und Aktionen lagen ausserhalb
+des Fensters. Die Fotoanalyse und der gespeicherte Auswahlstand waren nicht die
+Ursache.
+
+App-Zeile und Vorschau sind nun durch die Fensterhöhe begrenzt. Kapitel und
+Bilderraster scrollen unabhängig; Fotos werden vollständig eingepasst.
+563 lokale Tests bestanden. Im echten Chromium bestanden alle 18 Kombinationen
+aus Diashow, Vergleich und Albumübersicht bei 1920 × 1080, 1536 × 864,
+1366 × 768, 1280 × 720, 1093 × 614 und 980 × 600. Die letzten kompakten Prüfungen
+bestätigten sichtbare Aktionen, Kapitel-Scrollposition nach Hinzufügen/Undo,
+geladenes Logo und Ortsdialog ohne Veränderung der Auswahl.
+
+Reproduktion mit Node und Chromium, neuer/leerer Ausgabeordner erforderlich:
+
+```bash
+python scripts/check_review_layout.py --output /tmp/phototool-layout-check
+```
+
+Die native Windows-Prüfung verwendet jetzt 92 Test-JPEGs und 44 Kapitel. Sie
+verlangt nach dem Rendern jeder Ansicht eine neue, geometrisch geprüfte
+Bestätigung. Ein bereits geladenes, aber ausserhalb des Fensters liegendes Foto
+genügt nicht mehr. Der Windows-Lauf für 0.5.1 steht bei diesem Quellstand noch aus.
+
+Unbelegte Ortsangaben und eindeutige Konflikte zwischen gespeicherter Stadt und
+Motivbeschreibung werden nur als prüfbedürftig markiert. KI-Text wird nie zum
+Ortsnachweis. Die vorhandene GPS-/Zeitprüfung bietet Änderungsvorschläge vor
+dem Speichern; Auswahl und Favoriten bleiben bestehen. Eindeutig passende
+Transit-Alternativen verwenden beim Aufnehmen und Ersetzen denselben Exportordner.
 
 ## 0.5.0: Lokale Fotooberfläche und Export
 

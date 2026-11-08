@@ -20,6 +20,7 @@ ROOT = Path(SPECPATH).resolve().parent
 
 datas = collect_data_files("photobook_curator", includes=[
     "data/*.json", "web_review/*.html", "web_review/*.css", "web_review/*.js",
+    "assets/*.png", "assets/*.ico",
 ])
 binaries = []
 hiddenimports = []
@@ -88,7 +89,7 @@ exe = EXE(
     strip=False,
     upx=False,           # UPX bei ML-DLLs vermeiden (Fehlalarme/Instabilität)
     console=False,       # GUI-Anwendung, kein Konsolenfenster
-    icon=str(ROOT / "packaging" / "icon.ico") if (ROOT / "packaging" / "icon.ico").is_file() else None,
+    icon=str(ROOT / "photobook_curator" / "assets" / "phototool.ico"),
 )
 
 coll = COLLECT(

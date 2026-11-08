@@ -27,6 +27,9 @@ def _argument_after(flag: str) -> str:
 
 def main() -> int:
     try:
+        from photobook_curator.branding import set_windows_app_id
+
+        set_windows_app_id()
         # WebView2 owns this process's main thread. Do not initialize a Tk root
         # before entering its native event loop.
         if "--review-window" in sys.argv:
@@ -49,6 +52,14 @@ def main() -> int:
 
             for name in ("index.html", "style.css", "app.js"):
                 assert files("photobook_curator").joinpath("web_review", name).is_file(), name
+            from PIL import Image
+            from photobook_curator.branding import brand_asset
+            from io import BytesIO
+
+            for name, image_format in (("phototool.png", "PNG"), ("phototool.ico", "ICO")):
+                with Image.open(BytesIO(brand_asset(name).read_bytes())) as image:
+                    assert image.format == image_format, name
+                    image.load()
             if sys.platform == "win32":
                 import webview
             root = tk.Tk()

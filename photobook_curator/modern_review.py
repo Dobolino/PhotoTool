@@ -31,6 +31,8 @@ ASSETS = {"": ("index.html", "text/html; charset=utf-8"),
           "index.html": ("index.html", "text/html; charset=utf-8"),
           "app.js": ("app.js", "text/javascript; charset=utf-8"),
           "style.css": ("style.css", "text/css; charset=utf-8")}
+BRAND_ASSETS = {"brand.png": ("phototool.png", "image/png"),
+                "favicon.ico": ("phototool.ico", "image/x-icon")}
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
        "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
        "base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
@@ -117,6 +119,10 @@ class ReviewServer:
                         asset, mime = ASSETS[path]
                         data = files("photobook_curator").joinpath("web_review", asset).read_bytes()
                         self.send(200, data, mime)
+                    elif path in BRAND_ASSETS:
+                        asset, mime = BRAND_ASSETS[path]
+                        data = files("photobook_curator").joinpath("assets", asset).read_bytes()
+                        self.send(200, data, mime, cache=True)
                     elif path == "api/state":
                         data = owner.session.snapshot()
                         owner.last_seen = time.monotonic()
@@ -259,6 +265,10 @@ def run_native_window(url: str, title: str = "PhotoTool · Auswahl prüfen", *,
     _validate_window_url(url)
     import http.client
     import webview
+    from importlib.resources import as_file
+    from .branding import brand_asset, set_windows_app_id
+
+    set_windows_app_id()
     parsed = urlsplit(url)
     origin = f"http://127.0.0.1:{parsed.port}"
 
@@ -361,37 +371,56 @@ def run_native_window(url: str, title: str = "PhotoTool · Auswahl prüfen", *,
 
     def show_loaded_layout(layout, deadline):
         # evaluate_js wraps code in eval(), which our strict CSP intentionally blocks.
-        # run_js executes a raw WebView2 script. Its real DOM event changes server
-        # state only after both app startup and an actual photo decode succeeded.
-        target = json.dumps(layout)
-        script = """(() => {
-          const target=TARGET;
-          const images=Array.from(document.querySelectorAll('.large-image'));
-          const root=document.documentElement;
-          const button=document.querySelector('[data-layout="'+target+'"]');
-          if(root.dataset.appReady==='true' && button && images.length &&
-             images.every(image=>image.complete && image.naturalWidth>0) &&
-             root.dataset.nativeSmokeLayout!==target) {
-            root.dataset.nativeSmokeLayout=target;
-            button.click();
-          }
-        })();""".replace("TARGET", target)
-        while time.monotonic() < deadline:
-            try:
-                window.run_js(script)
-                state = request("api/state")
-                if state.get("view", {}).get("layout") == layout:
-                    return state
-            except Exception:
-                pass
-            time.sleep(.15)
-        raise RuntimeError("Die echte Fotooberfläche wurde nicht startbereit: " + layout)
+        # A fresh view revision acknowledges an actual DOM click. The second
+        # click is allowed only AFTER the target layout has painted and fits
+        # its viewport; merely seeing a loaded, off-screen image is insufficient.
+        for geometry_required in (False, True):
+            before = request("api/state")["revision"]
+            nonce = secrets.token_hex(8)
+            script = """(() => {
+              const target=TARGET, requireGeometry=REQUIRE_GEOMETRY, nonce=NONCE;
+              const root=document.documentElement;
+              const images=Array.from(document.querySelectorAll('.large-image'));
+              const button=document.querySelector('[data-layout="'+target+'"]');
+              const box=el=>el?.getBoundingClientRect();
+              const fits=(r,outer={left:0,top:0,right:innerWidth,bottom:innerHeight})=>
+                r && r.width>0 && r.height>0 && r.left>=outer.left-2 &&
+                r.top>=outer.top-2 && r.right<=outer.right+2 && r.bottom<=outer.bottom+2;
+              const layout=document.querySelector('[data-layout].active')?.dataset.layout;
+              const fixed=target==='A'?['.strip-card','.info-buttons','.stage-nav']:
+                target==='B'?['.action-bar','.lanes']:['.contact-layout','.contact-preview','.contact-preview .info-buttons'];
+              const geometry=layout===target && root.scrollHeight<=innerHeight+2 &&
+                root.scrollWidth<=innerWidth+2 &&
+                ['.app','.main','#workspace','#exportButton','#chapterNav',...fixed]
+                  .every(selector=>fits(box(document.querySelector(selector)))) &&
+                images.every(image=>fits(box(image),box(image.closest('.stage'))) &&
+                  fits(box(image.closest('.stage'))) && box(image.closest('.stage')).height>=100);
+              if(root.dataset.appReady==='true' && button && images.length &&
+                 images.every(image=>image.complete && image.naturalWidth>0) &&
+                 (!requireGeometry || geometry) && root.dataset.nativeSmokeNonce!==nonce) {
+                root.dataset.nativeSmokeNonce=nonce;
+                button.click();
+              }
+            })();""".replace("TARGET", json.dumps(layout)).replace(
+                "REQUIRE_GEOMETRY", "true" if geometry_required else "false").replace("NONCE", json.dumps(nonce))
+            while time.monotonic() < deadline:
+                try:
+                    window.run_js(script)
+                    state = request("api/state")
+                    if state.get("view", {}).get("layout") == layout and state["revision"] > before:
+                        break
+                except Exception:
+                    pass
+                time.sleep(.15)
+            else:
+                reason = "passt nicht ins Fenster" if geometry_required else "wurde nicht startbereit"
+                raise RuntimeError("Die echte Fotooberfläche " + reason + ": " + layout)
+        return state
 
     def probe():
         try:
             deadline = time.monotonic() + 45
-            initial = request("api/state")
-            state = show_loaded_layout("B" if initial.get("view", {}).get("layout") == "A" else "A", deadline)
+            state = show_loaded_layout("A", deadline)
             info = {"title": title, "photo_count": len(state.get("photos", [])),
                     "ready": True, "image_ready": True, "theme": state.get("view", {}).get("theme")}
             if not info["photo_count"]:
@@ -401,10 +430,15 @@ def run_native_window(url: str, title: str = "PhotoTool · Auswahl prüfen", *,
             if capture_dir is not None:
                 from PIL import ImageGrab
                 capture_dir.mkdir(parents=True, exist_ok=True)
-                for layout in ("A", "B", "C"):
+            for layout in ("A", "B", "C"):
+                if layout != "A":
                     show_loaded_layout(layout, time.monotonic() + 15)
+                if capture_dir is not None:
                     time.sleep(.7)
                     ImageGrab.grab().save(capture_dir / f"modern-review-{layout}.png")
+            outcome["frontend"]["geometry_verified"] = True
+            outcome["frontend"]["layouts_verified"] = ["A", "B", "C"]
+            if capture_dir is not None:
                 outcome["captures"] = [f"modern-review-{layout}.png" for layout in ("A", "B", "C")]
         except Exception as exc:
             outcome.update(success=False, error=str(exc))
@@ -418,9 +452,12 @@ def run_native_window(url: str, title: str = "PhotoTool · Auswahl prüfen", *,
                     allow_close.set()
                 window.destroy()
 
-    webview.start(probe if smoke_result is not None else None,
-                  gui="edgechromium" if sys.platform == "win32" else None,
-                  debug=False, private_mode=True)
+    # pywebview 6.2.1 supports its icon argument on Windows as well as Linux.
+    # Keep an extracted resource alive throughout the native event loop.
+    with as_file(brand_asset("phototool.ico")) as icon_path:
+        webview.start(probe if smoke_result is not None else None,
+                      gui="edgechromium" if sys.platform == "win32" else None,
+                      debug=False, private_mode=True, icon=str(icon_path))
     if smoke_result is not None:
         try:
             closed = bool(request("api/state").get("close_requested"))

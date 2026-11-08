@@ -11,3 +11,565 @@
 .description-label{display:block;font-size:10px;color:var(--muted);margin-top:13px}.location-hint{display:block!important;line-height:1.5;color:var(--muted);padding-left:8px;border-left:2px solid var(--line)}
 .modal-paging{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px;font-size:12px;color:var(--muted)}
 .empty-anchor{display:grid;place-items:center;text-align:center;padding:24px;color:var(--muted)}.empty-anchor h2{font-size:18px;color:var(--text);margin-bottom:8px}.empty-anchor p{font-size:13px;line-height:1.6}
+
+/* Keep the desktop workspace tied to the window, not to the chapter count.
+   Every flexible/grid ancestor must be allowed to shrink; the chapter list
+   and contact sheet are the places where long content is meant to scroll. */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  max-height: 100dvh;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: 216px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.sidebar {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  gap: 24px;
+}
+
+.sidebar > :not(.chapters) {
+  flex: 0 0 auto;
+}
+
+.chapters {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chapters > .section-label,
+.chapters > .journey {
+  flex: 0 0 auto;
+}
+
+.journey {
+  overflow-wrap: anywhere;
+}
+
+#chapterNav {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted), transparent 35%) transparent;
+  scrollbar-gutter: stable;
+  padding: 3px 3px 5px;
+}
+
+.chapter-button {
+  gap: 9px;
+  padding: 10px 9px;
+  align-items: flex-start;
+}
+
+.chapter-button span:first-child {
+  flex: 1 1 0;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.chapter-button span:last-child {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.sidebar-footer {
+  margin-top: 0;
+  padding-top: 14px;
+}
+
+.main {
+  min-height: 0;
+  min-width: 0;
+}
+
+.topline,
+.headline,
+.design-tabs,
+.notice,
+.footnote,
+.strip-card,
+.lanes,
+.action-bar,
+.contact-hint {
+  flex: 0 0 auto;
+}
+
+.workspace {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.viewer,
+.pair-view,
+.contact-layout {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+}
+
+.viewer {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.stage {
+  --image-inset: 20px;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* A loaded image's intrinsic height must never enlarge a flex/grid track. */
+.stage .large-image {
+  position: absolute;
+  inset: var(--image-inset);
+  width: calc(100% - 2 * var(--image-inset));
+  height: calc(100% - 2 * var(--image-inset));
+  object-fit: contain;
+  object-position: center;
+}
+
+.info {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.info > :not(.facts) {
+  flex-shrink: 0;
+}
+
+/* Keep photo decisions visible while verbose metadata scrolls above them. */
+.info .facts {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+  overflow-wrap: anywhere;
+}
+
+.info-buttons,
+.detail-actions {
+  flex-shrink: 0;
+}
+
+.info .location-review {
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--brand);
+  background: var(--soft);
+  border-color: color-mix(in srgb, var(--brand), transparent 60%);
+  white-space: normal;
+}
+
+.location-review svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pair-card {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.pair-card .stage {
+  --image-inset: 15px;
+  min-height: 0;
+}
+
+.pair-title,
+.pair-caption {
+  min-width: 0;
+}
+
+.pair-caption > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lanes {
+  min-height: 0;
+}
+
+.lane-label {
+  min-width: 0;
+}
+
+.lane-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-layout {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.contact-sheet,
+.contact-preview {
+  min-height: 0;
+  min-width: 0;
+}
+
+.contact-sheet {
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: color-mix(in srgb, var(--muted), transparent 35%) transparent;
+}
+
+.contact-preview .viewer {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, min(55%, 260px));
+}
+
+.contact-preview .stage {
+  min-height: 0;
+}
+
+.contact-preview .info {
+  max-height: none;
+  overflow: hidden;
+}
+
+.contact-preview .info > div:first-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+/* The caption and decision button already identify the place and membership.
+   Avoid spending the compact preview twice on those same facts. */
+.contact-preview .eyebrow,
+.contact-preview .filename,
+.contact-preview .state-pill,
+.contact-preview .description-label {
+  display: none;
+}
+
+.contact-preview .info .info-buttons {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+.contact-preview .detail-actions {
+  grid-column: 1 / -1;
+}
+
+.contact-preview .viewer:has(.protection-note) {
+  grid-template-rows: minmax(0, 1fr) minmax(0, min(60%, 280px));
+}
+
+.brand-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.brand-icon:has(.brand-image) {
+  background: transparent;
+}
+
+/* Grayscale encodes album membership, not quality. Keep omitted photos legible. */
+.thumb img {
+  opacity: .74;
+}
+
+.thumb.selected img,
+.thumb:hover img {
+  opacity: 1;
+}
+
+@media (min-width: 761px) and (max-width: 1000px) {
+  .app {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    padding: 20px 10px 12px;
+    gap: 18px;
+  }
+
+  .brand {
+    justify-content: flex-start;
+    padding: 0 5px;
+    gap: 8px;
+  }
+
+  .brand > div:last-child,
+  .section-label,
+  .nav button span,
+  .journey,
+  .sidebar-footer {
+    display: block;
+  }
+
+  .chapters {
+    display: flex;
+  }
+
+  .brand strong {
+    font-size: 18px;
+  }
+
+  .brand small {
+    font-size: 9px;
+  }
+
+  .brand-icon {
+    flex: 0 0 31px;
+    width: 31px;
+    height: 31px;
+  }
+
+  .nav button {
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 10px;
+    font-size: 12px;
+  }
+
+  .sidebar-footer {
+    padding-right: 5px;
+    padding-left: 5px;
+  }
+
+  .chapter-button {
+    font-size: 11px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .chapter-button span:last-child {
+    font-size: 10px;
+  }
+
+  .main {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .topline .breadcrumb {
+    display: none;
+  }
+
+  .topline {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-height: 820px) and (min-width: 761px) {
+  .app {
+    min-height: 0;
+  }
+
+  .stage {
+    --image-inset: 14px;
+  }
+
+  .pair-card .stage {
+    --image-inset: 12px;
+    min-height: 0;
+  }
+
+  .viewer,
+  .pair-view {
+    min-height: 0;
+  }
+}
+
+@media (max-height: 680px) and (min-width: 761px) {
+  .main {
+    padding-top: 14px;
+    padding-bottom: 10px;
+    gap: 9px;
+  }
+
+  .headline h1 {
+    font-size: 22px;
+  }
+
+  .headline p {
+    margin-top: 3px;
+    font-size: 11px;
+  }
+
+  .count-chip {
+    padding: 7px 11px;
+  }
+
+  .sidebar {
+    padding-top: 18px;
+    padding-bottom: 12px;
+    gap: 16px;
+  }
+
+  .brand small,
+  .sidebar-note,
+  .sidebar-footer .prototype-badge {
+    display: none;
+  }
+
+  .sidebar-footer {
+    padding-top: 8px;
+  }
+
+  .sidebar-tools {
+    margin-top: 0;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+
+  .nav button {
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+
+  .workspace {
+    gap: 9px;
+  }
+
+  .strip-card,
+  .lanes {
+    min-height: 0;
+  }
+
+  .strip-card {
+    padding-top: 8px;
+    padding-bottom: 6px;
+  }
+
+  .virtual-strip {
+    height: 82px;
+  }
+
+  .filmstrip-inner {
+    height: 76px;
+  }
+
+  .virtual-strip .thumb img {
+    height: 54px;
+  }
+
+  .info,
+  .contact-preview .info {
+    padding: 12px 14px;
+    gap: 8px;
+  }
+
+  .info .facts,
+  .info .filename,
+  .info .description-label {
+    display: none;
+  }
+
+  .info h2 {
+    font-size: 16px;
+    margin-top: 3px;
+  }
+
+  .contact-preview .info > div:first-child {
+    overflow: hidden;
+  }
+
+  .contact-preview .info h2 {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .info-buttons {
+    gap: 6px;
+  }
+
+  .info .secondary,
+  .info .primary {
+    padding: 8px;
+  }
+
+  .pair-title {
+    padding: 9px 12px;
+  }
+
+  .pair-caption {
+    padding: 8px 12px;
+  }
+
+  .action-bar button {
+    font-size: 11px;
+    padding: 8px 10px;
+  }
+
+  .lane {
+    padding: 8px 10px;
+  }
+
+  .footnote {
+    font-size: 9px;
+  }
+}
+
+@media (max-width: 760px) {
+  .app {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .viewer .stage,
+  .pair-card .stage {
+    min-height: 0;
+    --image-inset: 10px;
+  }
+
+  .viewer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .contact-preview .info {
+    max-height: none;
+  }
+}

@@ -9,7 +9,20 @@ sich für beliebige Reisen.
 [Japan-Workflow für 2.000+ Fotos](JAPAN_WORKFLOW.md) ·
 [Technischer Check und Prüfgrenzen](TECHNIK_CHECK.md).
 
-## Neu in 0.5.0: Deine Reise. Deine Auswahl.
+## Neu in 0.5.1: Vorschau bleibt im Fenster
+
+Lange Kapitel- und Transitlisten haben in 0.5.0 die gesamte Fotoansicht vergrössert.
+Jetzt scrollt die Kapitelliste unabhängig; Diashow, Vergleich und Albumübersicht
+halten Fotos und Bedienelemente innerhalb des Fensters. Die Startseite ist
+übersichtlicher und verwendet dasselbe neue Programmlogo wie Fotoansicht,
+Fenstersymbol und Installer.
+
+**Keine neue Foto-/KI-Analyse nötig:** vorhandenes Reiseprojekt fortsetzen.
+Bei unbelegten oder widersprüchlichen Ortsangaben öffnet **Zuordnung prüfen**
+die bestehende GPS-/Zeitprüfung mit Änderungsvorschau. Eine Motivbeschreibung
+ist kein Ortsnachweis; Orte ohne ausreichende Grundlage können ungeklärt bleiben.
+
+## Deine Reise. Deine Auswahl.
 
 Die freigegebene HTML-Oberfläche ist jetzt die Fotoansicht mit echten
 Projektbildern und gespeicherten Entscheidungen. Dunkle und helle Darstellung,
