@@ -16,7 +16,7 @@ from .geocoding import GeocodeCache
 from .local_analysis import LocalAnalysisOptions, run_local_analysis
 from .map_preview import write_chapter_map
 from .models import BookPlan, Photo
-from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
+from .output import copy_aside_pool, copy_selected, selected_export_paths, validate_export_layout, write_csv, write_markdown_overview
 from .people_balance import analyze_people_clusters
 from .regions import build_location_plan, promote_unassigned_to_region
 from .scan import scan_photos
@@ -76,6 +76,7 @@ class PipelineConfig:
     people_balance_intensity: float = 0.0  # 0=aus, 1=starke Personen-Balance
     enable_map_preview: bool = False
     skip_export: bool = False  # GUI: Export nach Kapitel-Vorschau
+    export_layout: str = "chapters"  # chapters | flat; metadata retains chapters
     enable_analysis_cache: bool = True  # SQLite Feature-Cache zwischen Läufen
     burst_max_seconds: float = 30.0
     burst_keep: int = 2
@@ -93,11 +94,17 @@ def export_book_outputs(
     output_dir: Path,
     *,
     write_map: bool = False,
+    export_layout: str = "chapters",
 ) -> dict[str, Any]:
     """Schreibt CSV, selected/, Optional-Pool, Markdown und optional die Karte."""
+    validate_export_layout(export_layout)
+    selected_export_paths(photos, order, export_layout=export_layout)
     output_dir.mkdir(parents=True, exist_ok=True)
     write_csv(photos, output_dir / "photos_analysis.csv")
-    copy_selected(photos, order, output_dir)
+    if export_layout == "chapters":
+        copy_selected(photos, order, output_dir)
+    else:
+        copy_selected(photos, order, output_dir, export_layout=export_layout)
     aside_copied = copy_aside_pool(photos, output_dir)
     write_markdown_overview(photos, plan, order, output_dir / "inhaltsverzeichnis.md")
     map_path = None
@@ -138,6 +145,8 @@ def run_pipeline(
     Optional: cancel_check() -> bool; liefert es True, wird an der nächsten
     Phasengrenze mit PipelineCancelled abgebrochen (kein Export).
     """
+
+    validate_export_layout(cfg.export_layout)
 
     def report(label: str, frac: float, step_id: str | None = None) -> None:
         # Abbruch an jeder Phasengrenze prüfen (vor dem nächsten Schritt).
@@ -478,6 +487,7 @@ def run_pipeline(
                 order,
                 cfg.output_dir,
                 write_map=False,  # Karte ggf. schon oben geschrieben
+                export_layout=cfg.export_layout,
             )
             audit_warning = export_result.get("audit_warning")
             exported = True

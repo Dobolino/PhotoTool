@@ -34,6 +34,14 @@ function Invoke-Installer([string]$Stage) {
     $smoke = Start-Process -FilePath $installedExe -ArgumentList '--smoke-test' -PassThru
     if (!$smoke.WaitForExit(60000)) { $smoke.Kill(); throw 'Installed executable smoke test timed out' }
     if ($smoke.ExitCode -ne 0) { throw 'Installed executable smoke test failed' }
+    $reviewResult = Join-Path $env:RUNNER_TEMP "PhotoTool-native-$Stage.json"
+    Remove-Item -LiteralPath $reviewResult -ErrorAction SilentlyContinue
+    $reviewArgs = @('--review-smoke', "`"$reviewResult`"")
+    $review = Start-Process -FilePath $installedExe -ArgumentList $reviewArgs -PassThru
+    if (!$review.WaitForExit(90000)) { $review.Kill(); throw "Installed native review $Stage timed out" }
+    if ($review.ExitCode -ne 0 -or !(Test-Path $reviewResult)) { throw "Installed native review $Stage failed" }
+    $native = Get-Content $reviewResult -Raw | ConvertFrom-Json
+    if (!$native.success) { throw "Installed native review $Stage did not render" }
 }
 
 try {

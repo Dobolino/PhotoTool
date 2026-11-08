@@ -1,8 +1,10 @@
-"""Capture real native UI states for the Windows CI review artifact.
+"""Capture main-window and legacy-Tk regression states for Windows CI.
 
 No images are analyzed, API calls made or user settings read. Generated review
 images, their synthetic selection evidence, progress and the 2,000-photo cost
 example are explicitly demo data, recorded in metadata.json.
+The production modern review is captured separately by native_review_smoke.py
+inside the actual WebView2 host, including the bundled executable.
 """
 from __future__ import annotations
 
@@ -393,6 +395,7 @@ def main() -> int:
                             item["requested_maximized_state_achieved"] = app.state() == "zoomed"
                         if name.startswith("review-"):
                             item["synthetic_fixture"] = True
+                            item["legacy_tk_regression_view"] = True
                             item["review_state"] = review.state()
                             item["review_photo_count"] = len(review.photos)
                             item["review_selected_count"] = len(review.kept)

@@ -37,6 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=80,
         help="Zielanzahl N ausgewählter Bilder (Standard: 80)",
     )
+    p.add_argument("--export-layout", choices=("chapters", "flat"), default="chapters",
+                   help="Auswahl nach Kapiteln oder gemeinsam in selected/ exportieren (Standard: chapters)")
     p.add_argument("--book-pages", type=int, default=0,
                    help="Fotobuch-Seitenzahl; 0 nutzt --target-count")
     p.add_argument("--photos-per-page", type=float, default=2.5,
@@ -282,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
         input_dir=args.input.resolve(),
         output_dir=args.output.resolve(),
         target_n=args.target_count,
+        export_layout=args.export_layout,
         book_pages=args.book_pages,
         photos_per_page=args.photos_per_page,
         reserved_pages=args.reserved_pages,

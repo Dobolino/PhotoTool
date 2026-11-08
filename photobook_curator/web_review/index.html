@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PhotoTool · Auswahl prüfen</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-icon" id="brandIcon"></div><div><strong>PhotoTool</strong><small>Platz für Erinnerungen.</small></div></div>
+      <div><p class="section-label">DEIN ARBEITSPLATZ</p><nav class="nav">
+        <button data-action="library" id="navLibrary"></button>
+        <button data-action="review" id="navReview" class="active"></button>
+        <button data-action="open-export" id="navExport"></button>
+      </nav></div>
+      <div class="chapters"><p class="section-label">REISEPROJEKT</p><div class="journey" id="projectName">Reiseprojekt</div><div id="chapterNav"></div></div>
+      <div class="sidebar-footer"><span class="prototype-badge">LOKALES REISEPROJEKT</span><div id="projectFooter" class="sidebar-note"></div><button class="quiet sidebar-tools" data-action="tools">Werkzeuge</button></div>
+    </aside>
+    <main class="main">
+      <div class="topline"><div class="breadcrumb">Reiseprojekte <span>›</span> <span id="projectCrumb">Reiseprojekt</span> <span>›</span> Auswahl prüfen</div><div class="top-actions">
+        <button class="quiet" data-action="theme" id="themeButton"></button>
+        <button class="quiet" data-action="undo" id="undoButton" data-mutates></button>
+        <button class="quiet" data-action="save" id="saveButton"></button>
+        <button class="primary export" data-action="open-export" id="exportButton"></button>
+      </div></div>
+      <header class="headline"><div><h1>Deine Reise. Deine Auswahl.</h1><p id="pageSubtitle">Ein Bild im Fokus. Die ganze Reise im Blick.</p></div><div class="count-chip"><strong id="albumCount">–</strong><span>Fotos im Album<br><small id="totalCount">Projekt wird geladen</small></span></div></header>
+      <div class="design-tabs"><div class="segmented" aria-label="Ansicht">
+        <button data-layout="A">Diashow</button><button data-layout="B">Vergleichen</button><button data-layout="C">Albumübersicht</button>
+      </div><span class="layout-note" id="scopeNote"></span></div>
+      <div class="notice" id="notice" role="status" hidden></div>
+      <div class="workspace" id="workspace"><div class="loading-state">Fotos und gespeicherte Auswahl werden geladen …</div></div>
+      <footer class="footnote"><span>Miniatur anklicken = ansehen · Häkchen / Leertaste = auswählen · Grau = nicht im Album</span><span class="saved" id="savedStatus"></span></footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status"></div><div id="modalHost"></div>
+</body>
+</html>

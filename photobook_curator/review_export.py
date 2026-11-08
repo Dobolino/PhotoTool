@@ -13,7 +13,7 @@ from .documents import ASIDE_FOLDER
 from .trace_schema import normalize_selection_trace
 from .location_schema import normalize_location_evidence
 from .models import BookPlan, Photo, Region, TransitSection, normalized_manual_decision, set_manual_decision
-from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
+from .output import copy_aside_pool, copy_selected, selected_export_paths, validate_export_layout, write_csv, write_markdown_overview
 
 
 def rebuild_order_from_kept(
@@ -24,9 +24,10 @@ def rebuild_order_from_kept(
 
     def sort_key(i: int) -> tuple:
         p = photos[i]
-        pos = p.book_position if p.book_position is not None else 10_000_000
+        pos = p.book_position
+        positioned = isinstance(pos, int) and not isinstance(pos, bool) and pos > 0
         dt = p.datetime_taken or datetime.max
-        return (pos, dt, i)
+        return (0 if positioned else 1, pos if positioned else 0, dt, i)
 
     ordered = sorted(set(kept_indices), key=sort_key)
 
@@ -41,10 +42,10 @@ def rebuild_order_from_kept(
 
     order: list[tuple[int, str, str]] = []
     for folder in folder_order:
-        members = sorted(
-            by_folder[folder],
-            key=lambda i: photos[i].datetime_taken or datetime.min,
-        )
+        # The outer order already honors saved album positions. Sorting again
+        # by capture time would move a deliberately chosen replacement away
+        # from the album slot it inherited.
+        members = by_folder[folder]
         for i in members:
             ctype = photos[i].chapter_type or _guess_chapter_type(folder)
             photos[i].chapter_type = ctype
@@ -79,8 +80,10 @@ def apply_manual_selection(
     kept_indices: list[int],
     output_dir: Path,
     *, report_warning: Callable[[str], None] | None = None,
+    export_layout: str = "chapters",
 ) -> list[tuple[int, str, str]]:
     """Setzt is_selected/book_position neu und schreibt CSV, Ordner, Markdown."""
+    validate_export_layout(export_layout)
     kept = {i for i in kept_indices if 0 <= i < len(photos)}
     # Export respects durable intent even when called without the review UI.
     # The UI resets a keep decision before a deliberate removal.
@@ -88,6 +91,11 @@ def apply_manual_selection(
                 if p.is_favorite or p.manual_decision == "keep")
     kept.difference_update({i for i in kept
                             if photos[i].manual_decision == "reject" and not photos[i].is_favorite})
+    # Validate destinations before synchronizing the live selection or writing
+    # its analysis CSV. A malformed legacy chapter must not publish elsewhere.
+    selected_export_paths(photos, [(i, ASIDE_FOLDER if photos[i].is_aside else _guess_folder(photos[i]),
+                                    photos[i].chapter_type or "Hauptteil") for i in sorted(kept)],
+                          export_layout=export_layout)
     for i, photo in enumerate(photos):
         was_selected = photo.is_selected
         photo.is_selected = i in kept
@@ -116,7 +124,10 @@ def apply_manual_selection(
         photos[idx].is_selected = True
 
     write_csv(photos, output_dir / "photos_analysis.csv")
-    copy_selected(photos, order, output_dir)
+    if export_layout == "chapters":
+        copy_selected(photos, order, output_dir)
+    else:
+        copy_selected(photos, order, output_dir, export_layout=export_layout)
     copy_aside_pool(photos, output_dir)
     write_markdown_overview(photos, plan, order, output_dir / "inhaltsverzeichnis.md")
     try:

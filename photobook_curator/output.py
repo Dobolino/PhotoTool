@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from .models import BookPlan, Photo
 
@@ -128,22 +128,79 @@ def _staged_directory(destination: Path):
             shutil.rmtree(backup, ignore_errors=True)
 
 
+EXPORT_LAYOUTS = ("chapters", "flat")
+
+
+def validate_export_layout(export_layout: str) -> str:
+    """Validate before changing selection metadata or creating output files."""
+    if export_layout not in EXPORT_LAYOUTS:
+        raise ValueError("Exportaufteilung muss 'chapters' oder 'flat' sein")
+    return export_layout
+
+
+def _export_filename(filename: str) -> str:
+    if (not isinstance(filename, str) or not filename or filename in (".", "..")
+            or any(char in filename for char in ("/", "\\", ":", "\x00"))):
+        raise ValueError("Ein Exportdateiname darf keinen Pfad enthalten")
+    return filename
+
+
+def _export_chapter(folder: str) -> Path:
+    """Accept portable relative chapter paths, never an escape from selected/."""
+    if not isinstance(folder, str) or not folder or "\x00" in folder:
+        raise ValueError("Ungültiger Kapitelordner für den Export")
+    normalized = folder.replace("\\", "/")
+    parts = normalized.split("/")
+    if (normalized.startswith("/") or PureWindowsPath(folder).drive
+            or any(part in ("", ".", "..") or ":" in part
+                   or part.rstrip(" .") != part for part in parts)):
+        raise ValueError("Kapitelordner muss innerhalb des Auswahlordners liegen")
+    return Path(*parts)
+
+
+def selected_export_paths(
+    photos: list[Photo],
+    order: list[tuple[int, str, str]],
+    *, export_layout: str = "chapters",
+) -> list[tuple[int, Path]]:
+    """Return exact paths relative to selected/, without writes or mutations.
+
+    Flat names use the final album order; chapter names retain the established
+    per-folder counter. Both modes prefix original filenames so reused camera
+    names from different folders do not overwrite each other.
+    """
+    validate_export_layout(export_layout)
+    result: list[tuple[int, Path]] = []
+    counters: dict[Path, int] = {}
+    flat_digits = max(3, len(str(len(order))))
+    for position, (idx, folder, _ctype) in enumerate(order, start=1):
+        if type(idx) is not int or not 0 <= idx < len(photos):
+            raise ValueError("Ungültiger Fotoindex für den Export")
+        filename = _export_filename(photos[idx].filename)
+        if export_layout == "flat":
+            relative = Path(f"{position:0{flat_digits}d}_{filename}")
+        else:
+            chapter = _export_chapter(folder)
+            counters[chapter] = counters.get(chapter, 0) + 1
+            relative = chapter / f"{counters[chapter]:03d}_{filename}"
+        result.append((idx, relative))
+    return result
+
+
 def copy_selected(
     photos: list[Photo],
     order: list[tuple[int, str, str]],
     output_dir: Path,
+    *, export_layout: str = "chapters",
 ) -> None:
+    destinations = selected_export_paths(photos, order, export_layout=export_layout)
     selected_root = output_dir / "selected"
     with _staged_directory(selected_root) as staging:
-        counters: dict[str, int] = {}
-        for idx, folder, _ctype in order:
+        for idx, relative in destinations:
             photo = photos[idx]
-            dest_dir = staging / folder
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            counters[folder] = counters.get(folder, 0) + 1
-            n = counters[folder]
-            dest_name = f"{n:03d}_{photo.filename}"
-            shutil.copy2(photo.path, dest_dir / dest_name)
+            destination = staging / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(photo.path, destination)
 
     _prewarm_review_thumbs([photos[idx].path for idx, _f, _c in order])
 

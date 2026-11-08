@@ -24,6 +24,10 @@ jobs:
             packaging/constraints-windows.txt
       - name: Install dependencies
         run: python -m pip install -r packaging/requirements-build.txt -c packaging/constraints-windows.txt pytest
+      - name: Prepare trusted WebView2 prerequisite
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./packaging/prepare_webview2.ps1 -InstallRuntime
       - name: Tests
         run: python -m pytest -q
       - name: Capture native Windows layouts
@@ -32,6 +36,15 @@ jobs:
         if: ${{ !cancelled() }}
         timeout-minutes: 1
         run: python packaging/capture_ui.py --output artifacts/windows-ui
+      - name: Capture modern native review
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          python packaging/entry_gui.py --review-smoke artifacts/windows-ui/modern/native-result.json --review-capture-dir artifacts/windows-ui/modern
+          if ($LASTEXITCODE -ne 0) { throw 'Source native review failed' }
+          $result = Get-Content artifacts/windows-ui/modern/native-result.json -Raw | ConvertFrom-Json
+          if (!$result.success) { throw 'Source native review did not render' }
       - name: Upload native Windows UI evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -63,6 +76,26 @@ jobs:
           $process = Start-Process -FilePath dist/Fotobuch/Fotobuch.exe -ArgumentList '--smoke-test' -WindowStyle Hidden -PassThru
           if (!$process.WaitForExit(60000)) { $process.Kill(); throw 'Executable smoke test timed out' }
           if ($process.ExitCode -ne 0) { throw 'Executable smoke test failed' }
+      - name: Smoke test packaged native review
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $resultPath = Join-Path (Get-Location) 'artifacts/packaged-review/native-result.json'
+          $capturePath = Join-Path (Get-Location) 'artifacts/packaged-review'
+          New-Item -ItemType Directory -Force -Path $capturePath | Out-Null
+          $arguments = @('--review-smoke', "`"$resultPath`"", '--review-capture-dir', "`"$capturePath`"")
+          $process = Start-Process -FilePath dist/Fotobuch/Fotobuch.exe -ArgumentList $arguments -PassThru
+          if (!$process.WaitForExit(90000)) { $process.Kill(); throw 'Packaged native review timed out' }
+          if ($process.ExitCode -ne 0 -or !(Test-Path $resultPath)) { throw 'Packaged native review failed' }
+          $result = Get-Content $resultPath -Raw | ConvertFrom-Json
+          if (!$result.success) { throw 'Packaged native review did not render' }
+      - name: Upload packaged native review evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoTool-packaged-review-ui
+          path: artifacts/packaged-review/
+          if-no-files-found: warn
       - name: Build installer and portable ZIP
         shell: pwsh
         run: |

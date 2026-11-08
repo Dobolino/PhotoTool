@@ -440,6 +440,11 @@ class PhotobookApp(tk.Tk):
                 self.status_var.set("Wird geschlossen…")
             except tk.TclError:
                 pass
+        try:
+            self._save_open_reviews()
+        except OSError as exc:
+            messagebox.showerror(t("project_save_failed"), str(exc), parent=self)
+            return
         self._unbind_body_wheel()
         self.destroy()
 
@@ -605,13 +610,13 @@ class PhotobookApp(tk.Tk):
             "Start.TButton",
             font=(FONT_UI, 12, "bold"),
             padding=(20, 12),
-            background=c["accent"],
-            foreground=c.get("hero_fg", "#FFFFFF"),
+            background=c.get("cta", c["accent"]),
+            foreground=c.get("cta_ink", c.get("hero_fg", "#FFFFFF")),
         )
         style.map(
             "Start.TButton",
-            background=[("active", c["accent_hover"]), ("disabled", c["line"])],
-            foreground=[("disabled", c["muted"])],
+            background=[("active", c.get("cta_hover", c["accent_hover"])), ("disabled", c["line"])],
+            foreground=[("disabled", c["muted"]), ("active", c.get("cta_ink", c.get("hero_fg", "#FFFFFF")))],
         )
         style.configure(
             "TCheckbutton",
@@ -665,7 +670,7 @@ class PhotobookApp(tk.Tk):
             self.option_add("*TCombobox*Listbox.background", entry_bg)
             self.option_add("*TCombobox*Listbox.foreground", c["ink"])
             self.option_add("*TCombobox*Listbox.selectBackground", c["accent"])
-            self.option_add("*TCombobox*Listbox.selectForeground", c.get("hero_fg", "#FFFFFF"))
+            self.option_add("*TCombobox*Listbox.selectForeground", c.get("on_accent", c.get("hero_fg", "#FFFFFF")))
             self.option_add("*TCombobox*Listbox.font", font_ui)
         except tk.TclError:
             pass
@@ -711,7 +716,7 @@ class PhotobookApp(tk.Tk):
         style.configure("TNotebook.Tab", font=(FONT_UI, 12, "bold"), padding=(20, 12))
         style.configure("Analysis.Horizontal.TProgressbar", thickness=24)
         for button_style in ("Browse.TButton", "Start.TButton"):
-            border = c["accent"] if button_style == "Start.TButton" else c["line"]
+            border = c.get("cta", c["accent"]) if button_style == "Start.TButton" else c["line"]
             style.configure(button_style, relief="flat", borderwidth=1,
                             bordercolor=border, lightcolor=border, darkcolor=border,
                             focuscolor=c["accent"])
@@ -1640,6 +1645,12 @@ class PhotobookApp(tk.Tk):
         except OSError as exc:
             messagebox.showerror(t("project_save_failed"), str(exc), parent=self)
             return
+        # A new analysis must not race a previous review's autosave into the
+        # same project's CSV/draft. Other trip windows can remain open.
+        for child in list(self.winfo_children()):
+            if getattr(child, "_modern_output_dir", None) == output_dir.resolve():
+                if not child._close():
+                    return
         anthropic_key = self.api_key_var.get().strip()
         if anthropic_key:
             os.environ["ANTHROPIC_API_KEY"] = anthropic_key

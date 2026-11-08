@@ -28,7 +28,7 @@ in `constraints-windows.txt` auf die getesteten Versionen begrenzt.
 
 Für eine Veröffentlichung zuerst `photobook_curator/__init__.py`, `pyproject.toml`
 und den Default in `installer.iss` auf dieselbe Version setzen. Nach Prüfung und Merge
-einen Tag wie `v0.4.2` auf diesen Commit pushen. Tag und App-Version müssen übereinstimmen.
+einen Tag wie `v0.5.0` auf diesen Commit pushen. Tag und App-Version müssen übereinstimmen.
 `python packaging/build.py --check` prüft die drei Versionsangaben ohne Build;
 auch jeder Bundle-Build und der Windows-Workflow brechen bei Abweichungen ab.
 Erst nach erfolgreichem Test, EXE-Smoke-Test, Installer-Build und nativem
@@ -36,6 +36,36 @@ Installer-Test wird ein GitHub Release
 mit den Dateien veröffentlicht. PR-/manuelle Builds bleiben herunterladbare Actions-Artefakte.
 Der Installer-Test installiert in einen Pfad mit Leerzeichen, prüft den
 automatischen Programmstart und wiederholt Installation und Start als In-place-Update.
+Ab 0.5.0 öffnen beide installierten Durchläufe zusätzlich die echte moderne
+Fotoansicht in WebView2. Der Test verlangt einen erfolgreichen HTML-/Foto-Render;
+ein bloss gestarteter Prozess reicht nicht.
+
+### Moderne Fotoansicht und Windows-Laufzeit
+
+Die neue Ansicht verwendet die lokal gebündelten Dateien in
+`photobook_curator/web_review/` und einen auf `127.0.0.1` begrenzten Python-Dienst.
+Der native Windows-Host nutzt pywebview 6.2.1 und Microsoft Edge WebView2. Fotos
+werden darüber nicht ins Internet übertragen. Vorschauen und Projektentscheidungen
+bleiben in den bestehenden Python-Diensten; der Browserteil enthält keinen
+zweiten Auswahldatensatz.
+
+`prepare_webview2.ps1` lädt den Evergreen-Bootstrapper ausschliesslich von
+Microsofts offiziellem Endpunkt und akzeptiert ihn nur mit gültiger Microsoft-
+Authenticode-Signatur. Der Installer enthält diesen kleinen Bootstrapper. Ist
+WebView2 bereits installiert, wird er nicht gestartet. Nur bei fehlender Laufzeit
+lädt er die kostenlose Microsoft-Laufzeit nach. Windows 11 und viele Windows-10-
+Installationen haben diese Laufzeit bereits. Das Programm selbst enthält weiterhin
+Python und seine Pakete; eine Python-Installation beim Anwender ist nicht nötig.
+Das portable ZIP setzt eine vorhandene WebView2-Laufzeit voraus; für einen Rechner
+ohne diese Laufzeit ist der Installer der einfachere Einstieg.
+
+Der Build prüft die moderne Ansicht zuerst aus dem Quellstand und anschliessend
+aus `dist/Fotobuch/Fotobuch.exe` über `--review-smoke <Ergebnisdatei>`.
+`--review-capture-dir <Ordner>` erzeugt zusätzliche native Prüfaufnahmen.
+`PhotoTool-packaged-review-ui` enthält die Aufnahmen und den Rendernachweis der
+wirklich gebündelten Anwendung. Fehlende Webdateien, CLR-Assemblies oder ein
+ausbleibender Render sperren die Veröffentlichung. Die bestehenden Tk-Aufnahmen
+dienen zusätzlich der Hauptfenster- und Rückfallansicht-Regressionsprüfung.
 
 Der Windows-Workflow lädt zusätzlich `PhotoTool-windows-ui` hoch: native Aufnahmen
 des regulären und maximierten Hauptfensters, der Einstellungen und eines
@@ -77,7 +107,7 @@ Release veröffentlichen; ein Actions-Artefakt allein wird nicht als Update ange
 Ein HTTP 404 wird als nicht verfügbare Release-Quelle gemeldet, nicht als
 erfolgreicher Versionsvergleich. Es wird kein GitHub-Token in die EXE eingebaut.
 
-Beim Update von 0.4.x auf 0.4.2 bleiben Installer-ID und Installationspfad gleich.
+Beim Update von 0.4.x auf 0.5.0 bleiben Installer-ID und Installationspfad gleich.
 Bestehende Projekte verwenden weiterhin Projektformat 1; Ausgabeordner,
 Auswahlentwürfe, Favoriten und Originalbilder werden vom Installer nicht ersetzt.
 Das Projekt kann nach dem Update über **Projekt öffnen** fortgesetzt werden.

@@ -3207,7 +3207,11 @@ def open_review(
     plan: BookPlan,
     output_dir: Path,
     on_saved: Optional[Callable[[], None]] = None,
-) -> ReviewWindow:
+    *, legacy: bool = False,
+) -> tk.Toplevel:
+    if not legacy:
+        from .modern_review import open_modern_review
+        return open_modern_review(master, photos, plan, output_dir, on_saved=on_saved)
     win = ReviewWindow(master, photos, plan, output_dir, on_saved=on_saved)
     # transient macht das Fenster manchmal „klein gebunden“ an den Parent –
     # für Review lieber eigenständig groß und maximierbar.

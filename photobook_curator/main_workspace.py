@@ -35,7 +35,8 @@ def button(app, parent, de, en, command, *, primary=False):
 
 def card(app, parent, *, padding=22):
     c = app._workspace_colors
-    outer = tk.Frame(parent, bg=c["surface"], highlightbackground=c["line"], highlightthickness=1)
+    outer = tk.Frame(parent, bg=c["surface"], highlightbackground=c["line"],
+                     highlightcolor=c["line"], highlightthickness=1)
     inner = tk.Frame(outer, bg=c["surface"], padx=padding, pady=padding)
     inner.pack(fill="both", expand=True)
     outer.inner = inner
@@ -59,9 +60,10 @@ def build_workspace(app, colors, translate):
 
     root = tk.Frame(app, bg=c["bg"])
     root.pack(fill="both", expand=True)
-    footer = tk.Frame(root, bg=c["bg"], pady=18)
+    footer = tk.Frame(root, bg=c["surface"], pady=18,
+                      highlightbackground=c["line"], highlightthickness=1)
     footer.pack(side="bottom", fill="x")
-    footer_center = tk.Frame(footer, bg=c["bg"])
+    footer_center = tk.Frame(footer, bg=c["surface"])
     footer_center.pack()
     app._footer = footer
     app._footer_actions_host = footer_center
@@ -107,10 +109,10 @@ def build_workspace(app, colors, translate):
     header.pack(fill="x", pady=(0, 24))
     titles = tk.Frame(header, bg=c["bg"])
     titles.pack(side="left")
-    app._brand_lbl = label(app, titles, "PhotoTool", "PhotoTool", size=26, bold=True)
+    app._brand_lbl = label(app, titles, "PhotoTool", "PhotoTool", size=20, bold=True)
     app._brand_lbl.pack(anchor="w")
-    app._hero_subtitle = label(app, titles, "Deine Reise. Dein Fotobuch.",
-                               "Your trip. Your photobook.", size=14, muted=True)
+    app._hero_subtitle = label(app, titles, "Deine Reise. Deine Auswahl.",
+                               "Your trip. Your selection.", size=24, bold=True)
     app._hero_subtitle.pack(anchor="w", pady=(6, 0))
     tools = tk.Frame(header, bg=c["bg"])
     tools.pack(side="right")
@@ -120,7 +122,9 @@ def build_workspace(app, colors, translate):
     app._resume_btn.pack(side="left", padx=(0, 8))
     more = ttk.Menubutton(tools, text=text(app, "Mehr", "More"), style="Browse.TButton")
     more.pack(side="left")
-    menu = tk.Menu(more, tearoff=False)
+    menu = tk.Menu(more, tearoff=False, bg=c["surface"], fg=c["ink"],
+                   activebackground=c["accent_soft"], activeforeground=c["ink"],
+                   font=(app._font_family, 12), relief="flat", borderwidth=0)
     menu.add_command(label=text(app, "Darstellung & Sprache", "Appearance & language"), command=app._open_settings)
     menu.add_command(label=text(app, "Hilfe", "Help"), command=app._show_help)
     from .update_dialog import open_update_dialog

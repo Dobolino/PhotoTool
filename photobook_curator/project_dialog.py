@@ -28,44 +28,105 @@ def show_project_manager(
     bg, surface = c.get("bg", "#111827"), c.get("surface", "#1f2937")
     ink, muted = c.get("ink", "#f9fafb"), c.get("muted", "#9ca3af")
     accent = c.get("accent", "#6d5dfc")
+    on_accent = c.get("on_accent", c.get("hero_fg", "#ffffff"))
+    primary_bg, primary_ink = c.get("cta", accent), c.get("cta_ink", on_accent)
     window = tk.Toplevel(parent)
     window.title(tr("Reiseprojekte", "Travel projects"))
     window.configure(bg=bg)
-    window.geometry("960x620")
-    window.minsize(880, 640)
+    scale = float(parent.tk.call("tk", "scaling")) / (96 / 72)
+    width = min(round(1040 * scale), max(320, parent.winfo_screenwidth() - 64))
+    height = min(round(740 * scale), max(320, parent.winfo_screenheight() - 88))
+    window.geometry(f"{width}x{height}+{max(0, (parent.winfo_screenwidth()-width)//2)}+{max(0, (parent.winfo_screenheight()-height)//2)}")
+    window.minsize(min(round(880 * scale), width), min(round(640 * scale), height))
     window.transient(parent)
     style = ttk.Style(window)
     style.configure("Project.TEntry", fieldbackground=c.get("chip_bg", bg), foreground=ink,
-                    insertcolor=ink, padding=5)
+                    insertcolor=ink, padding=7, bordercolor=c.get("line", bg),
+                    font=(font_family, 11))
     style.configure("Project.TCombobox", fieldbackground=c.get("chip_bg", bg), foreground=ink,
-                    background=c.get("chip_bg", bg), arrowcolor=ink, padding=5)
+                    background=c.get("chip_bg", bg), arrowcolor=ink, padding=7,
+                    bordercolor=c.get("line", bg), font=(font_family, 11))
     style.map("Project.TCombobox", fieldbackground=[("readonly", c.get("chip_bg", bg))],
-              foreground=[("readonly", ink)], selectbackground=[("readonly", accent)])
+              foreground=[("readonly", ink)], selectbackground=[("readonly", accent)],
+              selectforeground=[("readonly", on_accent)])
     style.configure("Project.Treeview", background=surface, fieldbackground=surface,
                     foreground=ink, rowheight=32, font=(font_family, 10), borderwidth=0)
     style.configure("Project.Treeview.Heading", background=c.get("chip_bg", bg), foreground=ink,
                     font=(font_family, 9, "bold"), padding=7, relief="flat")
-    style.map("Project.Treeview", background=[("selected", accent)], foreground=[("selected", "#ffffff")])
+    style.map("Project.Treeview", background=[("selected", c.get("accent_soft", surface))],
+              foreground=[("selected", ink)])
+    style.configure("Project.Vertical.TScrollbar", background=c.get("chip_bg", surface),
+                    troughcolor=bg, arrowcolor=muted, bordercolor=c.get("line", bg))
 
-    outer = tk.Frame(window, bg=bg, padx=26, pady=22)
-    outer.pack(fill=tk.BOTH, expand=True)
+    viewport = tk.Frame(window, bg=bg)
+    viewport.pack(fill=tk.BOTH, expand=True)
+    canvas = tk.Canvas(viewport, bg=bg, highlightthickness=0)
+    scroll = ttk.Scrollbar(viewport, command=canvas.yview, style="Project.Vertical.TScrollbar")
+    canvas.configure(yscrollcommand=scroll.set)
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    outer = tk.Frame(canvas, bg=bg, padx=26, pady=22)
+    body = canvas.create_window((0, 0), window=outer, anchor="nw")
+    window._project_canvas = canvas
     tk.Label(outer, text=tr("Jede Reise. Ein eigenes Album.", "Every trip. Its own album."),
              bg=bg, fg=ink, font=(font_family, 21, "bold"), anchor="w").pack(fill="x")
-    tk.Label(outer, text=tr(
+    intro = tk.Label(outer, text=tr(
         "Projekte merken Ordner und Einstellungen. Deine Bildentscheidungen bleiben im jeweiligen Reiseprojekt.",
         "Projects remember folders and settings. Photo decisions stay in their own travel project."),
         bg=bg, fg=muted, font=(font_family, 10), anchor="w", wraplength=860,
-        justify="left").pack(fill="x", pady=(6, 20))
+        justify="left")
+    intro.pack(fill="x", pady=(6, 20))
 
     columns = tk.Frame(outer, bg=bg)
     columns.pack(fill="both", expand=True)
     columns.columnconfigure(0, weight=1, uniform="project")
     columns.columnconfigure(1, weight=1, uniform="project")
     columns.rowconfigure(0, weight=1)
-    new_card = tk.Frame(columns, bg=surface, padx=20, pady=18)
+    new_card = tk.Frame(columns, bg=surface, padx=20, pady=18,
+                        highlightbackground=c.get("line", bg),
+                        highlightcolor=c.get("line", bg), highlightthickness=1)
     new_card.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-    recent_card = tk.Frame(columns, bg=surface, padx=20, pady=18)
+    recent_card = tk.Frame(columns, bg=surface, padx=20, pady=18,
+                           highlightbackground=c.get("line", bg),
+                           highlightcolor=c.get("line", bg), highlightthickness=1)
     recent_card.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+
+    def fit_content(_event=None):
+        width = max(1, canvas.winfo_width())
+        wide = width >= round(860 * scale)
+        new_card.grid_forget()
+        recent_card.grid_forget()
+        new_card.grid(row=0, column=0, columnspan=1 if wide else 2, sticky="nsew",
+                      padx=(0, 10) if wide else 0)
+        recent_card.grid(row=0 if wide else 1, column=1 if wide else 0,
+                         columnspan=1 if wide else 2, sticky="nsew",
+                         padx=(10, 0) if wide else 0, pady=0 if wide else (18, 0))
+        intro.configure(wraplength=max(220, width - 52))
+        canvas.itemconfigure(body, width=width)
+
+    def fit_scroll_region(_event=None):
+        bounds = canvas.bbox("all")
+        height = max(canvas.winfo_height(), bounds[3] if bounds else 0)
+        canvas.configure(scrollregion=(0, 0, canvas.winfo_width(), height))
+        if height > canvas.winfo_height() + 2:
+            if not scroll.winfo_manager():
+                scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        elif scroll.winfo_manager():
+            scroll.pack_forget()
+
+    canvas.bind("<Configure>", fit_content)
+    outer.bind("<Configure>", fit_scroll_region)
+
+    def wheel(event):
+        if isinstance(event.widget, (ttk.Treeview, ttk.Combobox)):
+            return
+        delta = -1 if getattr(event, "num", 0) == 4 else 1
+        if getattr(event, "delta", 0):
+            delta = -1 if event.delta > 0 else 1
+        canvas.yview_scroll(delta * 3, "units")
+        return "break"
+
+    for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        window.bind(sequence, wheel)
 
     def title(host, value):
         tk.Label(host, text=value, bg=surface, fg=ink,
@@ -73,10 +134,13 @@ def show_project_manager(
 
     def button(host, text, command, primary=False):
         return tk.Button(host, text=text, command=command, relief="flat", bd=0,
-                         bg=accent if primary else c.get("chip_bg", bg),
-                         fg="#ffffff" if primary else ink,
-                         activebackground=c.get("accent_hover", accent), activeforeground="#ffffff",
-                         font=(font_family, 10, "bold"), padx=14, pady=9, cursor="hand2")
+                         bg=c.get("cta", accent) if primary else c.get("chip_bg", bg),
+                         fg=primary_ink if primary else ink,
+                         activebackground=c.get("cta_hover", primary_bg) if primary else c.get("accent_soft", surface),
+                         activeforeground=primary_ink if primary else ink,
+                         font=(font_family, 10, "bold"), padx=14, pady=9, cursor="hand2",
+                         highlightbackground=c.get("line", bg), highlightcolor=accent,
+                         highlightthickness=1)
 
     title(new_card, tr("Neue Reise anlegen", "Create a new trip"))
     name = tk.StringVar(value=tr("Meine Reise", "My trip"))
