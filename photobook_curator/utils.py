@@ -19,7 +19,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 DEFAULT_DOWNLOAD_TIMEOUT_S = 30.0
 MIN_MODEL_BYTES = 1000
 DEFAULT_BGR_CACHE_EDGE = 1024
-DEFAULT_BGR_CACHE_SIZE = 64
+DEFAULT_BGR_CACHE_SIZE = 16
 
 
 def ensure_utf8_stdio() -> None:
@@ -94,8 +94,12 @@ def load_image_scaled(path: Path, max_edge: int) -> Image.Image:
     suffix = path.suffix.lower()
     if suffix in {".jpg", ".jpeg"}:
         try:
-            # Etwas größer draften wegen späterer EXIF-Drehung
-            img.draft("RGB", (edge * 2, edge * 2))
+            # Ziel im Seitenverhältnis des Originals: ein quadratisches 2×-Ziel
+            # verhindert bei 3:2/4:3 oft jeden Decoder-Downsample. EXIF-Drehung
+            # ändert die längste Kante nicht.
+            scale = min(1.0, edge / max(img.size))
+            target = tuple(max(1, int(side * scale)) for side in img.size)
+            img.draft("RGB", target)
         except Exception:
             pass
     img.load()
@@ -215,19 +219,22 @@ class BgrImageCache:
     ) -> None:
         self.maxsize = max(1, maxsize)
         self.max_edge = max_edge
-        self._cache: OrderedDict[tuple[str, int], np.ndarray] = OrderedDict()
+        self._cache: OrderedDict[tuple[str, int, int, int], np.ndarray] = OrderedDict()
         self._lock = threading.Lock()
 
     def get(self, path: Path, max_edge: int | None = None) -> np.ndarray:
         edge = self.max_edge if max_edge is None else max_edge
-        key = (str(path.resolve()), edge)
+        stat = path.stat()
+        key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size, edge)
         with self._lock:
             hit = self._cache.get(key)
             if hit is not None:
                 self._cache.move_to_end(key)
                 return hit
         # Decode außerhalb des Locks (I/O-lastig)
-        img = resize_max_edge(load_image(path), edge)
+        # JPEG-Draft reduziert bereits beim Decoder statt erst nach einem
+        # vollständigen 12–48-Megapixel-Decode pro Worker.
+        img = load_image_scaled(path, edge)
         bgr = to_cv_bgr(img)
         with self._lock:
             self._cache[key] = bgr

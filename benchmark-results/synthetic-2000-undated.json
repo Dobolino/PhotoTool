@@ -1,0 +1,34 @@
+{
+  "kind": "synthetic_metadata_and_vectors_only",
+  "photos": 2000,
+  "embedding_dimensions": 1024,
+  "seed": 2026,
+  "undated": true,
+  "python": "3.12.14",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "algorithms": {
+    "phash_duplicates_and_bursts": {
+      "seconds": 0.1506,
+      "marked": [
+        1500,
+        0
+      ]
+    },
+    "bursts": {
+      "seconds": 0.0001,
+      "marked": 0
+    },
+    "content_clusters": {
+      "seconds": 0.4966,
+      "marked": 1500
+    }
+  },
+  "process_peak_rss_mib": 121.6,
+  "excludes": [
+    "image_decode",
+    "quality_scoring",
+    "faces",
+    "model_inference",
+    "export"
+  ]
+}

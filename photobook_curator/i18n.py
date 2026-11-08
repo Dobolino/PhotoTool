@@ -10,6 +10,37 @@ _STRINGS: dict[str, dict[str, str]] = {
     "de": {
         "app_title": "Fotobuch-Auswahl",
         "brand": "Fotobuch",
+        "workflow_subtitle": "Aus vielen Reisefotos wird eine Geschichte.",
+        "workflow_import": "Reise importieren",
+        "workflow_plan": "Album planen",
+        "workflow_review": "Prüfen & exportieren",
+        "import_title": "Deine Reise",
+        "import_hint": "Fotos wählen oder ein gespeichertes Projekt fortsetzen.",
+        "project_open": "Projekte",
+        "resume_album": "Auswahl öffnen",
+        "project_not_saved": "Dein Projekt wird beim Analysestart gespeichert.",
+        "album_title": "Dein Album",
+        "travel_profile": "Reiseprofil",
+        "book_pages": "Buchseiten · 0 = manuell",
+        "photos_per_page": "Fotos je Seite",
+        "reserved_pages": "Seiten für Titel / Text",
+        "budget_manual_hint": "Zielanzahl selbst wählen oder aus Buchseiten berechnen.",
+        "budget_calculated": "{n} Fotos für {pages} Fotoseiten · Titel-/Textseiten berücksichtigt",
+        "budget_invalid": "Bitte gültige Seitenzahlen und Fotos je Seite eingeben.",
+        "target_invalid": "Die Zielanzahl muss grösser als 0 sein.",
+        "album_invalid": "Album-Einstellungen prüfen",
+        "show_details": "Analyse-Details anzeigen ▾",
+        "hide_details": "Analyse-Details ausblenden ▴",
+        "footer_safe": "Originale bleiben erhalten.\nAuswahl jederzeit prüfen und anpassen.",
+        "advanced_heading": "Analyse & Vielfalt anpassen",
+        "storytelling_strength": "Abwechslung & Reisegeschichte",
+        "project_wait": "Bitte zuerst die laufende Analyse beenden.",
+        "project_loaded": "Projekt „{name}“ geladen. Analysieren oder Auswahl öffnen.",
+        "project_save_failed": "Projekt konnte nicht gespeichert werden",
+        "relink_sources": "Originale wiederfinden…",
+        "relink_need_project": "Bitte zuerst einen vorhandenen Ausgabeordner wählen.",
+        "sources_relinked": "Originale neu verknüpft. Du kannst die Auswahl jetzt öffnen.",
+        "legacy_album": "Vorhandene Auswahl · zum Neu-Analysieren zuerst den Fotos-Ordner wählen.",
         "help": "Hilfe",
         "settings": "Darstellung",
         "settings_title": "Darstellung & Sprache",
@@ -188,6 +219,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "hide_variants": "Varianten ausblenden",
         "help_title": "Hilfe – Fotobuch",
         "coverage_strength": "Abdeckung-Stärke",
+        "max_per_day": "Max. Bilder pro Tag",
+        "max_per_chapter": "Max. Bilder pro Kapitel",
+        "selection_caps_hint": "0 = unbegrenzt. Geschützte Favoriten haben Vorrang.",
         "people_strength": "Personen-Stärke",
         "help_body": (
             "Kurzanleitung\n"
@@ -226,25 +260,24 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Ordner optional_dokumente/ (später manuell reinnehmbar)."
         ),
         "help_opt_accidental": (
-            "Typische Auslöser-Misses: viel Boden/Himmel, Motiv am Rand, "
-            "starke Schräglage – werden nicht ins Buch genommen."
+            "Sortiert Bilder aus, die wie versehentliche Aufnahmen wirken. "
+            "Für die erste Auswahl besser ausgeschaltet lassen und später selbst prüfen."
         ),
         "help_opt_weak_night": (
-            "Dunkle, weiche, „schwummerige“ Nachtbilder aussortieren."
+            "Sortiert sehr dunkle und unscharfe Nachtbilder aus. "
+            "Bei Nachtmärkten und Neon-Szenen zunächst ausgeschaltet lassen."
         ),
         "help_opt_content": (
-            "Erkennt inhaltsgleiche Szenen (nicht nur pixelgleiche Duplikate) "
-            "und behält die besten – nutzt Embeddings und den Analyse-Cache."
+            "Vergleicht ähnliche Motive und reduziert Wiederholungen. "
+            "Entfernte Varianten kannst du bei der Nachkontrolle wieder hinzufügen."
         ),
         "help_opt_aesthetic": (
-            "Teil der lokalen Vorfilterung (ohne Cloud): Schärfe, Belichtung, "
-            "Komposition – schnell und kostenlos. Deckt ca. den Großteil der "
-            "Aussortierung zusammen mit Gesichtern/Duplikaten. "
-            "Bei KI-Bewertung wird diese lokale Ästhetik übersprungen."
+            "Bewertet Bildaufbau und Licht auf deinem Computer, ohne Fotos zu versenden. "
+            "Wird bei einer KI-Bewertung nicht zusätzlich verwendet."
         ),
         "help_opt_timezone": (
-            "Verschiebt alle EXIF-Zeiten um X Stunden (z. B. +9, wenn die Kamera "
-            "noch auf Heimatzeit stand)."
+            "Korrigiert eine falsch eingestellte Kamerauhr. Sonst auf 0 lassen; "
+            "die Zeitzone des Reiseziels ist nicht automatisch die richtige Korrektur."
         ),
         "help_opt_video": (
             "Extrahiert den schärfsten Frame aus kurzen Videos ohne Schwester-JPG/HEIC "
@@ -254,37 +287,30 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Typische Fehlaufnahmen mit Finger/Hand vor der Kamera aussortieren."
         ),
         "help_opt_coverage": (
-            "Verhindert, dass fast alles vom ersten Tag kommt. "
-            "Stärke: sanft bis stark gleichmäßig über die Tage."
+            "Verteilt die Auswahl auf möglichst viele Reisetage. "
+            "Je höher die Stärke, desto gleichmässiger werden die Tage berücksichtigt."
         ),
         "help_opt_people": (
-            "Verhindert, dass immer dieselbe Person das Album dominiert."
+            "Berücksichtigt, welche Personen häufig vorkommen, und bevorzugt "
+            "eine ausgewogenere Mischung. Besonders nützlich bei Gruppenreisen."
         ),
         "help_opt_map": (
             "Vor dem Kopieren Kapitel und Karte zeigen, dann bestätigen."
         ),
         "help_opt_ai": (
-            "Optionaler Feinschliff nach der lokalen Vorfilterung "
-            "(Gesichter, Schärfe, Duplikate, Ästhetik decken schon ~90 % ab). "
-            "Anbieter wählst du unter „KI wählen“."
+            "Optional: Ein KI-Anbieter bewertet Bildvorschauen zusätzlich. "
+            "Für den ersten Durchlauf reicht die lokale Auswahl."
         ),
         "help_ai_provider": (
-            "Welche KI?\n\n"
-            "• Keine KI: 100 % lokal, schnell – nur OpenCV/MediaPipe/pHash. "
-            "Kein API-Key, kein Internet für die Bewertung.\n\n"
-            "• Google Gemini 1.5 Flash (Gratis/Free Tier): bis ca. 1.500 Bilder/Tag "
-            "kostenlos. Sehr gut für Bildästhetik, Motiverkennung und Text auf "
-            "Schildern/Speisekarten. Braucht Gemini-API-Key + Internet.\n\n"
-            "• Anthropic Claude (kostenpflichtig): Pay-per-Use, höchste Präzision "
-            "bei künstlerischer Komposition, Stimmungen und feinen Nuancen.\n\n"
-            "• Ollama (lokal): privat & offline, braucht starke GPU; Qualität "
-            "meist unter Cloud-Modellen, bei großen Mengen oft langsam.\n\n"
-            "Bereits bewertete Fotos (Cache/CSV) werden nicht erneut gesendet. "
-            "Bei API-Fehlern greift die lokale Heuristik."
+            "Keine KI: empfohlener Start. Die Bewertung läuft auf deinem Computer.\n\n"
+            "Gemini oder Claude: Bildvorschauen werden an den Anbieter gesendet. "
+            "Benötigt Internet und einen API-Schlüssel; es können Kosten entstehen.\n\n"
+            "Ollama: zusätzliche KI auf deinem Computer. Dafür muss Ollama mit "
+            "einem passenden Bildmodell eingerichtet sein."
         ),
         "help_opt_dry": (
-            "Kein echter API-Aufruf: zählt nur Kandidaten und schätzt Kosten/Limits. "
-            "Sinnvoll bei Gemini/Anthropic; bei Ollama/Keine KI ausgeblendet."
+            "Bei eingeschalteter KI wird nur eine Schätzung der Kandidaten und Kosten "
+            "erstellt. Es werden keine Bilder an die KI gesendet und kein Album exportiert."
         ),
         "help_ai_ollama_model": (
             "Name des Vision-Modells in Ollama (z. B. llava oder llama3.2-vision). "
@@ -296,6 +322,37 @@ _STRINGS: dict[str, dict[str, str]] = {
     "en": {
         "app_title": "Photobook curator",
         "brand": "Photobook",
+        "workflow_subtitle": "Turn your travel photos into a story.",
+        "workflow_import": "Import your trip",
+        "workflow_plan": "Plan your album",
+        "workflow_review": "Review & export",
+        "import_title": "Your trip",
+        "import_hint": "Choose photographs or continue a saved project.",
+        "project_open": "Projects",
+        "resume_album": "Open selection",
+        "project_not_saved": "Your project is saved when analysis starts.",
+        "album_title": "Your album",
+        "travel_profile": "Travel profile",
+        "book_pages": "Book pages · 0 = manual",
+        "photos_per_page": "Photos per page",
+        "reserved_pages": "Title / text pages",
+        "budget_manual_hint": "Choose a photo count or calculate it from book pages.",
+        "budget_calculated": "{n} photos across {pages} photo pages · title/text pages reserved",
+        "budget_invalid": "Enter valid page counts and photos per page.",
+        "target_invalid": "The target photo count must be greater than 0.",
+        "album_invalid": "Check album settings",
+        "show_details": "Show analysis details ▾",
+        "hide_details": "Hide analysis details ▴",
+        "footer_safe": "Original photographs are preserved.\nReview and adjust your selection at any time.",
+        "advanced_heading": "Adjust analysis & variety",
+        "storytelling_strength": "Variety & travel storytelling",
+        "project_wait": "Please finish the running analysis first.",
+        "project_loaded": "Project “{name}” loaded. Analyze or open its selection.",
+        "project_save_failed": "Project could not be saved",
+        "relink_sources": "Locate original files…",
+        "relink_need_project": "Choose an existing output folder first.",
+        "sources_relinked": "Original files relinked. You can now open the selection.",
+        "legacy_album": "Existing selection · choose its photo folder before running a new analysis.",
         "help": "Help",
         "settings": "Appearance",
         "settings_title": "Appearance & language",
@@ -474,6 +531,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "hide_variants": "Hide variants",
         "help_title": "Help – Photobook",
         "coverage_strength": "Coverage strength",
+        "max_per_day": "Max. photos per day",
+        "max_per_chapter": "Max. photos per chapter",
+        "selection_caps_hint": "0 = unlimited. Protected favorites take priority.",
         "people_strength": "People-balance strength",
         "help_body": (
             "Quick start\n"
@@ -512,24 +572,24 @@ _STRINGS: dict[str, dict[str, str]] = {
             "optional_dokumente/ (you can add them later)."
         ),
         "help_opt_accidental": (
-            "Typical trigger misses: mostly ground/sky, subject at the edge, "
-            "strong tilt – excluded from the book."
+            "Filters photos that appear accidental. For your first selection, "
+            "leave this off and review these pictures yourself later."
         ),
         "help_opt_weak_night": (
-            "Remove dark, soft, mushy night shots."
+            "Filters very dark, blurry night photos. Leave this off initially "
+            "for night markets and neon scenes."
         ),
         "help_opt_content": (
-            "Finds near-duplicate scenes (not only pixel duplicates) and keeps "
-            "the best – uses embeddings and the analysis cache."
+            "Compares similar subjects and reduces repetition. You can add "
+            "removed alternatives back during review."
         ),
         "help_opt_aesthetic": (
-            "Part of the local prefilter (no cloud): sharpness, exposure, composition – "
-            "fast and free. Together with faces/duplicates this covers most culling. "
-            "Skipped when AI review is on."
+            "Rates composition and light on your computer without sending photos. "
+            "Not used in addition to AI review."
         ),
         "help_opt_timezone": (
-            "Shift all EXIF times by X hours (e.g. +9 if the camera was still "
-            "on home time)."
+            "Corrects an incorrectly set camera clock. Otherwise leave at 0; "
+            "the destination's time zone is not automatically the right correction."
         ),
         "help_opt_video": (
             "Extract the sharpest frame from short videos without a sibling JPG/HEIC "
@@ -539,37 +599,30 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Filter typical finger/hand-over-lens shots."
         ),
         "help_opt_coverage": (
-            "Avoids almost everything coming from day one. "
-            "Strength: gentle to strongly even across days."
+            "Includes as many travel days as possible. A higher strength "
+            "distributes the selection more evenly across days."
         ),
         "help_opt_people": (
-            "Avoids one person dominating the whole album."
+            "Considers how often people appear and favours a more balanced mix. "
+            "Especially useful for group trips."
         ),
         "help_opt_map": (
             "Show chapters and map before copying files, then confirm."
         ),
         "help_opt_ai": (
-            "Optional fine-tuning after local prefiltering "
-            "(faces, sharpness, duplicates, aesthetic already cover ~90%). "
-            "Pick the provider under “Choose AI”."
+            "Optional: an AI provider additionally rates picture previews. "
+            "Local selection is enough for a first run."
         ),
         "help_ai_provider": (
-            "Which AI?\n\n"
-            "• No AI: 100% local, fast – OpenCV/MediaPipe/pHash only. "
-            "No API key, no internet for scoring.\n\n"
-            "• Google Gemini 1.5 Flash (free tier): ~1,500 images/day free. "
-            "Strong on aesthetics, subjects, and text on signs/menus. "
-            "Needs Gemini API key + internet.\n\n"
-            "• Anthropic Claude (paid): pay-per-use, highest precision for "
-            "artistic composition, mood, and fine nuance.\n\n"
-            "• Ollama (local): private & offline, needs a strong GPU; quality "
-            "usually below cloud models, often slow on large batches.\n\n"
-            "Already scored photos (cache/CSV) are not resent. "
-            "On API errors the local heuristic is used."
+            "No AI: the recommended starting point. Rating runs on your computer.\n\n"
+            "Gemini or Claude: picture previews are sent to the provider. Requires "
+            "internet and an API key; charges may apply.\n\n"
+            "Ollama: additional AI on your computer. Requires an installed Ollama "
+            "service with a suitable image model."
         ),
         "help_opt_dry": (
-            "No real API call: counts candidates and estimates cost/limits only. "
-            "Useful for Gemini/Anthropic; hidden for Ollama/No AI."
+            "With AI enabled, only an estimate of candidates and cost is produced. "
+            "No pictures are sent to AI and no album is exported."
         ),
         "help_ai_ollama_model": (
             "Vision model name in Ollama (e.g. llava or llama3.2-vision). "
@@ -599,6 +652,9 @@ _STRINGS["de"].update({
     "reason_title": "Auswahlgründe", "reason_selected": "Aktuell im Buch behalten.",
     "reason_not_selected": "Aktuell nicht im Buch.", "reason_favorite": "Als Favorit vor Abwahl geschützt.",
     "reason_manual_add": "Manuell hinzugefügt.", "reason_manual_reject": "Manuell entfernt.",
+    "reason_manual_keep": "Dauerhaft behalten: gilt auch bei einer neuen Analyse.",
+    "reason_manual_exclude": "Dauerhaft ausgeschlossen: gilt auch bei einer neuen Analyse; Favoritenschutz hat Vorrang.",
+    "reason_decision_note": "Deine Begründung: {reason}",
     "reason_duplicate": "Als Duplikat erkannt; Original: {name}.", "reason_burst": "Als Serienvariante aussortiert.",
     "reason_aside": "Dokument oder Screenshot im optionalen Pool.",
     "reason_scores": "Technischer Score: {technical:.1f} · Gesamtscore: {final:.1f}",
@@ -625,6 +681,9 @@ _STRINGS["en"].update({
     "reason_title": "Selection reasons", "reason_selected": "Currently kept in the book.",
     "reason_not_selected": "Currently outside the book.", "reason_favorite": "Protected against removal as a favorite.",
     "reason_manual_add": "Added manually.", "reason_manual_reject": "Removed manually.",
+    "reason_manual_keep": "Always keep: also applies to a new analysis.",
+    "reason_manual_exclude": "Always exclude: also applies to a new analysis; favorite protection takes priority.",
+    "reason_decision_note": "Your reason: {reason}",
     "reason_duplicate": "Detected as a duplicate; original: {name}.", "reason_burst": "Rejected as a burst variant.",
     "reason_aside": "Document or screenshot in the optional pool.",
     "reason_scores": "Technical score: {technical:.1f} · Final score: {final:.1f}",

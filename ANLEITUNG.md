@@ -1,125 +1,62 @@
-# Schritt-für-Schritt: Fotobuch auswählen
+# PhotoTool 0.5.0: Schritt für Schritt zur Fotoauswahl
 
-Du brauchst: **Python 3.11+** (einmalig installieren) und deine Urlaubsfotos in einem Ordner.
+Für Windows ist der Installer `PhotoTool-Setup-<Version>.exe` unter
+[GitHub Releases](https://github.com/Dobolino/PhotoTool/releases) der einfachste
+Einstieg. Er installiert PhotoTool und richtet bei Bedarf Microsoft Edge WebView2
+ein. Python brauchst du dafür nicht. Eine bestehende Installation aktualisierst
+du über **Updates** im Programm oder den neueren Installer.
 
----
+Ausführliche Bedienung: [Reiseprojekte und Fotoansicht](REISEPROJEKTE.md).
+Für den Quellcode-Start und dessen Aktualisierung: [START.md](START.md).
 
-## Einfachster Weg (Windows): Doppelklick
+## 1. Reise anlegen
 
-### 1. Python installieren (nur einmal)
+Originalfotos lokal verfügbar machen, besonders bei OneDrive oder iCloud. Eine
+neue Reise mit Namen, Originalordner und einem separaten Projekt-/Ausgabeordner
+anlegen. Das Projekt speichert Einstellungen und Entscheidungen für diese Reise.
 
-Falls noch nicht vorhanden: von [python.org/downloads](https://www.python.org/downloads/) installieren.  
-Beim Setup **„Add python.exe to PATH“** anhaken.
+Für einen Japan-Urlaub mit etwa 2.000 Fotos sind **200 Zielbilder** ein brauchbarer
+Start. Die passende Anzahl hängt von deiner Seitenzahl und den gewünschten
+Bildgrössen ab. Weitere Startwerte stehen im [Japan-Workflow](JAPAN_WORKFLOW.md).
 
-### 2. Projekt aktualisieren
+## 2. Lokale Auswahl erstellen
 
-**Einfach:** Im Ordner `PhotoTool` doppelklicken auf `Programm aktualisieren.bat`.
+Profil und Zielanzahl einstellen, dann **Lokale Auswahl erstellen** starten.
+Damit entsteht bereits eine vollständige Auswahl ohne externen KI-Anbieter.
+KI lässt sich später ergänzen; **Nur Kosten schätzen** erzeugt keine fertige
+Auswahl. Optionale Ortsabfragen und anfängliche Modelldownloads benötigen Internet.
 
-Oder in PowerShell:
+## 3. Bilder prüfen
 
-```powershell
-cd $HOME\Downloads\PhotoTool
-git checkout cursor/photobook-curator-c6d6
-git pull origin cursor/photobook-curator-c6d6
-```
+- **Diashow:** grosse Vorschau und Filmstreifen mit ausgewählten und abgewählten Bildern.
+- **Vergleichen:** Albumfoto und Alternative nebeneinander prüfen.
+  **Zusätzlich aufnehmen** behält beide; **Als Ersatz wählen** tauscht genau ein
+  Albumfoto am bisherigen Platz aus.
+- **Albumübersicht:** die Sammlung als durchblätterbares Raster ansehen.
 
-Ausführlich: Abschnitt **Programm aktualisieren** in `START.md`.
+**Miniatur anklicken = ansehen. Häkchen / Leertaste = Auswahl ändern.** Grau
+bedeutet „nicht im Album“, farbig mit Häkchen bedeutet „im Album“. Die grosse
+Vorschau bleibt farbig. Aufgenommene Alternativen bleiben zum Vergleichen sichtbar.
 
-### 3. Programm starten
+Unverzichtbare Erinnerungen als Favoriten schützen. **Warum dieses Bild?** zeigt
+vorhandene Auswahlgründe und Ortsnachweise. Über **Werkzeuge** erreichst du den
+Prüfbericht, die Ortsprüfung und weitere Prüfwerkzeuge. Alte Analysen ohne
+Entscheidungsprotokoll erhalten keine nachträglich erfundenen Gründe.
 
-Im Explorer doppelklicken:
+## 4. Speichern und exportieren
 
-```text
-Fotobuch starten.bat
-```
+**Pause & speichern** sichert Auswahl und Ansicht und schliesst die Prüfung.
+Später dasselbe Reiseprojekt fortsetzen. Änderungen werden zusätzlich automatisch
+gespeichert; bei einem Speicherfehler die sichtbare Meldung zuerst beheben.
 
-Zuerst erscheint ein **schwarzes Textfenster** (Status/Fehler) – das ist Absicht.  
-Beim ersten Start werden die Pakete automatisch installiert (oft einige Minuten).  
-Danach öffnet sich das Programmfenster; kurz „lade Erkennungsmodule…“, dann **Bereit**.  
-Bei Problemen: siehe `START.md` („Wenn nur ein leeres Fenster kommt“).
+**Finale Auswahl** kopiert nur die endgültig ausgewählten Originaldateien:
 
-### 4. Im Fenster
+- **Ein gemeinsamer Ordner:** alle Kopien direkt in `selected/`, in Albumreihenfolge nummeriert.
+- **Nach Kapiteln aufteilen:** Unterordner für die Reiseabschnitte.
 
-1. **Fotos-Ordner** → `Durchsuchen` → z. B. `OneDrive\Bilder\Urlaubfotos\Japan`
-2. **Ausgabe-Ordner** → `Durchsuchen` → neuen leeren Ordner wählen
-3. **Zielanzahl** einstellen (z. B. 80) — so viele Bilder sollen ungefähr im Buch landen
-4. Auf **Auswahl starten** klicken — der Balken zeigt die aktuelle Phase
-5. Warten, bis „Fertig“ erscheint
-6. Bei Nachfrage **Ja** → **Auswahl prüfen** (Thumbnails oder Diashow)
-   - Raster: Klick auf ein Bild = rausnehmen / wieder reinnehmen
-   - Diashow: Filter, Kapitel-Sprung, Alternative daneben, Auto-weiter
-   - **Darstellung & Sprache** im Hauptfenster: Deutsch/English, Design-Varianten
-   - Unten Alternativen mit **+ HINZUFÜGEN**
-   - **Speichern & Ordner neu schreiben**
+Die Originaldateien bleiben unverändert. Im Projektordner stehen ausserdem
+`photos_analysis.csv`, `selection_draft.json` und der Prüfbericht als HTML/CSV.
+Ein optionaler Dokumentpool gehört nicht automatisch zum Album. Für Vorschau
+und spätere Weiterarbeit müssen die Originale weiterhin erreichbar sein.
 
-Später erneut prüfbar über den Button **Auswahl prüfen** (braucht `photos_analysis.csv` im Ausgabeordner).
-
-### 5. Ergebnis
-
-Im Ausgabeordner:
-- `selected\` — die ausgewählten Bilder nach Kapiteln
-- `inhaltsverzeichnis.md` — Übersicht
-- `photos_analysis.csv` — alle Details
-
-Das Tool erkennt lokal auch **geschlossene Augen** und problematische Gesichter (angeschnitten / zu klein), markiert sie in der Prüfung und bevorzugt sie nicht fürs Buch.
-
-**Serien/Bursts:** Aus ähnlichen Fotos innerhalb von ~30 Sekunden behält es nur die besten 1–2 Bilder.
-
-**Dokumente & Screenshots** (Tickets, Karten, Chat-Screens …) kommen **nicht** automatisch ins Buch, sondern in den Ordner `optional_dokumente/`. In **Auswahl prüfen** kannst du sie bei Bedarf mit einem Klick ins Album übernehmen (`99_Optional_Dokumente`).
-
-### Optionen (GUI oder CLI)
-
-| Option | Standard | Bedeutung |
-|--------|----------|-----------|
-| Ortsnamen | an (Englisch) | `--geocode` / `--no-geocode` — Städte z. B. Tokyo, Kyoto (nicht 東京) |
-| Gesichtserkennung / Augen zu | an | `--faces` / `--no-faces` |
-| Serien/Bursts | an | `--bursts` / `--no-bursts` |
-| Dokumente separat | an | `--aside-documents` / `--no-aside-documents` |
-| Finger vor der Linse | aus | Checkbox, CLI: `--finger-filter` / `--no-finger-filter` |
-| Tages-Abdeckung | aus | Checkbox + Stärke-Regler, CLI: `--coverage-intensity 0.0–1.0` |
-| Personen-Balance | aus | Checkbox + Stärke-Regler, CLI: `--people-balance-intensity 0.0–1.0` |
-| Kapitel-/Karten-Vorschau | aus | Checkbox, CLI: `--map-preview` |
-| Analyse-Cache | an | speichert Quality/pHash für Wiederholungsläufe; CLI: `--analysis-cache` / `--no-analysis-cache` |
-| KI-Bewertung | aus | `--ai-review` |
-| Auswahl prüfen | nach dem Lauf | manuell |
-
-**Tages-Abdeckung:** Verhindert, dass fast alle Bilder vom ersten Tag kommen.  
-`0` = aus, `0.5` = sanft, `1.0` = stark gleichmäßig über die Tage.
-
-**Personen-Balance:** Verhindert, dass dieselbe Person das Album dominiert; unterrepräsentierte Gesichter werden bevorzugt.  
-`0` = aus, `0.5` = sanft, `1.0` = stark ausgewogen.
-
-**Finger vor der Linse:** Erkennt typische Verdeckungen (weicher Haut-Blob am Bildrand / große Hand nahe Kamera) und nimmt diese Fotos aus der Auto-Auswahl.
-
-**Kapitel-/Karten-Vorschau:** Zeigt vor dem Kopieren die Kapitelreihenfolge und GPS-Punkte (Fenster + `kapitel_karte.html`).  
-Erst nach „So exportieren“ werden `selected/` und Co. geschrieben. In der CLI erzeugt `--map-preview` die HTML-Karte mit.
-
-Optional: Haken bei **KI-Bewertung** setzen und API-Key eintragen (braucht Account auf [console.anthropic.com](https://console.anthropic.com/) — Claude-Chat-Abo reicht nicht).
-
----
-
-## Alternative: Kommandozeile
-
-Nur falls du keine GUI willst. Details früherer Version:
-
-```powershell
-cd $HOME\Downloads\PhotoTool
-.\.venv\Scripts\Activate.ps1
-python -m photobook_curator -i "C:\Pfad\zu\Fotos" -o "C:\Pfad\zur\Ausgabe" -n 80
-```
-
-GUI auch so startbar:
-
-```powershell
-python -m photobook_curator --gui
-```
-
----
-
-## Checkliste
-
-1. [ ] Python installiert (mit PATH)  
-2. [ ] `git pull` auf Branch `cursor/photobook-curator-c6d6`  
-3. [ ] `Fotobuch starten.bat` doppelgeklickt  
-4. [ ] Eingabe- und Ausgabeordner gewählt, Start gedrückt  
-5. [ ] `selected\` und `inhaltsverzeichnis.md` geprüft  
+Das endgültige Drucklayout erstellst du danach in deiner Fotobuchsoftware.

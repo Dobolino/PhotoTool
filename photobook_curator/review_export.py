@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import csv
+import warnings
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .documents import ASIDE_FOLDER
-from .models import BookPlan, Photo, Region, TransitSection
-from .output import copy_aside_pool, copy_selected, write_csv, write_markdown_overview
+from .trace_schema import normalize_selection_trace
+from .location_schema import normalize_location_evidence
+from .models import BookPlan, Photo, Region, TransitSection, normalized_manual_decision, set_manual_decision
+from .output import copy_aside_pool, copy_selected, selected_export_paths, validate_export_layout, write_csv, write_markdown_overview
 
 
 def rebuild_order_from_kept(
@@ -21,9 +24,10 @@ def rebuild_order_from_kept(
 
     def sort_key(i: int) -> tuple:
         p = photos[i]
-        pos = p.book_position if p.book_position is not None else 10_000_000
+        pos = p.book_position
+        positioned = isinstance(pos, int) and not isinstance(pos, bool) and pos > 0
         dt = p.datetime_taken or datetime.max
-        return (pos, dt, i)
+        return (0 if positioned else 1, pos if positioned else 0, dt, i)
 
     ordered = sorted(set(kept_indices), key=sort_key)
 
@@ -38,10 +42,10 @@ def rebuild_order_from_kept(
 
     order: list[tuple[int, str, str]] = []
     for folder in folder_order:
-        members = sorted(
-            by_folder[folder],
-            key=lambda i: photos[i].datetime_taken or datetime.min,
-        )
+        # The outer order already honors saved album positions. Sorting again
+        # by capture time would move a deliberately chosen replacement away
+        # from the album slot it inherited.
+        members = by_folder[folder]
         for i in members:
             ctype = photos[i].chapter_type or _guess_chapter_type(folder)
             photos[i].chapter_type = ctype
@@ -75,12 +79,28 @@ def apply_manual_selection(
     plan: BookPlan,
     kept_indices: list[int],
     output_dir: Path,
+    *, report_warning: Callable[[str], None] | None = None,
+    export_layout: str = "chapters",
 ) -> list[tuple[int, str, str]]:
     """Setzt is_selected/book_position neu und schreibt CSV, Ordner, Markdown."""
-    kept = set(kept_indices)
+    validate_export_layout(export_layout)
+    kept = {i for i in kept_indices if 0 <= i < len(photos)}
+    # Export respects durable intent even when called without the review UI.
+    # The UI resets a keep decision before a deliberate removal.
+    kept.update(i for i, p in enumerate(photos)
+                if p.is_favorite or p.manual_decision == "keep")
+    kept.difference_update({i for i in kept
+                            if photos[i].manual_decision == "reject" and not photos[i].is_favorite})
+    # Validate destinations before synchronizing the live selection or writing
+    # its analysis CSV. A malformed legacy chapter must not publish elsewhere.
+    selected_export_paths(photos, [(i, ASIDE_FOLDER if photos[i].is_aside else _guess_folder(photos[i]),
+                                    photos[i].chapter_type or "Hauptteil") for i in sorted(kept)],
+                          export_layout=export_layout)
     for i, photo in enumerate(photos):
         was_selected = photo.is_selected
         photo.is_selected = i in kept
+        if was_selected != photo.is_selected and photo.manual_decision == "auto":
+            set_manual_decision(photo, "keep" if photo.is_selected else "reject", photo.decision_reason)
         if i in kept:
             if "manual_reject" in photo.flags:
                 photo.flags = [f for f in photo.flags if f != "manual_reject"]
@@ -104,9 +124,26 @@ def apply_manual_selection(
         photos[idx].is_selected = True
 
     write_csv(photos, output_dir / "photos_analysis.csv")
-    copy_selected(photos, order, output_dir)
+    if export_layout == "chapters":
+        copy_selected(photos, order, output_dir)
+    else:
+        copy_selected(photos, order, output_dir, export_layout=export_layout)
     copy_aside_pool(photos, output_dir)
     write_markdown_overview(photos, plan, order, output_dir / "inhaltsverzeichnis.md")
+    try:
+        from .audit_report import write_audit_report
+
+        write_audit_report(photos, output_dir / "selection_audit.html", kept=kept,
+                           csv_path=output_dir / "selection_audit.csv")
+    except Exception as exc:
+        message = f"Album gespeichert. Der Prüfbericht konnte nicht gespeichert werden: {exc}"
+        if report_warning is not None:
+            try:
+                report_warning(message)
+            except Exception:
+                warnings.warn(message, RuntimeWarning, stacklevel=2)
+        else:
+            warnings.warn(message, RuntimeWarning, stacklevel=2)
     return order
 
 
@@ -145,9 +182,7 @@ def plan_from_photos(photos: list[Photo]) -> BookPlan:
         times = [photos[i].datetime_taken for i in indices if photos[i].datetime_taken]
         start = min(times) if times else None
         end = max(times) if times else None
-        day_count = 1
-        if start and end:
-            day_count = max(1, (end.date() - start.date()).days + 1)
+        day_count = max(1, len({at.date() for at in times}))
         regions.append(
             Region(
                 name=name,
@@ -196,6 +231,9 @@ def rebuild_selection_from_analysis(
     coverage_intensity: float = 0.0,
     people_balance_intensity: float = 0.0,
     candidate_factor: float = 4.0,
+    max_per_day: int = 0,
+    max_per_chapter: int = 0,
+    storytelling_intensity: float = 0.0,
 ) -> tuple[BookPlan, list[tuple[int, str, str]]]:
     """
     Erzeugt eine Buchauswahl aus bereits analysierter CSV-Daten **ohne neue KI**.
@@ -221,7 +259,7 @@ def rebuild_selection_from_analysis(
             )
         ]
 
-    distribute_quotas(photos, plan, target_n)
+    distribute_quotas(photos, plan, target_n, max_per_chapter=max_per_chapter)
     # Kandidaten neu setzen (nutzt technical/aesthetic scores aus der CSV)
     for p in photos:
         p.is_candidate = False
@@ -230,6 +268,9 @@ def rebuild_selection_from_analysis(
         plan,
         target_n=target_n,
         candidate_factor=candidate_factor,
+        coverage_intensity=coverage_intensity,
+        max_per_day=max_per_day,
+        max_per_chapter=max_per_chapter,
     )
     order = build_book_order(
         photos,
@@ -239,6 +280,9 @@ def rebuild_selection_from_analysis(
         similarity_threshold=similarity_threshold,
         coverage_intensity=coverage_intensity,
         people_balance_intensity=people_balance_intensity,
+        max_per_day=max_per_day,
+        max_per_chapter=max_per_chapter,
+        storytelling_intensity=storytelling_intensity,
     )
     return plan, order
 
@@ -253,6 +297,9 @@ def analysis_has_ai_scores(photos: list[Photo]) -> bool:
 
 def load_photos_from_csv(csv_path: Path) -> list[Photo]:
     """Lädt Fotozeilen aus der Analyse-CSV für die Review-Oberfläche."""
+    from .source_relink import recover_source_relink
+
+    recover_source_relink(csv_path.parent)
     photos: list[Photo] = []
     with csv_path.open(encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -325,9 +372,13 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 mood=(row.get("mood") or None) or None,
                 quality_issue=(row.get("quality_issue") or None) or None,
                 final_score=float(_float("final_score") or 0),
+                selection_trace=normalize_selection_trace(row.get("selection_trace")),
                 is_candidate=_bool("is_candidate"),
                 is_selected=_bool("is_selected"),
                 is_favorite=_bool("is_favorite"),
+                manual_decision=normalized_manual_decision(
+                    row.get("manual_decision"), flags=(row.get("flags") or "").split("|")),
+                decision_reason=row.get("decision_reason") or "",
                 review_added=_bool("review_added"),
                 chapter_type=(row.get("chapter_type") or None) or None,
                 book_position=_int("book_position") if bp_raw else None,
@@ -364,6 +415,7 @@ def load_photos_from_csv(csv_path: Path) -> list[Photo]:
                 ],
                 flags=[f for f in (row.get("flags") or "").split("|") if f],
                 region=(row.get("region") or None) or None,
+                location_evidence=normalize_location_evidence(row.get("location_evidence")),
                 ai_reviewed=_bool("ai_reviewed"),
             )
             kr = (row.get("keep_recommendation") or "").strip().lower()

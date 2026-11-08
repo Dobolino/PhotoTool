@@ -8,7 +8,6 @@ from datetime import timedelta
 import numpy as np
 from tqdm import tqdm
 
-from .embeddings import cosine_similarity
 from .models import Photo
 from .quality import compute_technical_score
 
@@ -31,6 +30,7 @@ def mark_content_clusters(
         for i, p in enumerate(photos)
         if i in embeddings
         and not p.is_duplicate
+        and not p.is_burst_reject
         and not getattr(p, "is_aside", False)
         and "unreadable" not in p.flags
     ]
@@ -50,18 +50,39 @@ def mark_content_clusters(
         if ra != rb:
             parent[rb] = ra
 
+    # Vektoren nur einmal validieren/normalisieren. Histogramm-Fallbacks und
+    # Modellvektoren verschiedener Dimensionen niemals miteinander vergleichen.
+    vectors: dict[int, np.ndarray] = {}
+    by_dimension: dict[int, list[int]] = defaultdict(list)
+    for i in indices:
+        vec = np.asarray(embeddings[i], dtype=np.float32)
+        if vec.ndim != 1 or not vec.size or not np.isfinite(vec).all():
+            continue
+        norm = float(np.linalg.norm(vec))
+        if norm <= 0 or not np.isfinite(norm):
+            continue
+        vectors[i] = vec / norm
+        by_dimension[vec.size].append(i)
+
     window = timedelta(hours=max_hours)
-    for pos, i in enumerate(tqdm(indices, desc="Inhalts-Cluster", unit="img", leave=False)):
-        pi = photos[i]
-        ei = embeddings[i]
-        for j in indices[pos + 1 :]:
-            pj = photos[j]
-            if pi.datetime_taken and pj.datetime_taken:
-                if abs(pi.datetime_taken - pj.datetime_taken) > window:
-                    continue
-            sim = cosine_similarity(ei, embeddings[j])
-            if sim >= similarity:
-                union(i, j)
+    for compatible in by_dimension.values():
+        matrix = np.stack([vectors[i] for i in compatible])
+        for pos, i in enumerate(tqdm(compatible, desc="Inhalts-Cluster", unit="img", leave=False)):
+            pi = photos[i]
+            positions = []
+            for other_pos in range(pos + 1, len(compatible)):
+                j = compatible[other_pos]
+                pj = photos[j]
+                if pi.datetime_taken and pj.datetime_taken:
+                    if abs(pi.datetime_taken - pj.datetime_taken) > window:
+                        continue
+                positions.append(other_pos)
+            if not positions:
+                continue
+            # Ein vektorisierter Vergleich je Foto, ohne eine N×N-Matrix zu halten.
+            similarities = np.einsum("ij,j->i", matrix[positions], matrix[pos])
+            for offset in np.flatnonzero(similarities >= similarity):
+                union(i, compatible[positions[int(offset)]])
 
     clusters: dict[int, list[int]] = defaultdict(list)
     for i in indices:

@@ -100,7 +100,7 @@ def mark_bursts(
     for i, _ in timed:
         groups[find(i)].append(i)
 
-    burst_id = 0
+    burst_id = max((p.burst_group_id or 0 for p in photos), default=0)
     rejected = 0
     for members in groups.values():
         if len(members) < min_burst_size:

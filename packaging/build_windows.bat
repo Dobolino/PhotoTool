@@ -16,7 +16,7 @@ if not exist ".venv-build\Scripts\python.exe" (
 
 echo === Abhaengigkeiten installieren (kann einige Minuten dauern) ===
 ".venv-build\Scripts\python.exe" -m pip install --upgrade pip
-".venv-build\Scripts\python.exe" -m pip install -r packaging\requirements-build.txt
+".venv-build\Scripts\python.exe" -m pip install -r packaging\requirements-build.txt -c packaging\constraints-windows.txt
 if errorlevel 1 (
   echo Installation fehlgeschlagen.
   pause

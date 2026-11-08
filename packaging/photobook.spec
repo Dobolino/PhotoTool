@@ -10,13 +10,18 @@ oder komfortabel über packaging/build_windows.bat / packaging/build.py.
 """
 
 from pathlib import Path
+import shutil
+import sys
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files
 
 # Projektwurzel (eine Ebene über packaging/)
 ROOT = Path(SPECPATH).resolve().parent
 
-datas = collect_data_files("photobook_curator", includes=["data/*.json"])
+datas = collect_data_files("photobook_curator", includes=[
+    "data/*.json", "web_review/*.html", "web_review/*.css", "web_review/*.js",
+    "assets/*.png", "assets/*.ico",
+])
 binaries = []
 hiddenimports = []
 
@@ -45,10 +50,24 @@ hiddenimports += [
     "sklearn.neighbors._partition_nodes",
 ]
 
+# The native window runs in a child process, so these imports cannot be inferred
+# from its runtime dispatch alone. pywebview's WebView2 assemblies must ship too.
+if sys.platform == "win32":
+    for pkg in ("webview", "pythonnet", "clr_loader"):
+        d, b, h = collect_all(pkg)
+        datas += d
+        binaries += b
+        hiddenimports += h
+    hiddenimports += [
+        "webview.platforms.winforms", "webview.platforms.edgechromium",
+        "pythonnet", "clr", "clr_loader",
+        "photobook_curator.modern_review", "photobook_curator.modern_review_session",
+    ]
+
 
 a = Analysis(
     [str(ROOT / "packaging" / "entry_gui.py")],
-    pathex=[str(ROOT)],
+    pathex=[str(ROOT), str(ROOT / "packaging")],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -70,7 +89,7 @@ exe = EXE(
     strip=False,
     upx=False,           # UPX bei ML-DLLs vermeiden (Fehlalarme/Instabilität)
     console=False,       # GUI-Anwendung, kein Konsolenfenster
-    icon=str(ROOT / "packaging" / "icon.ico") if (ROOT / "packaging" / "icon.ico").is_file() else None,
+    icon=str(ROOT / "photobook_curator" / "assets" / "phototool.ico"),
 )
 
 coll = COLLECT(
@@ -81,3 +100,8 @@ coll = COLLECT(
     upx=False,
     name="Fotobuch",
 )
+
+if sys.platform == "win32":
+    # CLR reads this beside the executable, not from PyInstaller's _internal.
+    shutil.copyfile(ROOT / "packaging" / "Fotobuch.exe.config",
+                    Path(DISTPATH) / "Fotobuch" / "Fotobuch.exe.config")

@@ -5,8 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
+import math
+from numbers import Real
 from pathlib import Path
 from typing import Any, Optional
+
+from .trace_schema import selection_trace_json
+from .location_schema import location_evidence_json
 
 
 class ChapterType(str, Enum):
@@ -73,6 +78,7 @@ class Photo:
     # Orte / Regionen
     fine_cluster_id: Optional[int] = None
     region: Optional[str] = None
+    location_evidence: dict[str, Any] = field(default_factory=dict)
     country: Optional[str] = None
     place_label: Optional[str] = None
     assigned_by_time: bool = False
@@ -88,9 +94,12 @@ class Photo:
 
     # Auswahl
     final_score: float = 0.0
+    selection_trace: dict[str, Any] = field(default_factory=dict)
     is_candidate: bool = False
     is_selected: bool = False
     is_favorite: bool = False
+    manual_decision: str = "auto"  # auto | keep | reject; independent of the current selection
+    decision_reason: str = ""
     chapter_type: Optional[str] = None
     book_position: Optional[int] = None
     chapter_folder: Optional[str] = None
@@ -103,7 +112,10 @@ class Photo:
 
     @property
     def has_gps(self) -> bool:
-        return self.gps_lat is not None and self.gps_lon is not None
+        return (not isinstance(self.gps_lat, bool) and not isinstance(self.gps_lon, bool)
+                and isinstance(self.gps_lat, Real) and isinstance(self.gps_lon, Real)
+                and -90 <= self.gps_lat <= 90 and -180 <= self.gps_lon <= 180
+                and math.isfinite(self.gps_lat) and math.isfinite(self.gps_lon))
 
     def to_csv_row(self) -> dict[str, Any]:
         date_str = self.datetime_taken.strftime("%Y-%m-%d") if self.datetime_taken else ""
@@ -114,6 +126,7 @@ class Photo:
             "date": date_str,
             "time": time_str,
             "region": self.region or "",
+            "location_evidence": location_evidence_json(self.location_evidence),
             "chapter_type": self.chapter_type or "",
             "scene_type": self.scene_type or "",
             "mood": self.mood or "",
@@ -151,10 +164,13 @@ class Photo:
             ),
             "ai_reviewed": self.ai_reviewed,
             "final_score": round(self.final_score, 2),
+            "selection_trace": selection_trace_json(self.selection_trace),
             "flags": "|".join(self.flags),
             "is_candidate": self.is_candidate,
             "is_selected": self.is_selected,
             "is_favorite": self.is_favorite,
+            "manual_decision": self.manual_decision,
+            "decision_reason": self.decision_reason,
             "review_added": self.review_added,
             "book_position": self.book_position if self.book_position is not None else "",
             "chapter_folder": self.chapter_folder or "",
@@ -172,6 +188,37 @@ class Photo:
             "country": self.country or "",
             "place_label": self.place_label or "",
         }
+
+
+MANUAL_DECISIONS = frozenset({"auto", "keep", "reject"})
+
+
+def normalized_manual_decision(value: Any, *, flags=()) -> str:
+    """Read modern decisions and migrate older explicit review flags once.
+
+    An explicit 'auto' always wins over historic flags. Unknown values cannot
+    silently become forced selections.
+    """
+    if isinstance(value, str) and value in MANUAL_DECISIONS:
+        return value
+    if value is None:
+        if not isinstance(flags, (list, tuple, set, frozenset)):
+            flags = ()
+        if "manual_reject" in flags:
+            return "reject"
+        if "manual_add" in flags:
+            return "keep"
+    return "auto"
+
+
+def set_manual_decision(photo: Photo, decision: str, reason: str = "") -> None:
+    """Set durable intent without changing the current selection/favorite flag."""
+    if decision not in MANUAL_DECISIONS:
+        raise ValueError("Entscheidung muss auto, keep oder reject sein")
+    if not isinstance(reason, str):
+        raise ValueError("Die Begründung muss Text sein")
+    photo.manual_decision = decision
+    photo.decision_reason = reason.strip()
 
 
 @dataclass

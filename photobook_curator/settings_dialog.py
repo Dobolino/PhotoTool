@@ -163,6 +163,8 @@ def open_settings_dialog(
             theme=theme_id,
             slideshow_auto_advance=bool(auto_var.get()),
             slideshow_show_alternative=bool(alt_var.get()),
+            max_per_day=settings.max_per_day,
+            max_per_chapter=settings.max_per_chapter,
         ).normalized()
         save_settings(new)
         set_language(new.language)

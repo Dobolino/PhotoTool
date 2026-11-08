@@ -67,7 +67,7 @@ class ImageEmbedder:
     def backend(self) -> str:
         return self._mode
 
-    def embed_bgr(self, bgr: np.ndarray) -> np.ndarray:
+    def embed_bgr(self, bgr: np.ndarray, *, allow_fallback: bool = True) -> np.ndarray | None:
         if self._embedder is not None:
             try:
                 import mediapipe as mp
@@ -95,7 +95,9 @@ class ImageEmbedder:
                     return vec / n
             except Exception:
                 pass
-        return _fallback_embedding(bgr)
+        # Histogramme/Pixel sind keine semantischen Embeddings und dürfen bei
+        # Ausfall des Modells keine automatischen Inhalts-Duplikate erzeugen.
+        return _fallback_embedding(bgr) if allow_fallback else None
 
     def close(self) -> None:
         if self._embedder is not None:
@@ -108,8 +110,11 @@ class ImageEmbedder:
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     if a is None or b is None or a.size == 0 or b.size == 0:
         return 0.0
-    if a.shape != b.shape:
-        n = min(a.size, b.size)
-        a = a[:n]
-        b = b[:n]
-    return float(np.dot(a, b))
+    if a.ndim != 1 or b.ndim != 1 or a.shape != b.shape:
+        return 0.0
+    if not np.all(np.isfinite(a)) or not np.all(np.isfinite(b)):
+        return 0.0
+    norm = float(np.linalg.norm(a) * np.linalg.norm(b))
+    if norm <= 0:
+        return 0.0
+    return float(np.clip(np.dot(a, b) / norm, -1.0, 1.0))

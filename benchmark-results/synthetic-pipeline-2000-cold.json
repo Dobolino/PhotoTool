@@ -1,0 +1,47 @@
+{
+  "kind": "synthetic_end_to_end_jpeg_no_inference",
+  "photos": 2000,
+  "source_pixels": [
+    6000,
+    4000
+  ],
+  "days": 14,
+  "repeated_templates": 10,
+  "pipeline_seconds": 36.945,
+  "process_peak_rss_mib": 288.5,
+  "selected": 80,
+  "regions": [
+    "Tokyo",
+    "Kyoto",
+    "Osaka"
+  ],
+  "candidates": 276,
+  "unreadable": 0,
+  "duplicates": 0,
+  "burst_rejects": 1720,
+  "selected_files": 80,
+  "csv_exists": true,
+  "overview_exists": true,
+  "enabled": [
+    "scan_EXIF_GPS",
+    "local_quality",
+    "document_filter",
+    "accidental_filter",
+    "weak_night_filter",
+    "local_aesthetic",
+    "pHash",
+    "bursts",
+    "regions",
+    "selection",
+    "CSV",
+    "copy_export"
+  ],
+  "excluded": [
+    "faces",
+    "embeddings",
+    "AI",
+    "geocoding_network",
+    "HEIC",
+    "GUI"
+  ]
+}

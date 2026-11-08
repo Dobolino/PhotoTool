@@ -1,0 +1,38 @@
+{
+  "kind": "synthetic_jpeg_decode_only",
+  "source_pixels": [
+    6000,
+    4000
+  ],
+  "repeated_decodes_per_strategy": 8,
+  "edge": 1024,
+  "seed": 2026,
+  "strategies": {
+    "full_decode_then_resize": {
+      "seconds": 2.2544,
+      "process_peak_rss_mib": 286.3,
+      "retained_arrays_mib": 16.0,
+      "output_shape": [
+        1024,
+        682,
+        3
+      ]
+    },
+    "jpeg_draft_then_resize": {
+      "seconds": 0.4212,
+      "process_peak_rss_mib": 117.1,
+      "retained_arrays_mib": 16.0,
+      "output_shape": [
+        1024,
+        683,
+        3
+      ]
+    }
+  },
+  "excludes": [
+    "HEIC",
+    "analysis",
+    "model_inference",
+    "export"
+  ]
+}

@@ -65,8 +65,13 @@ def check_update() -> Update | None:
         with urlopen(request, timeout=15) as response:
             raw = response.read(2 * 1024 ** 2 + 1)
     except HTTPError as exc:
-        if exc.code == 404:  # No published stable release yet.
-            return None
+        if exc.code == 404:
+            # GitHub also returns 404 for private repositories to anonymous
+            # clients. Do not misreport an inaccessible release as up to date.
+            raise RuntimeError(
+                "No public stable release is available. The release repository "
+                "may be private or have no published version."
+            ) from exc
         raise
     if len(raw) > 2 * 1024 ** 2:
         raise ValueError("Release metadata too large")

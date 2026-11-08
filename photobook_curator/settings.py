@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -11,40 +13,82 @@ from typing import Optional
 SETTINGS_DIR_NAME = ".photobook_curator"
 SETTINGS_FILE = "settings.json"
 
-# Design-Varianten – „night“ ist die aktuelle Haupt-UI (Screenshots + Fixes)
+# Modern palettes share the approved review's Edeco/NOVA colours. Theme IDs and
+# explicit choices remain stable so an update does not reset personal settings.
 THEMES: dict[str, dict[str, str]] = {
     "night": {
         "name_de": "Dunkelmodus",
         "name_en": "Dark mode",
-        "bg": "#12141C",
-        "surface": "#1C2030",
-        "ink": "#E8EAF2",
-        "muted": "#9AA3B5",
-        "line": "#2C3348",
-        "accent": "#7B6CFF",
-        "accent_hover": "#6958F0",
-        "accent_soft": "#2A2750",
-        "reject": "#C45C5C",
-        "keep_border": "#7B6CFF",
-        "reject_border": "#3A4158",
-        "danger": "#C45C5C",
-        "log_bg": "#0E1018",
-        "log_fg": "#C5CAD8",
-        "phase_pending_bg": "#2A3145",
-        "phase_pending_fg": "#9AA3B5",
-        "phase_run_bg": "#C47A3A",
-        "phase_run_fg": "#FFF8F0",
-        "phase_done_bg": "#7B6CFF",
-        "phase_done_fg": "#FFFFFF",
-        "phase_skip_bg": "#242A3A",
-        "phase_skip_fg": "#7A8296",
+        "bg": "#10191F",
+        "surface": "#17232B",
+        "ink": "#E8F0F3",
+        "muted": "#A3B5BF",
+        "line": "#2D414D",
+        "accent": "#64C3D1",
+        "accent_hover": "#83D4DF",
+        "accent_soft": "#193E48",
+        "on_accent": "#102A32",
+        "cta": "#FF8C00",
+        "cta_hover": "#E07B00",
+        "cta_ink": "#1A1206",
+        "reject": "#FF8B9B",
+        "keep_border": "#64C3D1",
+        "reject_border": "#48616F",
+        "danger": "#FF8B9B",
+        "log_bg": "#111D25",
+        "log_fg": "#C4D3DB",
+        "phase_pending_bg": "#1C2B34",
+        "phase_pending_fg": "#A3B5BF",
+        "phase_run_bg": "#FF8C00",
+        "phase_run_fg": "#1A1206",
+        "phase_done_bg": "#193E48",
+        "phase_done_fg": "#83D4DF",
+        "phase_skip_bg": "#1C2B34",
+        "phase_skip_fg": "#A3B5BF",
+        "hero_fg": "#102A32",
+        "hero_muted": "#173D46",
+        "slide_stage": "#111D25",
+        "slide_fg": "#E8F0F3",
+        "thumb_pad": "#24353F",
+        "chip_bg": "#1C2B34",
+        "map_canvas": "#24353F",
+    },
+    "modern": {
+        "name_de": "Hell · Modern",
+        "name_en": "Light · Modern",
+        "bg": "#F4F7F8",
+        "surface": "#FFFFFF",
+        "ink": "#203039",
+        "muted": "#64757F",
+        "line": "#E1E8EC",
+        "accent": "#017C92",
+        "accent_hover": "#01667A",
+        "accent_soft": "#E7F4F6",
+        "on_accent": "#FFFFFF",
+        "cta": "#FF8C00",
+        "cta_hover": "#E07B00",
+        "cta_ink": "#1A1206",
+        "reject": "#BC3548",
+        "keep_border": "#017C92",
+        "reject_border": "#C6D3DA",
+        "danger": "#BC3548",
+        "log_bg": "#EDF2F4",
+        "log_fg": "#203039",
+        "phase_pending_bg": "#EDF2F4",
+        "phase_pending_fg": "#64757F",
+        "phase_run_bg": "#975B06",
+        "phase_run_fg": "#FFFFFF",
+        "phase_done_bg": "#E7F4F6",
+        "phase_done_fg": "#01667A",
+        "phase_skip_bg": "#EDF2F4",
+        "phase_skip_fg": "#64757F",
         "hero_fg": "#FFFFFF",
-        "hero_muted": "#C8C4FF",
-        "slide_stage": "#0E1018",
-        "slide_fg": "#E8EAF2",
-        "thumb_pad": "#242A3A",
-        "chip_bg": "#262C40",
-        "map_canvas": "#161A28",
+        "hero_muted": "#E7F4F6",
+        "slide_stage": "#E4EBEE",
+        "slide_fg": "#203039",
+        "thumb_pad": "#EDF2F4",
+        "chip_bg": "#F8FAFB",
+        "map_canvas": "#E4EBEE",
     },
     "forest": {
         "name_de": "Wald",
@@ -149,6 +193,14 @@ THEMES: dict[str, dict[str, str]] = {
 
 DEFAULT_THEME = "night"
 DEFAULT_LANGUAGE = "de"
+_THEME_ALIASES = {"dark": "night", "nacht": "night", "dunkel": "night",
+                  "light": "modern", "hell": "modern"}
+
+
+def _theme_id(value) -> str:
+    theme = str(value or DEFAULT_THEME).strip().lower()
+    theme = _THEME_ALIASES.get(theme, theme)
+    return theme if theme in THEMES else DEFAULT_THEME
 
 
 @dataclass
@@ -157,20 +209,29 @@ class AppSettings:
     theme: str = DEFAULT_THEME
     slideshow_auto_advance: bool = False
     slideshow_show_alternative: bool = True
+    max_per_day: int = 0
+    max_per_chapter: int = 0
 
     def normalized(self) -> "AppSettings":
         lang = (self.language or DEFAULT_LANGUAGE).lower()
         if lang not in ("de", "en"):
             lang = DEFAULT_LANGUAGE
-        theme = (self.theme or DEFAULT_THEME).lower()
-        if theme not in THEMES:
-            theme = DEFAULT_THEME
+        theme = _theme_id(self.theme)
         return AppSettings(
             language=lang,
             theme=theme,
             slideshow_auto_advance=bool(self.slideshow_auto_advance),
             slideshow_show_alternative=bool(self.slideshow_show_alternative),
+            max_per_day=_normalize_cap(self.max_per_day),
+            max_per_chapter=_normalize_cap(self.max_per_chapter),
         )
+
+
+def _normalize_cap(value) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def settings_dir() -> Path:
@@ -191,10 +252,8 @@ def load_settings() -> AppSettings:
         return AppSettings().normalized()
     if not isinstance(data, dict):
         return AppSettings().normalized()
-    raw_theme = str(data.get("theme") or DEFAULT_THEME).lower()
+    raw_theme = _theme_id(data.get("theme"))
     # Alias + Migration: altes Standard-Theme „forest“ → Dunkelmodus
-    if raw_theme in ("dark", "nacht", "dunkel"):
-        raw_theme = "night"
     migrated = False
     if raw_theme == "forest" and not data.get("theme_explicit"):
         raw_theme = DEFAULT_THEME
@@ -204,6 +263,8 @@ def load_settings() -> AppSettings:
         theme=raw_theme,
         slideshow_auto_advance=bool(data.get("slideshow_auto_advance", False)),
         slideshow_show_alternative=bool(data.get("slideshow_show_alternative", True)),
+        max_per_day=data.get("max_per_day", 0),
+        max_per_chapter=data.get("max_per_chapter", 0),
     ).normalized()
     if migrated:
         try:
@@ -222,10 +283,16 @@ def load_settings() -> AppSettings:
 def _write_settings_dict(data: dict) -> Path:
     path = settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    fd, temporary = tempfile.mkstemp(prefix=".settings-", suffix=".json", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
     return path
 
 
@@ -236,11 +303,18 @@ def save_settings(settings: AppSettings) -> Path:
 
 
 def theme_colors(theme_id: Optional[str] = None) -> dict[str, str]:
-    sid = (theme_id or load_settings().theme).lower()
+    sid = _theme_id(theme_id or load_settings().theme)
     base = THEMES.get(sid) or THEMES[DEFAULT_THEME]
     # Nur Farbkeys zurückgeben
     skip = {"name_de", "name_en"}
-    return {k: v for k, v in base.items() if k not in skip}
+    colors = {k: v for k, v in base.items() if k not in skip}
+    # Existing palettes retain their colours while newer controls can always
+    # request an explicit foreground for accent and primary-action surfaces.
+    colors.setdefault("on_accent", colors.get("hero_fg", "#FFFFFF"))
+    colors.setdefault("cta", colors["accent"])
+    colors.setdefault("cta_hover", colors["accent_hover"])
+    colors.setdefault("cta_ink", colors["on_accent"])
+    return colors
 
 
 def theme_choices(language: str = "de") -> list[tuple[str, str]]:

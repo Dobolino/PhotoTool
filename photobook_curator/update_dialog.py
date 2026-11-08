@@ -12,6 +12,20 @@ from .i18n import t
 from .updater import RELEASES_URL, check_update, download_update, launch_installer
 
 
+def _install_downloaded_update(app, path) -> None:
+    """Keep the running app open unless every review draft was saved."""
+    for child in list(app.winfo_children()):
+        if hasattr(child, "_autosave_draft"):
+            child._autosave_draft()
+            # Review autosave reports errors in the window instead of raising.
+            # Closing after that failure would discard the user's latest edits.
+            error = getattr(child, "_draft_save_error", None)
+            if error:
+                raise OSError(f"Zwischenstand konnte nicht gesichert werden: {error}")
+    launch_installer(path)
+    app.destroy()
+
+
 def open_update_dialog(app) -> None:
     existing = getattr(app, "_update_window", None)
     if existing is not None and existing.winfo_exists():
@@ -82,11 +96,7 @@ def open_update_dialog(app) -> None:
             else:
                 try:
                     # Save open review drafts before the installer closes the app.
-                    for child in list(app.winfo_children()):
-                        if hasattr(child, "_autosave_draft"):
-                            child._autosave_draft()
-                    launch_installer(result)
-                    app.destroy()
+                    _install_downloaded_update(app, result)
                     return
                 except Exception as exc:
                     status.set(t("update_error", error=str(exc)))

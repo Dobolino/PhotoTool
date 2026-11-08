@@ -69,3 +69,46 @@ def test_run_pipeline_can_be_cancelled(tmp_path: Path):
 
     # Abbruch vor dem Export: kein selected/ geschrieben
     assert not (out / "selected").exists()
+
+
+def test_pipeline_rejects_shared_source_and_output_before_writes(tmp_path):
+    cfg = PipelineConfig(input_dir=tmp_path, output_dir=tmp_path)
+    with pytest.raises(RuntimeError, match='verschieden'):
+        run_pipeline(cfg)
+    assert not (tmp_path / 'analysis_cache.sqlite').exists()
+
+
+def test_pipeline_does_not_reimport_nested_export(tmp_path):
+    inp = tmp_path / 'in'
+    inp.mkdir()
+    out = inp / 'album'
+    (out / 'selected').mkdir(parents=True)
+    Image.new('RGB', (160, 120), (20, 80, 140)).save(inp / 'source.jpg')
+    Image.new('RGB', (160, 120), (20, 80, 140)).save(out / 'selected' / 'old.jpg')
+    cfg = PipelineConfig(input_dir=inp, output_dir=out, target_n=1,
+                         enable_faces=False, enable_content_clusters=False,
+                         enable_document_aside=False, geocode=False)
+    result = run_pipeline(cfg)
+    assert result['photos'] == 1
+    assert [p.filename for p in result['photo_objects']] == ['source.jpg']
+
+
+def test_empty_input_does_not_replace_existing_album(tmp_path):
+    inp, out = tmp_path / 'in', tmp_path / 'out'
+    inp.mkdir()
+    (out / 'selected').mkdir(parents=True)
+    original = out / 'selected' / 'keep.jpg'
+    original.write_bytes(b'previous album')
+    cfg = PipelineConfig(input_dir=inp, output_dir=out, enable_faces=False,
+                         enable_content_clusters=False, geocode=False)
+    with pytest.raises(RuntimeError, match='Keine unterstützten'):
+        run_pipeline(cfg)
+    assert original.read_bytes() == b'previous album'
+
+
+def test_input_inside_output_is_rejected_before_export_can_replace_originals(tmp_path):
+    inp = tmp_path / 'selected' / 'originals'
+    inp.mkdir(parents=True)
+    cfg = PipelineConfig(input_dir=inp, output_dir=tmp_path)
+    with pytest.raises(RuntimeError, match='umfassen'):
+        run_pipeline(cfg)

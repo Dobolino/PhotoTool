@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import math
+import os
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -18,13 +20,26 @@ from .utils import (
 )
 
 
-def find_images(input_dir: Path) -> list[Path]:
+def find_images(input_dir: Path, *, exclude_dirs: Iterable[Path] | None = None) -> list[Path]:
+    """Find originals, pruning excluded output trees before descending into them."""
     register_heif()
+    excluded = tuple(Path(p).resolve() for p in (exclude_dirs or ()))
+
+    def excluded_path(path: Path) -> bool:
+        resolved = path.resolve()
+        return any(resolved.is_relative_to(parent) for parent in excluded)
+
+    if excluded_path(input_dir):
+        return []
     paths: list[Path] = []
-    for p in sorted(input_dir.rglob("*")):
-        if p.is_file() and is_image_file(p):
-            paths.append(p)
-    return paths
+    for directory, child_dirs, filenames in os.walk(input_dir, followlinks=False):
+        current = Path(directory)
+        child_dirs[:] = [name for name in child_dirs if not excluded_path(current / name)]
+        for name in filenames:
+            p = current / name
+            if p.is_file() and is_image_file(p) and not excluded_path(p):
+                paths.append(p)
+    return sorted(paths)
 
 
 def _ratio_to_float(ratio) -> Optional[float]:
@@ -39,12 +54,21 @@ def _ratio_to_float(ratio) -> Optional[float]:
 
 def _dms_to_decimal(values, ref: str) -> Optional[float]:
     try:
+        ref = ref.strip().upper()
+        if ref not in ("N", "S", "E", "W") or len(values) != 3:
+            return None
         deg = _ratio_to_float(values[0])
         minutes = _ratio_to_float(values[1])
         seconds = _ratio_to_float(values[2])
         if deg is None or minutes is None or seconds is None:
             return None
+        if not all(math.isfinite(v) for v in (deg, minutes, seconds)):
+            return None
+        if deg < 0 or not 0 <= minutes < 60 or not 0 <= seconds < 60:
+            return None
         dec = deg + minutes / 60.0 + seconds / 3600.0
+        if dec > (90 if ref in ("N", "S") else 180):
+            return None
         if ref in ("S", "W"):
             dec = -dec
         return dec
@@ -99,6 +123,7 @@ def extract_exif(path: Path) -> dict:
         "width": 0,
         "height": 0,
         "exif_offset_hours": None,
+        "gps_invalid": False,
     }
     try:
         with open(path, "rb") as f:
@@ -113,11 +138,15 @@ def extract_exif(path: Path) -> dict:
         result["camera_model"] = str(tags["Image Model"]).strip()
 
     if "GPS GPSLatitude" in tags and "GPS GPSLatitudeRef" in tags:
-        lat = _dms_to_decimal(tags["GPS GPSLatitude"].values, str(tags["GPS GPSLatitudeRef"]))
-        result["gps_lat"] = lat
+        ref = str(tags["GPS GPSLatitudeRef"]).strip().upper()
+        if ref in ("N", "S"):
+            result["gps_lat"] = _dms_to_decimal(tags["GPS GPSLatitude"].values, ref)
     if "GPS GPSLongitude" in tags and "GPS GPSLongitudeRef" in tags:
-        lon = _dms_to_decimal(tags["GPS GPSLongitude"].values, str(tags["GPS GPSLongitudeRef"]))
-        result["gps_lon"] = lon
+        ref = str(tags["GPS GPSLongitudeRef"]).strip().upper()
+        if ref in ("E", "W"):
+            result["gps_lon"] = _dms_to_decimal(tags["GPS GPSLongitude"].values, ref)
+    has_gps_tags = "GPS GPSLatitude" in tags or "GPS GPSLongitude" in tags
+    result["gps_invalid"] = has_gps_tags and (result["gps_lat"] is None or result["gps_lon"] is None)
 
     # Bildmasse in Anzeige-Orientierung, ohne vollen Pixel-Decode
     try:
@@ -201,6 +230,8 @@ def photo_from_path(
     if looks_like_screenshot(photo.camera_model, photo.width, photo.height):
         photo.is_screenshot = True
         photo.add_flag("screenshot")
+    if meta.get("gps_invalid"):
+        photo.add_flag("gps_invalid")
     return photo
 
 
@@ -230,8 +261,10 @@ def scan_photos(
     timezone_offset_hours: float = 0.0,
     apply_exif_offset: bool = False,
     extra_paths: Iterable[Path] | None = None,
+    exclude_dirs: Iterable[Path] | None = None,
 ) -> list[Photo]:
-    paths = find_images(input_dir)
+    # Explicit extracted video stills remain allowed even when stored in output.
+    paths = find_images(input_dir, exclude_dirs=exclude_dirs)
     if extra_paths:
         seen = {p.resolve() for p in paths}
         for ep in extra_paths:

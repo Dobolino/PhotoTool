@@ -14,11 +14,21 @@ from .ai_review import ensure_scene_types
 from .models import BookPlan, ChapterType, Photo
 from .people_balance import people_balance_penalty
 from .utils import load_bgr_cached
+from .selection_audit import (
+    begin_selection_audit, ensure_selection_audit, finalize_selection_audit,
+    record_selection_event as audit,
+)
+
+
+def _forced(photo: Photo) -> bool:
+    """Favorites and explicit durable keeps survive automatic recomputation."""
+    return photo.is_favorite or getattr(photo, "manual_decision", "auto") == "keep"
 
 
 def _ok_for_selection(photo: Photo) -> bool:
     return (
-        not photo.is_duplicate
+        getattr(photo, "manual_decision", "auto") != "reject"
+        and not photo.is_duplicate
         and not getattr(photo, "is_burst_reject", False)
         and not getattr(photo, "is_aside", False)
         and not getattr(photo, "finger_on_lens", False)
@@ -34,16 +44,73 @@ def mark_candidates(
     target_n: int,
     candidate_factor: float = 4.0,
     max_transit_quota: int = 5,
+    coverage_intensity: float = 0.0,
+    max_per_day: int = 0,
+    max_per_chapter: int = 0,
+    audit_context: Optional[dict] = None,
 ) -> list[int]:
     """Markiert technisch beste Kandidaten pro Region/Transit (K * Zielanzahl)."""
-    distribute_quotas(photos, plan, target_n, max_transit_quota=max_transit_quota)
+    begin_selection_audit(photos, {
+        **(audit_context or {}), "entry_stage": "candidates", "target_count": target_n,
+        "candidate_factor": candidate_factor, "max_transit_quota": max_transit_quota,
+        "coverage_intensity": coverage_intensity, "max_per_day": max_per_day,
+        "max_per_chapter": max_per_chapter,
+    })
+    for photo in photos:
+        if not _ok_for_selection(photo):
+            filters = []
+            for field in ("is_duplicate", "is_burst_reject", "is_aside", "finger_on_lens",
+                          "is_accidental", "is_weak_night"):
+                if getattr(photo, field, False):
+                    filters.append(field)
+            if getattr(photo, "manual_decision", "auto") == "reject":
+                filters.append("manual_reject")
+            if "unreadable" in photo.flags:
+                filters.append("unreadable")
+            audit(photo, "eligibility_rejected", "candidate", filters=filters,
+                  forced_override=_forced(photo))
+    distribute_quotas(photos, plan, target_n, max_transit_quota=max_transit_quota,
+                      max_per_chapter=max_per_chapter)
+    for photo in photos:
+        photo.is_candidate = False
     candidate_indices: list[int] = []
 
     def pick_for(indices: list[int], quota: int) -> list[int]:
         eligible = [i for i in indices if _ok_for_selection(photos[i])]
         eligible.sort(key=lambda i: photos[i].technical_score, reverse=True)
         k = max(quota, int(np.ceil(quota * candidate_factor)))
-        chosen = eligible[:k]
+        day_ranks: dict[int, tuple[int, int]] = {}
+        if coverage_intensity > 0 or max_per_day > 0:
+            by_day: dict = defaultdict(list)
+            for i in eligible:
+                by_day[_photo_day(photos[i])].append(i)
+            # Preserve quieter days before the expensive optional AI stage.
+            quotas = allocate_day_quotas(
+                {d: len(v) for d, v in by_day.items()}, k,
+                max(coverage_intensity, 0.5 if max_per_day else 0.0),
+            )
+            chosen = [i for d, group in by_day.items() for i in group[:quotas[d]]]
+            for day, group in by_day.items():
+                for rank, i in enumerate(group, start=1):
+                    day_ranks[i] = (rank, quotas[day])
+        else:
+            chosen = eligible[:k]
+        chosen_set = set(chosen)
+        cutoff_by_day = {_photo_day(photos[i]): i for i in chosen}
+        for rank, i in enumerate(eligible, start=1):
+            details = {"eligible_rank": rank, "technical_score": photos[i].technical_score,
+                       "chapter_quota": quota, "candidate_limit": k,
+                       "selected_count": len(chosen), "day": str(_photo_day(photos[i]))}
+            if i in day_ranks:
+                details["day_rank"], details["day_quota"] = day_ranks[i]
+            cutoff = None
+            if i not in chosen_set and chosen:
+                cutoff = cutoff_by_day.get(_photo_day(photos[i])) if day_ranks else chosen[-1]
+            if cutoff is not None:
+                details["peer_path"] = str(photos[cutoff].path)
+                details["peer_technical_score"] = photos[cutoff].technical_score
+            audit(photos[i], "candidate_selected" if i in chosen_set else "candidate_not_selected",
+                  "candidate", **details)
         for i in chosen:
             photos[i].is_candidate = True
         return chosen
@@ -56,53 +123,85 @@ def mark_candidates(
     return sorted(set(candidate_indices))
 
 
+def _bounded_allocation(weights: list[float], capacities: list[int], budget: int) -> list[int]:
+    """Weighted allocation with exact budget/capacity bounds and stable ties."""
+    quotas = [0] * len(weights)
+    budget = min(max(0, budget), sum(capacities))
+    active = [i for i, capacity in enumerate(capacities) if capacity > 0]
+    if budget >= len(active):
+        for i in active:
+            quotas[i] = 1
+        budget -= len(active)
+    while budget > 0:
+        available = [i for i in active if quotas[i] < capacities[i]]
+        if not available:
+            break
+        i = max(available, key=lambda i: (weights[i] / (quotas[i] + 1), -i))
+        quotas[i] += 1
+        budget -= 1
+    return quotas
+
+
 def distribute_quotas(
     photos: list[Photo],
     plan: BookPlan,
     target_n: int,
     max_transit_quota: int = 5,
+    max_per_chapter: int = 0,
 ) -> None:
-    transit_total = sum(min(max_transit_quota, max(1, t.quota or max_transit_quota)) for t in plan.transits)
-    # Transit-Kontingente festsetzen
-    for t in plan.transits:
-        t.quota = min(max_transit_quota, max(1, len(t.photo_indices)))
-    transit_total = sum(t.quota for t in plan.transits)
+    """Reserve all explicit keeps globally before allocating automatic places.
 
-    region_budget = max(0, target_n - transit_total)
-    if not plan.regions:
-        return
+    Forced photos outside regular chapters (e.g. an optional ticket) consume
+    the album budget too. Only forced photos may make the result exceed it.
+    """
+    forced_indices = {i for i, photo in enumerate(photos) if _forced(photo)}
+    automatic_budget = max(0, target_n - len(forced_indices))
 
-    weights = []
-    for region in plan.regions:
-        n_photos = max(1, len(region.photo_indices))
-        days = max(1, region.day_count)
-        weights.append(n_photos * days)
-    weight_sum = float(sum(weights)) or 1.0
+    def chapter_capacity(indices: list[int], extra_cap: Optional[int] = None) -> tuple[int, int]:
+        members = set(indices)
+        forced_count = len(members & forced_indices)
+        automatic_count = sum(i not in forced_indices and _ok_for_selection(photos[i])
+                              for i in members)
+        if max_per_chapter > 0:
+            automatic_count = min(automatic_count, max(0, max_per_chapter - forced_count))
+        if extra_cap is not None:
+            automatic_count = min(automatic_count, max(0, extra_cap - forced_count))
+        return forced_count, automatic_count
 
-    raw = [region_budget * (w / weight_sum) for w in weights]
-    quotas = [max(1, int(round(x))) for x in raw] if region_budget > 0 else [0] * len(plan.regions)
+    # Transit and chapter limits apply to the whole chapter; explicit keeps
+    # reserve places first and may exceed those limits on their own.
+    transit_capacity = [chapter_capacity(t.photo_indices,
+                        max(0, max_transit_quota))
+                        for t in plan.transits]
+    transit_caps = [automatic for _forced_count, automatic in transit_capacity]
+    transit_automatic = _bounded_allocation(
+        [float(c) for c in transit_caps], transit_caps, automatic_budget,
+    )
+    for transit, (forced_count, _capacity), automatic in zip(
+            plan.transits, transit_capacity, transit_automatic):
+        transit.quota = forced_count + automatic
 
-    # Anpassen falls Rundung über/unter Budget
-    diff = region_budget - sum(quotas)
-    order = sorted(range(len(quotas)), key=lambda i: raw[i] - quotas[i], reverse=diff > 0)
-    idx = 0
-    while diff != 0 and order:
-        i = order[idx % len(order)]
-        if diff > 0:
-            quotas[i] += 1
-            diff -= 1
-        elif quotas[i] > 1:
-            quotas[i] -= 1
-            diff += 1
-        else:
-            idx += 1
-            if idx > len(order) * 3:
-                break
-            continue
-        idx += 1
-
-    for region, q in zip(plan.regions, quotas):
-        region.quota = q
+    region_capacity = [chapter_capacity(r.photo_indices) for r in plan.regions]
+    region_caps = [automatic for _forced_count, automatic in region_capacity]
+    weights = [float(c * max(1, r.day_count)) for c, r in zip(region_caps, plan.regions)]
+    region_automatic = _bounded_allocation(
+        weights, region_caps, max(0, automatic_budget - sum(transit_automatic)),
+    )
+    for region, (forced_count, _capacity), automatic in zip(
+            plan.regions, region_capacity, region_automatic):
+        region.quota = forced_count + automatic
+    for kind, chapters, capacities in (
+        ("region", plan.regions, region_capacity),
+        ("transit", plan.transits, transit_capacity),
+    ):
+        for chapter, (forced_count, auto_capacity) in zip(chapters, capacities):
+            label = getattr(chapter, "name", "")
+            for i in chapter.photo_indices:
+                audit(photos[i], "chapter_budget", "quota", chapter=label, chapter_kind=kind,
+                      chapter_quota=chapter.quota, forced_in_chapter=forced_count,
+                      automatic_capacity=auto_capacity, global_target=target_n,
+                      global_forced_count=len(forced_indices), automatic_budget=automatic_budget,
+                      max_per_chapter=max_per_chapter, max_transit_quota=max_transit_quota)
 
 
 def color_histogram(photo: Photo, bins: int = 16) -> Optional[np.ndarray]:
@@ -128,25 +227,32 @@ def hist_similarity(a: Optional[np.ndarray], b: Optional[np.ndarray]) -> float:
 
 def compute_final_score(photo: Photo) -> float:
     tech = photo.technical_score
+    modifiers: list[dict] = []
     if photo.aesthetic_score is not None:
         score = 0.45 * tech + 0.55 * float(photo.aesthetic_score)
     else:
         score = tech
     if photo.keep_recommendation is False:
         score *= 0.4
+        modifiers.append({"code": "ai_keep_rejected", "operation": "multiply", "value": 0.4})
     if photo.quality_issue:
         score *= 0.7
+        modifiers.append({"code": "quality_issue", "operation": "multiply", "value": 0.7})
     if getattr(photo, "bad_face", False):
         score *= 0.45
+        modifiers.append({"code": "bad_face", "operation": "multiply", "value": 0.45})
     if photo.landmark and not getattr(photo, "bad_face", False):
         score += 5.0
+        modifiers.append({"code": "landmark", "operation": "add", "value": 5.0})
     if getattr(photo, "smiling", None) is True:
         score += 1.5
+        modifiers.append({"code": "smiling", "operation": "add", "value": 1.5})
     if (
         getattr(photo, "looking_at_camera", None) is False
         and getattr(photo, "face_count", 0) > 0
     ):
         score *= 0.92
+        modifiers.append({"code": "not_looking_at_camera", "operation": "multiply", "value": 0.92})
     # Gruppenfoto-Bonus: viele Gesichter und/oder erkannte Personen
     faces = int(getattr(photo, "face_count", 0) or 0)
     people = len(getattr(photo, "person_cluster_ids", None) or [])
@@ -154,7 +260,15 @@ def compute_final_score(photo: Photo) -> float:
     if group_n >= 3 and not getattr(photo, "bad_face", False):
         # 3 Personen → +3.5, danach +1.2 je weiterer, Deckel +9
         score += min(9.0, 3.5 + (group_n - 3) * 1.2)
+        modifiers.append({"code": "group_photo", "operation": "add",
+                          "value": min(9.0, 3.5 + (group_n - 3) * 1.2)})
     photo.final_score = float(max(0.0, min(100.0, score)))
+    audit(photo, "score_computed", "scoring", technical_score=tech,
+          aesthetic_score=photo.aesthetic_score, ai_reviewed=photo.ai_reviewed,
+          keep_recommendation=photo.keep_recommendation, quality_issue=photo.quality_issue,
+          technical_weight=0.45 if photo.aesthetic_score is not None else 1.0,
+          aesthetic_weight=0.55 if photo.aesthetic_score is not None else 0.0,
+          modifiers=modifiers, unclamped_score=score, final_score=photo.final_score)
     return photo.final_score
 
 
@@ -184,7 +298,7 @@ def allocate_day_quotas(
 
     # Bei starker Intensität: kein Tag > ~60% des Kontingents
     max_share = 1.0 - 0.4 * intensity
-    max_per_day = max(1, int(np.ceil(quota * max_share)))
+    max_per_day = max(1, int(np.ceil(quota * max_share))) if n > 1 else quota
     for d in days:
         raw[d] = min(raw[d], float(max_per_day), float(day_sizes[d]))
 
@@ -202,7 +316,8 @@ def allocate_day_quotas(
     assigned = sum(floors.values())
     remainders = sorted(days, key=lambda d: raw[d] - int(np.floor(raw[d])), reverse=True)
     idx = 0
-    while assigned < quota and idx < len(remainders) * 3:
+    quota = min(quota, sum(min(day_sizes[d], max_per_day) for d in days))
+    while assigned < quota:
         d = remainders[idx % len(remainders)]
         if floors[d] < min(day_sizes[d], max_per_day):
             floors[d] += 1
@@ -261,6 +376,10 @@ def _select_with_coverage(
         )
 
     quotas = allocate_day_quotas(day_sizes, quota, coverage_intensity)
+    for day, members in by_day.items():
+        for i in members:
+            audit(photos[i], "day_allocation", "coverage", day=str(day), day_quota=quotas[day],
+                  day_pool_size=len(members), chapter_part_quota=quota, intensity=coverage_intensity)
     selected: list[int] = []
     landmark_budget = max_landmarks
     for day, q in sorted(quotas.items(), key=lambda kv: (kv[0] is None, kv[0])):
@@ -312,6 +431,8 @@ def _select_diverse(
     person_counts: Optional[dict[int, int]] = None,
 ) -> list[int]:
     if quota <= 0 or not indices:
+        for i in indices:
+            audit(photos[i], "diversity_quota_exhausted", "diversity", quota=quota, selected_count=0)
         return []
 
     # Histogramm laden kann bei OneDrive/vielen Kandidaten Minuten dauern –
@@ -364,6 +485,12 @@ def _select_diverse(
     # Rest anhängen
     remaining_rank = [i for i in ranked if i not in mixed]
     mixed.extend(remaining_rank)
+    mixed_positions = {i: position for position, i in enumerate(mixed, start=1)}
+    for rank, i in enumerate(ranked, start=1):
+        audit(photos[i], "selection_ranked", "diversity", score_rank=rank,
+              mixed_position=mixed_positions[i], score=photos[i].final_score, quota=quota,
+              scene=photos[i].scene_type, prefer_landmarks=prefer_landmarks,
+              people_balance_intensity=people_balance_intensity)
 
     if not balance_on:
         for i in mixed:
@@ -371,15 +498,23 @@ def _select_diverse(
                 break
             is_landmark = bool(photos[i].landmark)
             if prefer_landmarks and is_landmark and landmark_count >= max_landmarks:
+                audit(photos[i], "landmark_limit_rejected", "diversity", limit=max_landmarks,
+                      count=landmark_count)
                 continue
             too_similar = False
             for j in selected:
-                if hist_similarity(hist_cache[i], hist_cache[j]) >= similarity_threshold:
+                observed_similarity = hist_similarity(hist_cache[i], hist_cache[j])
+                if observed_similarity >= similarity_threshold:
+                    audit(photos[i], "histogram_rejected", "diversity", peer_path=str(photos[j].path),
+                          similarity=observed_similarity, threshold=similarity_threshold,
+                          comparison_available=hist_cache[i] is not None and hist_cache[j] is not None)
                     too_similar = True
                     break
             if too_similar:
                 continue
             selected.append(i)
+            audit(photos[i], "diversity_selected", "diversity", method="scene_round_robin",
+                  selection_position=len(selected), quota=quota, score=photos[i].final_score)
             if is_landmark:
                 landmark_count += 1
     else:
@@ -391,10 +526,16 @@ def _select_diverse(
             for pos, i in enumerate(left):
                 is_landmark = bool(photos[i].landmark)
                 if prefer_landmarks and is_landmark and landmark_count >= max_landmarks:
+                    audit(photos[i], "landmark_limit_rejected", "diversity", limit=max_landmarks,
+                          count=landmark_count)
                     continue
                 too_similar = False
                 for j in selected:
-                    if hist_similarity(hist_cache[i], hist_cache[j]) >= similarity_threshold:
+                    observed_similarity = hist_similarity(hist_cache[i], hist_cache[j])
+                    if observed_similarity >= similarity_threshold:
+                        audit(photos[i], "histogram_rejected", "diversity", peer_path=str(photos[j].path),
+                              similarity=observed_similarity, threshold=similarity_threshold,
+                              comparison_available=hist_cache[i] is not None and hist_cache[j] is not None)
                         too_similar = True
                         break
                 if too_similar:
@@ -402,6 +543,9 @@ def _select_diverse(
                 penalty = people_balance_penalty(
                     photos[i], counts, float(people_balance_intensity)
                 )
+                audit(photos[i], "people_balance_evaluated", "diversity", penalty=penalty,
+                      adjusted_score=photos[i].final_score - penalty,
+                      person_counts={str(pid): counts.get(pid, 0) for pid in photos[i].person_cluster_ids})
                 key = (photos[i].final_score - penalty, -pos)
                 if best_key is None or key > best_key:
                     best_key = key
@@ -410,6 +554,10 @@ def _select_diverse(
                 break
             i = left.pop(best_pos)
             selected.append(i)
+            audit(photos[i], "diversity_selected", "diversity", method="people_greedy",
+                  selection_position=len(selected), quota=quota, score=photos[i].final_score,
+                  penalty=people_balance_penalty(photos[i], counts, float(people_balance_intensity)),
+                  adjusted_score=best_key[0] if best_key else None)
             _bump_person_counts(photos[i], counts)
             if photos[i].landmark:
                 landmark_count += 1
@@ -430,19 +578,39 @@ def _select_diverse(
             if len(selected) >= quota:
                 break
             selected.append(i)
+            audit(photos[i], "diversity_fallback_selected", "diversity", quota=quota,
+                  selection_position=len(selected), score=photos[i].final_score,
+                  histogram_filter_relaxed=True, landmark_limit_relaxed=prefer_landmarks,
+                  penalty=(people_balance_penalty(photos[i], counts, float(people_balance_intensity))
+                           if balance_on else 0.0))
             if balance_on:
                 _bump_person_counts(photos[i], counts)
 
+    if len(selected) >= quota:
+        selected_set = set(selected)
+        for i in indices:
+            if i not in selected_set:
+                audit(photos[i], "diversity_quota_exhausted", "diversity", quota=quota,
+                      selected_count=len(selected))
     return selected[:quota]
 
 
 def _include_favorites(photos: list[Photo], selected: list[int], indices: list[int],
                        quota: int) -> list[int]:
     """Manual favorites override automatic filters; excess favorites exceed the quota."""
-    favorites = [i for i in indices if photos[i].is_favorite]
+    favorites = [i for i in indices if _forced(photos[i])]
     result = list(dict.fromkeys(favorites))
     result.extend(i for i in selected if i not in result)
-    return result[:max(quota, len(favorites))]
+    retained = result[:max(quota, len(favorites))]
+    for i in favorites:
+        audit(photos[i], "forced_keep", "forced", favorite=photos[i].is_favorite,
+              manual_decision=getattr(photos[i], "manual_decision", "auto"), quota=quota,
+              forced_count=len(favorites))
+    for i in selected:
+        if i not in retained:
+            audit(photos[i], "forced_quota_displaced", "forced", quota=quota,
+                  forced_count=len(favorites), automatic_places=max(0, quota - len(favorites)))
+    return retained
 
 
 def select_for_region(
@@ -454,6 +622,7 @@ def select_for_region(
     similarity_threshold: float = 0.92,
     coverage_intensity: float = 0.0,
     people_balance_intensity: float = 0.0,
+    storytelling_intensity: float = 0.0,
 ) -> tuple[list[int], list[int]]:
     """Gibt (hauptteil_indices, essen_indices) zurück, chronologisch sortiert."""
     # Nur Kandidaten bevorzugen, Fallback auf alle nicht-Duplikate
@@ -461,8 +630,12 @@ def select_for_region(
         return _ok_for_selection(photos[i])
 
     cand = [i for i in indices if photos[i].is_candidate and _ok(i)]
+    candidate_fallback = not cand
     if not cand:
         cand = [i for i in indices if _ok(i)]
+    for i in cand:
+        audit(photos[i], "chapter_pool", "chapter", candidate_fallback=candidate_fallback,
+              pool_size=len(cand), quota=quota)
 
     ensure_scene_types(photos, cand)
     for i in cand:
@@ -472,10 +645,14 @@ def select_for_region(
     main = [i for i in cand if photos[i].scene_type != "essen"]
 
     food_quota = 0
-    if food and quota > 0:
+    if food and quota > 0 and food_ratio > 0:
         food_quota = max(1, int(round(quota * food_ratio)))
         food_quota = min(food_quota, len(food), quota)
     main_quota = max(0, quota - food_quota)
+    food_set = set(food)
+    for i in cand:
+        audit(photos[i], "food_allocation", "chapter", kind="food" if i in food_set else "main",
+              region_quota=quota, food_quota=food_quota, main_quota=main_quota, food_ratio=food_ratio)
 
     # Personen-Balance über Hauptteil + Essen einer Region teilen
     person_counts: dict[int, int] = defaultdict(int)
@@ -501,8 +678,12 @@ def select_for_region(
         person_counts=person_counts,
     )
 
-    favorite_food = [i for i in indices if photos[i].is_favorite and photos[i].scene_type == "essen"]
-    favorite_main = [i for i in indices if photos[i].is_favorite and photos[i].scene_type != "essen"]
+    if storytelling_intensity > 0:
+        selected_main = balance_story_roles(photos, selected_main, main, main_quota,
+                                            storytelling_intensity, coverage_intensity > 0)
+
+    favorite_food = [i for i in indices if _forced(photos[i]) and photos[i].scene_type == "essen"]
+    favorite_main = [i for i in indices if _forced(photos[i]) and photos[i].scene_type != "essen"]
     food_quota = max(food_quota, len(favorite_food))
     main_quota = max(len(favorite_main), quota - food_quota)
     selected_main = _include_favorites(photos, selected_main, favorite_main, main_quota)
@@ -524,8 +705,12 @@ def select_for_transit(
         return _ok_for_selection(photos[i])
 
     cand = [i for i in indices if photos[i].is_candidate and _ok(i)]
+    candidate_fallback = not cand
     if not cand:
         cand = [i for i in indices if _ok(i)]
+    for i in cand:
+        audit(photos[i], "chapter_pool", "chapter", candidate_fallback=candidate_fallback,
+              pool_size=len(cand), quota=quota)
     ensure_scene_types(photos, cand)
     for i in cand:
         compute_final_score(photos[i])
@@ -551,6 +736,9 @@ def build_book_order(
     similarity_threshold: float = 0.92,
     coverage_intensity: float = 0.0,
     people_balance_intensity: float = 0.0,
+    max_per_day: int = 0,
+    max_per_chapter: int = 0,
+    storytelling_intensity: float = 0.0,
 ) -> list[tuple[int, str, str]]:
     """
     Finale Buchreihenfolge.
@@ -558,8 +746,33 @@ def build_book_order(
     """
     from .utils import slugify
 
+    ensure_selection_audit(photos, {
+        "food_ratio": food_ratio, "max_landmarks": max_landmarks,
+        "similarity_threshold": similarity_threshold, "coverage_intensity": coverage_intensity,
+        "people_balance_intensity": people_balance_intensity,
+        "max_per_day": max_per_day, "max_per_chapter": max_per_chapter,
+        "storytelling_intensity": storytelling_intensity,
+    })
+    for photo in photos:
+        photo.is_selected = False
+        photo.book_position = None
     order: list[tuple[int, str, str]] = []
+    fallback_order: list[tuple[int, str, str]] = []
     transit_by_after = {t.chapter_index: t for t in plan.transits}
+
+    def nominate_fallbacks(indices: list[int], folder: str, transit: bool = False) -> None:
+        if max_per_day <= 0 and max_per_chapter <= 0:
+            return
+        candidates = [i for i in indices if photos[i].is_candidate and _ok_for_selection(photos[i])]
+        if not candidates:
+            candidates = [i for i in indices if _ok_for_selection(photos[i])]
+        for i in candidates:
+            if transit:
+                fallback_order.append((i, folder, ChapterType.TRANSIT.value))
+            elif photos[i].scene_type == "essen":
+                fallback_order.append((i, f"{folder}/essen", ChapterType.ESSEN.value))
+            else:
+                fallback_order.append((i, f"{folder}/hauptteil", ChapterType.HAUPTTEIL.value))
 
     print(
         f"  Buchstruktur: {len(plan.regions)} Regionen, "
@@ -580,6 +793,7 @@ def build_book_order(
             similarity_threshold=similarity_threshold,
             coverage_intensity=coverage_intensity,
             people_balance_intensity=people_balance_intensity,
+            storytelling_intensity=storytelling_intensity,
         )
         for i in main_sel:
             photos[i].is_selected = True
@@ -591,6 +805,7 @@ def build_book_order(
             photos[i].chapter_type = ChapterType.ESSEN.value
             photos[i].chapter_folder = f"{folder}/essen"
             order.append((i, f"{folder}/essen", ChapterType.ESSEN.value))
+        nominate_fallbacks(region.photo_indices, folder)
 
         if r_idx in transit_by_after:
             t = transit_by_after[r_idx]
@@ -610,11 +825,14 @@ def build_book_order(
                 photos[i].chapter_type = ChapterType.TRANSIT.value
                 photos[i].chapter_folder = t_folder
                 order.append((i, t_folder, ChapterType.TRANSIT.value))
+            nominate_fallbacks(t.photo_indices, t_folder, transit=True)
 
     # Favorites outside regular chapters (e.g. tickets) are explicitly retained too.
     included = {idx for idx, _folder, _ctype in order}
     for idx, photo in enumerate(photos):
-        if photo.is_favorite and idx not in included:
+        if _forced(photo) and idx not in included:
+            audit(photo, "forced_keep", "forced", favorite=photo.is_favorite,
+                  manual_decision=getattr(photo, "manual_decision", "auto"), outside_regular_selection=True)
             folder = photo.chapter_folder or (
                 "99_Optional_Dokumente" if photo.is_aside else "Unbestimmt/hauptteil"
             )
@@ -622,9 +840,174 @@ def build_book_order(
             photo.is_selected = True
             order.append((idx, folder, ctype))
 
+    order = apply_selection_caps(
+        photos, order, max_per_day, max_per_chapter, fallback_order=fallback_order,
+    )
     for pos, (idx, folder, ctype) in enumerate(order, start=1):
         photos[idx].book_position = pos
         photos[idx].chapter_folder = folder
         photos[idx].chapter_type = ctype
 
+    finalize_selection_audit(photos, order)
     return order
+
+
+def apply_selection_caps(
+    photos: list[Photo],
+    order: list[tuple[int, str, str]],
+    max_per_day: int = 0,
+    max_per_chapter: int = 0,
+    *,
+    fallback_order: Optional[list[tuple[int, str, str]]] = None,
+) -> list[tuple[int, str, str]]:
+    """Global day limits and chapter limits shared by main/food sections.
+
+    Favorites reserve capacity first and may exceed either limit. Unknown dates
+    share one bucket. Filtering keeps the original chronological book order.
+    """
+    day_counts: dict = defaultdict(int)
+    chapter_counts: dict = defaultdict(int)
+    folder_counts: dict = defaultdict(int)
+    kept: set[int] = set()
+
+    def retain(entry: tuple[int, str, str]) -> None:
+        i, folder, _ctype = entry
+        if i not in kept:
+            kept.add(i)
+            day_counts[_photo_day(photos[i])] += 1
+            chapter_counts[folder.split("/")[0]] += 1
+            folder_counts[folder] += 1
+
+    def fits(entry: tuple[int, str, str]) -> bool:
+        i, folder, _ctype = entry
+        return (
+            (max_per_day <= 0 or day_counts[_photo_day(photos[i])] < max_per_day)
+            and (max_per_chapter <= 0 or chapter_counts[folder.split("/")[0]] < max_per_chapter)
+        )
+
+    for entry in order:
+        if _forced(photos[entry[0]]):
+            retain(entry)
+            audit(photos[entry[0]], "forced_keep", "forced", favorite=photos[entry[0]].is_favorite,
+                  manual_decision=getattr(photos[entry[0]], "manual_decision", "auto"),
+                  forced_priority=True, max_per_day=max_per_day, max_per_chapter=max_per_chapter,
+                  day_limit_exceeded=(max_per_day > 0 and day_counts[_photo_day(photos[entry[0]])] > max_per_day),
+                  chapter_limit_exceeded=(max_per_chapter > 0
+                      and chapter_counts[entry[1].split("/")[0]] > max_per_chapter))
+    for entry in sorted(order, key=lambda e: photos[e[0]].final_score, reverse=True):
+        i, folder, _ctype = entry
+        if i in kept:
+            continue
+        if getattr(photos[i], "manual_decision", "auto") == "reject":
+            continue
+        if not fits(entry):
+            day_count = day_counts[_photo_day(photos[i])]
+            chapter_count = chapter_counts[folder.split("/")[0]]
+            if max_per_day > 0 and day_count >= max_per_day:
+                audit(photos[i], "cap_day_removed", "caps", day=str(_photo_day(photos[i])),
+                      limit=max_per_day, count=day_count, chapter_folder=folder)
+            if max_per_chapter > 0 and chapter_count >= max_per_chapter:
+                audit(photos[i], "cap_chapter_removed", "caps", limit=max_per_chapter,
+                      count=chapter_count, chapter_folder=folder)
+            continue
+        retain(entry)
+
+    # Caps can remove one busy day's pictures despite spare capacity on quieter
+    # days. Refill using unused eligible candidates while preserving the original
+    # main/food/transit budgets and every retained initial selection.
+    folder_budgets: dict = defaultdict(int)
+    original_indices: set[int] = set()
+    for i, folder, _ctype in order:
+        if i not in original_indices:
+            original_indices.add(i)
+            folder_budgets[folder] += 1
+    added: list[tuple[int, str, str]] = []
+    for entry in sorted(fallback_order or [], key=lambda e: photos[e[0]].final_score, reverse=True):
+        i, folder, _ctype = entry
+        if len(kept) >= len(original_indices):
+            break
+        if i in kept or not _ok_for_selection(photos[i]):
+            continue
+        if folder_counts[folder] >= folder_budgets[folder] or not fits(entry):
+            if folder_counts[folder] >= folder_budgets[folder]:
+                constraint, observed, limit = "folder_budget", folder_counts[folder], folder_budgets[folder]
+            elif max_per_day > 0 and day_counts[_photo_day(photos[i])] >= max_per_day:
+                constraint, observed, limit = "day_limit", day_counts[_photo_day(photos[i])], max_per_day
+            else:
+                constraint, observed, limit = "chapter_limit", chapter_counts[folder.split("/")[0]], max_per_chapter
+            audit(photos[i], "cap_refill_blocked", "caps", constraint=constraint, count=observed,
+                  limit=limit, chapter_folder=folder)
+            continue
+        retain(entry)
+        added.append(entry)
+        audit(photos[i], "cap_refill_selected", "caps", chapter_folder=folder,
+              folder_budget=folder_budgets[folder], folder_count=folder_counts[folder],
+              max_per_day=max_per_day, day_count=day_counts[_photo_day(photos[i])],
+              max_per_chapter=max_per_chapter, chapter_count=chapter_counts[folder.split("/")[0]])
+
+    for i, _folder, _ctype in order + (fallback_order or []):
+        photos[i].is_selected = i in kept
+        if i not in kept:
+            photos[i].book_position = None
+    result = []
+    emitted: set[int] = set()
+    for entry in order + added:
+        if entry[0] in kept and entry[0] not in emitted:
+            result.append(entry)
+            emitted.add(entry[0])
+    if added:
+        folder_order = {folder: n for n, folder in enumerate(dict.fromkeys(e[1] for e in order))}
+        result.sort(key=lambda e: (folder_order[e[1]], photos[e[0]].datetime_taken or datetime.min))
+    return result
+
+
+def balance_story_roles(
+    photos: list[Photo], selected: list[int], candidates: list[int], quota: int,
+    intensity: float, preserve_days: bool = False,
+) -> list[int]:
+    """Reserve broad story roles using existing scene labels, without low-quality filler.
+
+    Replaces at most one image per absent role; explicit keeps are never replaced.
+    At high intensity a candidate must retain at least 55% of the best score,
+    at low intensity the floor tends to 100%. This is a controllable heuristic.
+    """
+    from collections import Counter
+    from .review_insights import story_role
+    if quota < 3 or intensity <= 0 or not selected or not candidates:
+        return list(selected)
+    intensity = max(0.0, min(1.0, float(intensity)))
+    result = list(selected)
+    role_counts = Counter(story_role(photos[i]) for i in result)
+    day_counts = Counter(_photo_day(photos[i]) for i in result)
+    score_floor = max(photos[i].final_score for i in candidates) * (1 - 0.45 * intensity)
+    ranked = sorted(candidates, key=lambda i: photos[i].final_score, reverse=True)
+    replacements = max(1, int(round(min(4, quota) * intensity)))
+    for role in ("overview", "people", "detail", "atmosphere"):
+        if role_counts[role] or replacements <= 0:
+            continue
+        for incoming in ranked:
+            if incoming in result or story_role(photos[incoming]) != role:
+                continue
+            if photos[incoming].final_score < score_floor or not _ok_for_selection(photos[incoming]):
+                continue
+            outgoing = [i for i in result if not _forced(photos[i])
+                        and role_counts[story_role(photos[i])] > 1
+                        and (not preserve_days or _photo_day(photos[incoming]) == _photo_day(photos[i])
+                             or day_counts[_photo_day(photos[i])] > 1)]
+            if not outgoing:
+                continue
+            victim = min(outgoing, key=lambda i: photos[i].final_score)
+            result[result.index(victim)] = incoming
+            audit(photos[incoming], "story_role_selected", "story", role=role,
+                  peer_path=str(photos[victim].path), score=photos[incoming].final_score,
+                  peer_score=photos[victim].final_score, score_floor=score_floor, intensity=intensity)
+            audit(photos[victim], "story_role_replaced", "story", missing_role=role,
+                  peer_path=str(photos[incoming].path), score=photos[victim].final_score,
+                  peer_score=photos[incoming].final_score, score_floor=score_floor, intensity=intensity)
+            role_counts[story_role(photos[victim])] -= 1
+            role_counts[role] += 1
+            day_counts[_photo_day(photos[victim])] -= 1
+            day_counts[_photo_day(photos[incoming])] += 1
+            replacements -= 1
+            break
+    return result
