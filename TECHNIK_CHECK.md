@@ -24,7 +24,9 @@ Bilderraster scrollen unabhängig; Fotos werden vollständig eingepasst.
 aus Diashow, Vergleich und Albumübersicht bei 1920 × 1080, 1536 × 864,
 1366 × 768, 1280 × 720, 1093 × 614 und 980 × 600. Die letzten kompakten Prüfungen
 bestätigten sichtbare Aktionen, Kapitel-Scrollposition nach Hinzufügen/Undo,
-geladenes Logo und Ortsdialog ohne Veränderung der Auswahl.
+geladenes Logo und Ortsdialog ohne Veränderung der Auswahl. Das Bilderraster
+behielt beim Hinzufügen und Undo seine Position von 600 Pixeln; beim Wechsel
+auf die nächste Seite begann es wieder oben.
 
 Reproduktion mit Node und Chromium, neuer/leerer Ausgabeordner erforderlich:
 
@@ -35,7 +37,10 @@ python scripts/check_review_layout.py --output /tmp/phototool-layout-check
 Die native Windows-Prüfung verwendet jetzt 92 Test-JPEGs und 44 Kapitel. Sie
 verlangt nach dem Rendern jeder Ansicht eine neue, geometrisch geprüfte
 Bestätigung. Ein bereits geladenes, aber ausserhalb des Fensters liegendes Foto
-genügt nicht mehr. Der Windows-Lauf für 0.5.1 steht bei diesem Quellstand noch aus.
+genügt nicht mehr. Die Windows-Veröffentlichung verlangt diese Prüfung aus
+Quellcode, EXE und installierter App sowie erfolgreiche frische und erneute
+Installation. Die Ergebnisse stehen in den
+[Windows-Buildläufen](https://github.com/Dobolino/PhotoTool/actions/workflows/windows-build.yml).
 
 Unbelegte Ortsangaben und eindeutige Konflikte zwischen gespeicherter Stadt und
 Motivbeschreibung werden nur als prüfbedürftig markiert. KI-Text wird nie zum

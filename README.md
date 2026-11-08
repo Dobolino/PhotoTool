@@ -22,6 +22,8 @@ Bei unbelegten oder widersprüchlichen Ortsangaben öffnet **Zuordnung prüfen**
 die bestehende GPS-/Zeitprüfung mit Änderungsvorschau. Eine Motivbeschreibung
 ist kein Ortsnachweis; Orte ohne ausreichende Grundlage können ungeklärt bleiben.
 
+![Überarbeitete Startseite](docs/screenshots/phototool-0.5.1-home-windows-test.png)
+
 ## Deine Reise. Deine Auswahl.
 
 Die freigegebene HTML-Oberfläche ist jetzt die Fotoansicht mit echten
@@ -50,10 +52,10 @@ Favoriten und dauerhafte Bildentscheidungen werden weiterverwendet.
 
 Echte Windows-Aufnahme mit erzeugten Testmotiven:
 
-![Neue Diashow mit gemischter Bildleiste](docs/screenshots/phototool-0.5.0-review-a-windows-test.png)
+![Neue Diashow mit gemischter Bildleiste](docs/screenshots/phototool-0.5.1-review-a-windows-test.png)
 
-[Vergleich](docs/screenshots/phototool-0.5.0-review-b-windows-test.png) ·
-[Albumübersicht](docs/screenshots/phototool-0.5.0-review-c-windows-test.png)
+[Vergleich](docs/screenshots/phototool-0.5.1-review-b-windows-test.png) ·
+[Albumübersicht](docs/screenshots/phototool-0.5.1-review-c-windows-test.png)
 
 ## Windows-Programm und Updates
 

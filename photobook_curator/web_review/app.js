@@ -230,11 +230,13 @@ function contacts(){
   const pages=Math.max(1,Math.ceil(list.length/GALLERY_PAGE));galleryPage=Math.min(galleryPage,pages-1);
   const slice=list.slice(galleryPage*GALLERY_PAGE,(galleryPage+1)*GALLERY_PAGE), groups=new Map();
   slice.forEach(p=>{const key=p.chapter || 'Ohne Kapitel';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(p);});
-  return `<section class="strip-card gallery-toolbar"><div class="strip-head">${filterButtons()}<span class="layout-note">Häkchen ändern die Auswahl</span></div></section><div class="contact-layout"><section class="contact-sheet">${[...groups].map(([name,items])=>`<div class="chapter-heading"><h3>${esc(state.chapters.find(ch=>ch.id===name)?.name || name)}</h3><span>${nfmt(state.chapters.find(ch=>ch.id===name)?.selected ?? items.filter(p=>p.selected).length)} im Album · ${nfmt(state.chapters.find(ch=>ch.id===name)?.total ?? items.length)} Fotos im Kapitel</span></div><div class="contact-grid">${items.map(p=>thumb(p)).join('')}</div>`).join('')||'<div class="empty-lane">Keine Fotos für diesen Filter.</div>'}<div class="gallery-paging">${button('gallery-prev','‹ Zurück','secondary',galleryPage===0?'disabled':'')}<span>${nfmt(list.length?galleryPage*GALLERY_PAGE+1:0)}–${nfmt(Math.min(list.length,(galleryPage+1)*GALLERY_PAGE))} von ${nfmt(list.length)}</span>${button('gallery-next','Weiter ›','secondary',galleryPage>=pages-1?'disabled':'')}</div></section><div class="contact-preview">${viewer()}<div class="contact-hint">Doppelklick auf ein Foto öffnet die Diashow.</div></div></div>`;
+  return `<section class="strip-card gallery-toolbar"><div class="strip-head">${filterButtons()}<span class="layout-note">Häkchen ändern die Auswahl</span></div></section><div class="contact-layout"><section class="contact-sheet" data-gallery-key="${esc(key)}" data-gallery-page="${galleryPage}">${[...groups].map(([name,items])=>`<div class="chapter-heading"><h3>${esc(state.chapters.find(ch=>ch.id===name)?.name || name)}</h3><span>${nfmt(state.chapters.find(ch=>ch.id===name)?.selected ?? items.filter(p=>p.selected).length)} im Album · ${nfmt(state.chapters.find(ch=>ch.id===name)?.total ?? items.length)} Fotos im Kapitel</span></div><div class="contact-grid">${items.map(p=>thumb(p)).join('')}</div>`).join('')||'<div class="empty-lane">Keine Fotos für diesen Filter.</div>'}<div class="gallery-paging">${button('gallery-prev','‹ Zurück','secondary',galleryPage===0?'disabled':'')}<span>${nfmt(list.length?galleryPage*GALLERY_PAGE+1:0)}–${nfmt(Math.min(list.length,(galleryPage+1)*GALLERY_PAGE))} von ${nfmt(list.length)}</span>${button('gallery-next','Weiter ›','secondary',galleryPage>=pages-1?'disabled':'')}</div></section><div class="contact-preview">${viewer()}<div class="contact-hint">Doppelklick auf ein Foto öffnet die Diashow.</div></div></div>`;
 }
 function render(){
   if(!state || !view)return;
   const chapterNav=$('chapterNav'), chapterScroll=chapterNav.scrollTop;
+  const previousSheet=document.querySelector('.contact-sheet');
+  const galleryScroll=previousSheet?{key:previousSheet.dataset.galleryKey,page:previousSheet.dataset.galleryPage,top:previousSheet.scrollTop}:null;
   const previousChapter=chapterNav.querySelector('.chapter-button.current')?.dataset.chapter;
   for(const el of document.querySelectorAll('.virtual-strip'))stripPositions.set(el.dataset.stripKey,el.scrollLeft);
   stripSpecs=new Map();validFocus();document.body.classList.toggle('dark',view.theme==='dark');
@@ -260,6 +262,8 @@ function render(){
     }
   }
   $('workspace').innerHTML=view.layout==='A'?viewer()+filmstrip():view.layout==='B'?pair():contacts();
+  const currentSheet=document.querySelector('.contact-sheet');
+  if(currentSheet && galleryScroll && currentSheet.dataset.galleryKey===galleryScroll.key && currentSheet.dataset.galleryPage===galleryScroll.page)currentSheet.scrollTop=galleryScroll.top;
   mountStrips();updateSavedStatus();
   if(state.notice && state.notice!==lastNotice){ lastNotice=state.notice;$('notice').textContent=state.notice;$('notice').hidden=false; }
   document.documentElement.dataset.photoCount=String(state.photos.length);
