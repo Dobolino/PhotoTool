@@ -35,6 +35,13 @@ Entscheidungsprotokoll erhalten keine erfundenen nachträglichen Gründe.
 exportiert; die Originaldateien bleiben unverändert. Bestehende Reiseprojekte,
 Favoriten und dauerhafte Bildentscheidungen werden weiterverwendet.
 
+Echte Windows-Aufnahme mit erzeugten Testmotiven:
+
+![Neue Diashow mit gemischter Bildleiste](docs/screenshots/phototool-0.5.0-review-a-windows-test.png)
+
+[Vergleich](docs/screenshots/phototool-0.5.0-review-b-windows-test.png) ·
+[Albumübersicht](docs/screenshots/phototool-0.5.0-review-c-windows-test.png)
+
 ## Windows-Programm und Updates
 
 Veröffentlichte Installer `PhotoTool-Setup-<Version>.exe` und portable ZIPs stehen

@@ -51,17 +51,21 @@ Er prüfte zusätzlich
 Kapitelgrenzen im Vergleich, leere Kapitel und das Speichern zuletzt eingereihter
 Auswahl-/Ansichtsänderungen beim Schliessen. Nach dem bewusst hinzugefügten letzten
 Foto blieben 178 Bilder ausgewählt. Flat- und Kapitelexport wurden bytegenau sowie
-nach erneutem Öffnen kontrolliert. **535 lokale Tests** bestanden in **9,31 s**.
+nach erneutem Öffnen kontrolliert. Nach der abschliessenden Härtung bestanden
+**542 lokale Tests** in **16,10 s**.
 Diese Zahlen messen weder eine frische Bildanalyse noch die Qualität einer echten
 Japan-Auswahl. Es wurden keine privaten Reisebilder oder KI-/Geocodingdienste
 verwendet. Der Lauf prüft Chromium unter Linux; er ersetzt keinen nativen
 Windows-/WebView2-Durchlauf.
 
-Die Windows-Buildprüfung verlangt zusätzlich einen tatsächlichen HTML-/Foto-Render
-aus dem gebündelten EXE sowie Installation und In-place-Update. Das beschreibt die
-Prüfkriterien; der Windows-CI-Lauf für 0.5.0 war bei diesem Dokumentationsstand
-noch nicht abgeschlossen. Ein erfolgreicher Windows-Render/Installerlauf wird
-daher nicht behauptet.
+Der [Windows-Durchlauf](https://github.com/Dobolino/PhotoTool/actions/runs/42433269474)
+bestand mit **537 Tests und 2 übersprungenen Fällen**. Quellstart und gebündelte EXE
+haben alle drei Ansichten mit echten Testdateien gerendert und das Schliessen mit
+Speicherbestätigung geprüft. Auch frische Installation und erneute Installation
+in denselben Ordner bestanden einschliesslich Start der installierten Fotoansicht.
+Die [Windows-Aufnahmen](docs/screenshots/phototool-0.5.0-review-a-windows-test.png)
+zeigen die gebündelte App mit erzeugten Testmotiven. Die Veröffentlichung verlangt
+dieselben Prüfungen erneut auf dem endgültigen Release-Tag.
 
 ## Historische Ergänzung 0.4.2: Nachvollziehbarkeit und Nachkontrolle
 

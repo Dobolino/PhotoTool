@@ -311,9 +311,18 @@ def run_native_window(url: str, title: str = "PhotoTool · Auswahl prüfen", *,
             if state.get("busy"):
                 show_notice("Ein Vorgang läuft noch. Bitte zuerst abschließen und danach das Fenster schließen.")
                 return
-            # The frontend flushes navigation and all queued choices before saving.
+            # A ready frontend owns pending choices/navigation and must flush them
+            # itself. Only an uninitialized page can close directly without a queue.
             try:
-                window.run_js("window.PhotoToolReview?.close();")
+                window.run_js("""(() => {
+                  if(document.documentElement.dataset.appReady==='true') {
+                    try { Promise.resolve(window.PhotoToolReview?.close()).catch(()=>{}); }
+                    catch(_) { /* Keep this ready page open if its close fails. */ }
+                  } else {
+                    fetch(CLOSE_URL, {method:'POST', headers:{'Content-Type':'application/json'},
+                      body:JSON.stringify({action:'close'})}).catch(()=>{});
+                  }
+                })();""".replace("CLOSE_URL", json.dumps(url + "api/action")))
             except Exception:
                 pass
             deadline = time.monotonic() + 5
@@ -327,11 +336,10 @@ def run_native_window(url: str, title: str = "PhotoTool · Auswahl prüfen", *,
                     show_notice("Ein Vorgang läuft noch. Bitte warte bis zum Abschluss.")
                     return
                 time.sleep(.1)
-            # A failed/unready frontend must not trap a window whose server can save.
-            state = request("api/action", {"action": "close"})
-            if state.get("close_requested"):
-                allow_close.set()
-                window.destroy()
+            # A native dispatch error cannot prove that the page has no pending
+            # choices. Never bypass its queue from Python, even after a timeout.
+            show_notice("Das Fenster bleibt geöffnet, weil noch nicht alle Änderungen gespeichert sind. "
+                        "Bitte den Hinweis prüfen und erneut schließen.")
         except (ConnectionRefusedError, ConnectionResetError, http.client.RemoteDisconnected):
             # The owning process has already closed its session.
             allow_close.set()

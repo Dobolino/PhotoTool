@@ -115,7 +115,7 @@ def test_native_probe_uses_raw_scripts_and_real_transport_without_eval(monkeypat
         # Deliberately no evaluate_js: CSP must stay strict even in the native probe.
         events = SimpleNamespace(closing=ClosingEvent())
         def run_js(self, script):
-            if script == "window.PhotoToolReview?.close();":
+            if "window.PhotoToolReview?.close()" in script:
                 session.action({"action": "close"})
                 return
             assert "root.dataset.appReady==='true'" in script
@@ -170,7 +170,7 @@ def test_native_x_close_flushes_choices_and_does_not_interrupt_busy_jobs(monkeyp
     class Window:
         events = SimpleNamespace(closing=ClosingEvent())
         def run_js(self, script):
-            if script == "window.PhotoToolReview?.close();":
+            if "window.PhotoToolReview?.close()" in script:
                 calls.append("frontend-close")
                 # Model a choice and navigation still queued in the real frontend.
                 session.action({"action": "select", "id": 1, "selected": True})
@@ -199,5 +199,63 @@ def test_native_x_close_flushes_choices_and_does_not_interrupt_busy_jobs(monkeyp
             assert calls == ["frontend-close", "destroy"]
             assert session.close_requested and 1 in session.kept
             assert session.view["layout"] == "B"
+    finally:
+        server.close()
+
+
+@pytest.mark.parametrize("page", ["ready-save-failed", "uninitialized", "dispatch-failed"])
+def test_native_close_timeout_never_bypasses_a_ready_frontend_queue(monkeypatch, tmp_path, page):
+    import itertools
+    import threading
+    from photobook_curator import modern_review
+    from photobook_curator.modern_review_session import ReviewSession
+
+    helper = runpy.run_path(str(ROOT / "packaging" / "native_review_smoke.py"))
+    session = ReviewSession(*helper["create_fixture"](tmp_path))
+    server = modern_review.ReviewServer(session)
+    completed = threading.Event()
+    calls = []
+    class ClosingEvent:
+        def __iadd__(self, handler):
+            self.handler = handler
+            return self
+    class Window:
+        events = SimpleNamespace(closing=ClosingEvent())
+        def run_js(self, script):
+            if "window.PhotoToolReview?.close()" in script:
+                calls.append("dispatch")
+                assert "if(document.documentElement.dataset.appReady==='true')" in script
+                assert "else {\n                    fetch(" in script
+                assert server.url + "api/action" in script
+                if page == "dispatch-failed":
+                    raise RuntimeError("WebView is not initialized")
+                if page == "uninitialized":
+                    # The page's conditional fallback has no editable state yet.
+                    session.action({"action": "close"})
+                # A ready page with a failed view save deliberately sends no close.
+            else:
+                assert "notice" in script
+                calls.append("notice")
+                completed.set()
+        def destroy(self):
+            assert self.events.closing.handler() is True
+            calls.append("destroy")
+            completed.set()
+    window = Window()
+    def start(callback, **kwargs):
+        assert window.events.closing.handler() is False
+        assert completed.wait(3), "native close worker did not finish"
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(
+        create_window=lambda *args, **kwargs: window, start=start))
+    ticks = itertools.count()
+    monkeypatch.setattr(modern_review, "time", SimpleNamespace(monotonic=lambda: next(ticks),
+                                                             sleep=lambda seconds: None))
+    try:
+        assert modern_review.run_native_window(server.start()) == 0
+        if page in {"ready-save-failed", "dispatch-failed"}:
+            assert calls == ["dispatch", "notice"]
+            assert not session.close_requested
+        else:
+            assert calls == ["dispatch", "destroy"] and session.close_requested
     finally:
         server.close()
