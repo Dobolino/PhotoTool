@@ -97,6 +97,7 @@ def test_native_smoke_closes_the_session_server_on_success_and_render_failure(mo
 
 def test_native_probe_uses_raw_scripts_and_real_transport_without_eval(monkeypatch, tmp_path):
     import re
+    import threading
     from PIL import Image, ImageGrab
     from photobook_curator import modern_review
     from photobook_curator.modern_review_session import ReviewSession
@@ -105,18 +106,32 @@ def test_native_probe_uses_raw_scripts_and_real_transport_without_eval(monkeypat
     session = ReviewSession(*helper["create_fixture"](tmp_path))
     server = modern_review.ReviewServer(session)
     layouts = []
+    closed = threading.Event()
+    class ClosingEvent:
+        def __iadd__(self, handler):
+            self.handler = handler
+            return self
     class Window:
         # Deliberately no evaluate_js: CSP must stay strict even in the native probe.
+        events = SimpleNamespace(closing=ClosingEvent())
         def run_js(self, script):
+            if script == "window.PhotoToolReview?.close();":
+                session.action({"action": "close"})
+                return
             assert "root.dataset.appReady==='true'" in script
             assert "image.complete && image.naturalWidth>0" in script
             layout = re.search(r'const target="([ABC])"', script)[1]
             layouts.append(layout)
             session.action({"action": "view", "view": {"layout": layout}})
         def destroy(self):
-            layouts.append("destroy")
+            if self.events.closing.handler():
+                layouts.append("destroy")
+                closed.set()
+    def start(callback, **kwargs):
+        callback()
+        assert closed.wait(3), "native probe did not complete its real close handshake"
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(
-        create_window=lambda *args, **kwargs: Window(), start=lambda callback, **kwargs: callback()))
+        create_window=lambda *args, **kwargs: Window(), start=start))
     monkeypatch.setattr(modern_review, "time", SimpleNamespace(monotonic=__import__("time").monotonic,
                                                              sleep=lambda seconds: None))
     monkeypatch.setattr(ImageGrab, "grab", lambda: Image.new("RGB", (40, 30)))
@@ -127,6 +142,7 @@ def test_native_probe_uses_raw_scripts_and_real_transport_without_eval(monkeypat
                                                capture_dir=captures) == 0
         payload = json.loads(result.read_text())
         assert payload["success"] and payload["frontend"]["image_ready"]
+        assert payload["native_close_verified"]
         assert payload["frontend"]["photo_count"] == 8
         assert payload["frontend"]["theme"] == "dark"
         assert layouts == ["B", "A", "B", "C", "destroy"]

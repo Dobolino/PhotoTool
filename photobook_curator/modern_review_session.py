@@ -133,7 +133,7 @@ class ReviewSession:
             self._legacy_view = raw if isinstance(raw, dict) else {}
         self.view = {"layout": "A", "filter": "all", "chapter": "all", "focus": 0 if photos else None,
                      "anchor": next(iter(sorted(self.kept)), None), "theme": "dark",
-                     "export_layout": "chapters", "alternative_ids": []}
+                     "export_layout": "flat", "alternative_ids": []}
         self._restore_view()
         self._sync_selected()
         self._history = ReviewHistory(photos)

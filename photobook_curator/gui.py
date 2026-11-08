@@ -1648,8 +1648,11 @@ class PhotobookApp(tk.Tk):
         # A new analysis must not race a previous review's autosave into the
         # same project's CSV/draft. Other trip windows can remain open.
         for child in list(self.winfo_children()):
-            if getattr(child, "_modern_output_dir", None) == output_dir.resolve():
-                if not child._close():
+            review_output = getattr(child, "_modern_output_dir", getattr(child, "output_dir", None))
+            if (review_output is not None and Path(review_output).resolve() == output_dir.resolve()
+                    and callable(getattr(child, "_autosave_draft", None))):
+                child._close()
+                if child.winfo_exists():
                     return
         anthropic_key = self.api_key_var.get().strip()
         if anthropic_key:

@@ -179,8 +179,11 @@ class ReviewWindow(tk.Toplevel):
         self._strip_thumb_labels: dict[int, tk.Label] = {}
         self._placeholder_img: ImageTk.PhotoImage | None = None
         self._loaders = [
-            threading.Thread(target=self._thumb_worker, daemon=True)
-            for _ in range(_LOADER_THREADS)
+            threading.Thread(target=self._thumb_worker,
+                args=(self.photos, self._load_queue, self._ready_queue, self._slide_queue,
+                      COLORS.get("thumb_pad", "#F5F1E9")),
+                name=f"PhotoTool-legacy-image-{number + 1}", daemon=True)
+            for number in range(_LOADER_THREADS)
         ]
         for loader in self._loaders:
             loader.start()
@@ -1046,15 +1049,17 @@ class ReviewWindow(tk.Toplevel):
     def _enqueue_job(self, kind: str, idx: int, priority: int) -> None:
         self._load_queue.put((priority, next(self._load_seq), (kind, idx)))
 
-    def _thumb_worker(self) -> None:
+    @staticmethod
+    def _thumb_worker(photos, load_queue, ready_queue, slide_queue, thumb_pad) -> None:
+        """Decode data only; a worker must never own the Tk window/interpreter."""
         while True:
-            _prio, _seq, job = self._load_queue.get()
+            _prio, _seq, job = load_queue.get()
             if job is None:
                 break
             kind, real = job
-            if real < 0 or real >= len(self.photos):
+            if real < 0 or real >= len(photos):
                 continue
-            photo = self.photos[real]
+            photo = photos[real]
             source_path = photo.path
             try:
                 if kind == "slide":
@@ -1062,33 +1067,32 @@ class ReviewWindow(tk.Toplevel):
                     img = load_image_scaled(source_path, _SLIDE_MAX)
                     if photo.path != source_path:
                         continue
-                    self._slide_queue.put((real, img.copy()))
-                    if real not in self._thumb_cache:
-                        thumb = img.copy()
-                        thumb.thumbnail((THUMB, THUMB), Image.Resampling.BILINEAR)
-                        pad = COLORS.get("thumb_pad", "#F5F1E9")
-                        canvas_img = Image.new("RGB", (THUMB, THUMB), pad)
-                        x = (THUMB - thumb.width) // 2
-                        y = (THUMB - thumb.height) // 2
-                        canvas_img.paste(thumb, (x, y))
-                        self._ready_queue.put((real, canvas_img))
+                    slide_queue.put((real, img.copy()))
+                    # Tk PhotoImage caches belong to the main thread. Producing
+                    # this small thumbnail again avoids sharing that cache here.
+                    thumb = img.copy()
+                    thumb.thumbnail((THUMB, THUMB), Image.Resampling.BILINEAR)
+                    canvas_img = Image.new("RGB", (THUMB, THUMB), thumb_pad)
+                    x = (THUMB - thumb.width) // 2
+                    y = (THUMB - thumb.height) // 2
+                    canvas_img.paste(thumb, (x, y))
+                    ready_queue.put((real, canvas_img))
                 else:
                     img = load_thumb_cached(source_path, THUMB)
                     if photo.path != source_path:
                         continue
-                    pad = COLORS.get("thumb_pad", "#F5F1E9")
-                    canvas_img = Image.new("RGB", (THUMB, THUMB), pad)
+                    canvas_img = Image.new("RGB", (THUMB, THUMB), thumb_pad)
                     x = (THUMB - img.width) // 2
                     y = (THUMB - img.height) // 2
                     canvas_img.paste(img, (x, y))
-                    self._ready_queue.put((real, canvas_img))
+                    ready_queue.put((real, canvas_img))
             except Exception:
                 if photo.path != source_path:
                     continue
                 if kind == "slide":
-                    self._slide_queue.put((real, None))
+                    slide_queue.put((real, None))
                 else:
-                    self._ready_queue.put((real, None))
+                    ready_queue.put((real, None))
 
     def _request_thumb(self, idx: int, priority: int = 40) -> None:
         """Thumb anfordern – nie still verwerfen; Limit nur drosselt die parallele Queue."""

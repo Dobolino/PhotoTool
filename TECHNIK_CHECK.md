@@ -1,15 +1,69 @@
 # Technischer Check und umgesetzte Härtung
 
-Historischer Check der Härtung 0.3.1; für die neue Oberfläche und Reiseverwaltung
-siehe [Reiseprojekte 0.4](REISEPROJEKTE.md). Die damalige private Updatequelle ist
-inzwischen öffentlich.
+Stand 0.5.0. Bedienung: [Reiseprojekte und moderne Fotoansicht](REISEPROJEKTE.md).
+Die Messungen weiter unten dokumentieren frühere Härtungsläufe und sind ausdrücklich
+synthetisch; es lagen keine privaten Urlaubsbilder vor.
 
 Geprüfter Ausgangspunkt: `codex/review-metadata-fixes`.
 Ziel: grosse Urlaubssammlungen reduzieren, Entscheidungen fortsetzen, als
 Windows-Programm ausliefern. Prüfung anhand von Code, automatisierten Tests und
 synthetischen Messungen; keine privaten Urlaubsbilder lagen vor.
 
-## Ergänzung 0.4.2: Nachvollziehbarkeit und Nachkontrolle
+## 0.5.0: Lokale Fotooberfläche und Export
+
+Die freigegebene HTML-Oberfläche ist mit den echten `Photo`-/`BookPlan`-Daten
+verbunden. Diashow (A), Vergleich (B) und Albumübersicht (C) verwenden denselben
+Auswahlzustand; es gibt keinen zweiten Browser-Datensatz mit unabhängigen
+Entscheidungen. Nicht ausgewählte Miniaturen sind grau, die grosse Vorschau bleibt
+farbig. Klicken zum Betrachten und Häkchen/Leertaste zum Auswählen sind getrennt.
+Die Alternativen bleiben nach Aufnahme sichtbar. Hinzufügen und positionsgetreues
+Ersetzen sind eigene Aktionen; Ersetzen ist gemeinsam rückgängig zu machen.
+
+`modern_review_session.py` bündelt Änderungen, Revisionen, autospeicherbare
+Entwürfe und Hintergrundaufgaben. Bestehende Projekte, Favoriten, dauerhafte
+Vorgaben, Auswahlprotokolle und Ortsnachweise werden weiterverwendet. Der Entwurf
+speichert auch Ansicht, Kapitel und Fokus. Die vorhandenen erweiterten Tk-Werkzeuge
+bleiben über eine Desktop-Brücke erreichbar; Import und Analyse bleiben native
+Tk-Ansichten im passenden Farbsystem.
+
+`modern_review.py` stellt die gebündelten Webdateien und zugelassene Foto-IDs über
+einen sitzungsgebundenen HTTP-Dienst ausschliesslich auf `127.0.0.1` bereit.
+Sitzungstoken und Host-/Ursprungsprüfungen begrenzen den Zugriff. Unter Windows
+öffnet ein eigener Prozess das native pywebview-/WebView2-Fenster; Tk behält den
+Projekt- und Speicher-Lebenszyklus. Es werden weder externe Webassets geladen noch
+Fotos für die Oberfläche an einen gehosteten Dienst gesendet. Optionale KI,
+Geocoding, Updates und anfängliche Modell-/Laufzeitdownloads sind davon getrennt.
+
+Der Filmstreifen rendert einen begrenzten Ausschnitt, die Albumübersicht einzelne
+Seiten. Die Exportvorschau zeigt die gewählte Ordnerstruktur; der Export validiert
+Dateinamen und Zielpfade vor dem Schreiben. `flat` schreibt
+nur ausgewählte Kopien mit globaler Albumreihenfolge in `selected/`, `chapters`
+nutzt die bisherige Kapitelstruktur. Staging und Rollback schützen einen bisherigen
+Export bei Kopier-/Publikationsfehlern. Originaldateien werden nicht geändert.
+
+`scripts/modern_end_to_end.py` prüft die echte HTML-Ansicht gegen ein vorhandenes
+synthetisches Foto-Projekt: alle importierten Bilder erreichbar, begrenztes
+Rendering, Vorschau ohne Auswahländerung, Auswahl über Häkchen, stabile Alternativen,
+Hinzufügen/Ersetzen/Undo, Speichern/Fortsetzen sowie Flat- und Kapitelexport mit
+Datei-/Hashvergleich. Der abschliessende lokale Chromium-Lauf bestand in
+**34,345 s** mit **2.000 synthetischen 24-MP-JPEGs** und bereits vorhandener Analyse.
+Er prüfte zusätzlich
+Kapitelgrenzen im Vergleich, leere Kapitel und das Speichern zuletzt eingereihter
+Auswahl-/Ansichtsänderungen beim Schliessen. Nach dem bewusst hinzugefügten letzten
+Foto blieben 178 Bilder ausgewählt. Flat- und Kapitelexport wurden bytegenau sowie
+nach erneutem Öffnen kontrolliert. **535 lokale Tests** bestanden in **9,31 s**.
+Diese Zahlen messen weder eine frische Bildanalyse noch die Qualität einer echten
+Japan-Auswahl. Es wurden keine privaten Reisebilder oder KI-/Geocodingdienste
+verwendet. Der Lauf prüft Chromium unter Linux; er ersetzt keinen nativen
+Windows-/WebView2-Durchlauf.
+
+Die Windows-Buildprüfung verlangt zusätzlich einen tatsächlichen HTML-/Foto-Render
+aus dem gebündelten EXE sowie Installation und In-place-Update. Das beschreibt die
+Prüfkriterien; der Windows-CI-Lauf für 0.5.0 war bei diesem Dokumentationsstand
+noch nicht abgeschlossen. Ein erfolgreicher Windows-Render/Installerlauf wird
+daher nicht behauptet.
+
+## Historische Ergänzung 0.4.2: Nachvollziehbarkeit und Nachkontrolle
 
 - Auswahlentscheidungen werden am tatsächlichen Filter-/Vergleichs-/Kontingent-
   Schritt protokolliert, maximal 24 Ereignisse pro Bild. Nur ein erfolgreich
@@ -38,7 +92,8 @@ Gesamter Prüfprozess: **344,8 MiB** Spitzen-RAM. Wiederholte geometrische Vorla
 Gesichter, Embeddings, KI, HEIC, Online-Geocoding und GUI aus dieser Messung
 ausgeschlossen. Kein Qualitäts- oder Laufzeitversprechen für echte Reisebilder.
 
-Separat mit derselben 2.000-Dateien-Sammlung in der nativen Tk-Oberfläche geprüft:
+Im damaligen 0.4.2-Prüflauf separat mit derselben synthetischen
+2.000-Dateien-Sammlung in der nativen Tk-Oberfläche geprüft:
 Projekt öffnen, Variantenvergleich, genau ein Bild ersetzen, gemeinsames
 Rückgängig/Wiederholen, Rückkehr zum gleichen Albumplatz, Pause und Wiederaufnahme,
 Prüfbericht öffnen und erneuter Albumexport mit Bericht. Alle Auswahlindizes
@@ -59,11 +114,12 @@ verbinden die Stufen. Die Analyse nutzt bis zu vier Worker mit eigenen Analyzern
 SQLite speichert Merkmale. CSV plus JSON-Entwurf sind für ein lokales Einzelprojekt
 angemessen; eine zweite Datenbank für UI-Zustand ist derzeit nicht nötig.
 
-GUI und Review sind sehr grosse Module. Weitere Fachlogik in testbare Dienste
-extrahieren, besonders Auswahlzustand, Quellenverwaltung und Exporttransaktionen.
-Kein Komplettumbau vor der ersten echten Japan-Testauswahl erforderlich.
+Die neue Fotoansicht trennt Session, lokale Übertragung, Frontend und nativen
+Fensterhost. Die bestehenden grossen Tk-Module bleiben für Analyse und erweiterte
+Werkzeuge relevant. Gemeinsame Fachlogik sollte weiterhin in testbare Dienste
+wandern, ohne die gespeicherten Projekte oder bestehenden Werkzeuge zu duplizieren.
 
-## Korrigierte Befunde
+## Historische Härtung ab 0.3.1
 
 | Bereich | Vorher | Jetzt |
 |---|---|---|
@@ -133,9 +189,15 @@ python scripts/benchmark_pipeline_scale.py --work-dir /tmp/phototool-benchmark r
 ## Standalone und Updates
 
 Windows-Build: `packaging/build_windows.bat` bzw. GitHub Actions **Windows build**.
-Ergebnis: `PhotoTool-Setup-0.3.1.exe`, portables ZIP, SHA256-Prüfsummen. Der Build
-enthält einen Starttest des gebündelten EXE. Die CI erstellt bei Pull Requests
-Artefakte; eine Release-Veröffentlichung erfolgt nur bei passenden Versionstags.
+Ergebnis: `PhotoTool-Setup-<Version>.exe`, portables ZIP und SHA256-Prüfsummen.
+Die CI erstellt bei Pull Requests Artefakte; eine Release-Veröffentlichung erfolgt
+nur bei passenden Versionstags und bestandenen Prüfungen. Paket, Installer und
+Tag müssen dieselbe Version tragen. Gebündelte Webassets und der native
+WebView2-Foto-Render sind Teil der Build-/Installer-Prüfkriterien.
+
+Der Installer enthält Microsofts signaturgeprüften WebView2-Bootstrapper und
+startet ihn nur bei fehlender Laufzeit. Dieser lädt die Laufzeit über das Internet.
+Das portable ZIP setzt WebView2 voraus. Python selbst ist im Programm enthalten.
 
 **Historischer Befund aus 0.3.1 (inzwischen öffentlich):** Das Quellrepository war privat. Zum Prüfzeitpunkt gab es
 keine veröffentlichten Releases. Der Updater nutzt anonyme GitHub-Release-Abfragen;
@@ -143,12 +205,11 @@ private Release-Dateien sind für installierte Clients ohne Authentifizierung
 nicht erreichbar. Eine 404 wird nun als nicht verfügbare Updatequelle gemeldet,
 nicht als Bestätigung einer aktuellen Installation.
 
-Empfohlen: separater öffentlich lesbarer Release-Speicher mit ausschliesslich
-Installern/ZIP/Prüfsummen, Quellcode weiter privat. Alternativ authentifizierter
-Update-Dienst. Dafür müssen Updatequelle/Release-Workflow angepasst werden;
-kein GitHub-Zugriffstoken ins Programm einbauen. SHA256 prüft Dateiintegrität,
-ersetzt aber keine Windows-Codesignatur. Für reguläre Verteilung Codesignatur
-und Tests von Neuinstallation, Aktualisierung und Deinstallation vorsehen.
+Die aktuelle Updatequelle ist das öffentliche GitHub-Repository; ein privater
+Release-Dienst ist dafür nicht nötig. Kein GitHub-Zugriffstoken ins Programm
+einbauen. SHA256 prüft Dateiintegrität und ersetzt keine Windows-Codesignatur.
+Neuinstallation, Aktualisierung und Deinstallation bleiben auf Windows zu prüfen;
+ein bestandener Linux-/Chromium-Lauf ersetzt diese Tests nicht.
 
 ## Verbleibende Grenzen
 

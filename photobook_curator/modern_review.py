@@ -292,7 +292,8 @@ def run_native_window(url: str, title: str = "PhotoTool · Auswahl prüfen", *,
             width, height = min(width, rect.right - rect.left - 32), min(height, rect.bottom - rect.top - 48)
     width, height = max(640, width), max(480, height)
     window = webview.create_window(title[:140], url=url, width=width, height=height,
-        min_size=(min(980, width), min(680, height)), background_color="#10191f", resizable=True)
+        min_size=(min(980, width), min(680, height)), background_color="#10191f", resizable=True,
+        maximized=sys.platform == "win32")
     outcome = {"success": False, "error": "Die Oberfläche wurde nicht geladen."}
 
     def show_notice(message):
@@ -348,8 +349,7 @@ def run_native_window(url: str, title: str = "PhotoTool · Auswahl prüfen", *,
             threading.Thread(target=close_worker, name="PhotoTool-close", daemon=True).start()
         return False
 
-    if smoke_result is None:
-        window.events.closing += on_closing
+    window.events.closing += on_closing
 
     def show_loaded_layout(layout, deadline):
         # evaluate_js wraps code in eval(), which our strict CSP intentionally blocks.
@@ -404,11 +404,24 @@ def run_native_window(url: str, title: str = "PhotoTool · Auswahl prüfen", *,
             if smoke_result is not None:
                 smoke_result.parent.mkdir(parents=True, exist_ok=True)
                 smoke_result.write_text(json.dumps(outcome, ensure_ascii=False, indent=2), encoding="utf-8")
+                if not outcome["success"]:
+                    # Keep failure diagnostics available even if the page cannot
+                    # run the close handshake. Successful probes use the real X path.
+                    allow_close.set()
                 window.destroy()
 
     webview.start(probe if smoke_result is not None else None,
                   gui="edgechromium" if sys.platform == "win32" else None,
                   debug=False, private_mode=True)
+    if smoke_result is not None:
+        try:
+            closed = bool(request("api/state").get("close_requested"))
+            outcome["native_close_verified"] = closed
+            if outcome["success"] and not closed:
+                outcome.update(success=False, error="Das native Fenster wurde ohne Speicherbestätigung geschlossen.")
+        except Exception as exc:
+            outcome.update(success=False, native_close_verified=False, error=str(exc))
+        smoke_result.write_text(json.dumps(outcome, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0 if smoke_result is None or outcome["success"] else 1
 
 
@@ -420,8 +433,15 @@ def open_modern_review(master, photos, plan, output_dir, on_saved=None):
 
     output_dir = Path(output_dir).resolve()
     for child in master.winfo_children():
-        if getattr(child, "_modern_output_dir", None) == output_dir:
-            child._focus_native()
+        child_output = getattr(child, "_modern_output_dir", getattr(child, "output_dir", None))
+        if (child_output is not None and Path(child_output).resolve() == output_dir
+                and callable(getattr(child, "_autosave_draft", None))):
+            focus = getattr(child, "_focus_native", None)
+            if focus is not None:
+                focus()
+            else:
+                child.lift()
+                child.focus_force()
             return child
 
     class ReviewHandle(tk.Toplevel):
@@ -578,6 +598,10 @@ def open_modern_review(master, photos, plan, output_dir, on_saved=None):
                     return
                 current_photos, current_plan = win.photos, win.plan
                 win._close()
+                if win.winfo_exists():
+                    # The classic window stays open when its final autosave
+                    # fails. Keep it the sole writer of this project.
+                    return
                 modern = open_modern_review(master, current_photos, current_plan, output_dir, on_saved=on_saved)
                 modern.session.action({"action": "view", "view": view})
             ttk.Button(bar, text="Zur neuen Vorschau", command=back).pack(side=tk.RIGHT)
@@ -618,6 +642,10 @@ def open_modern_review(master, photos, plan, output_dir, on_saved=None):
                 _, _, event, result = self._native_requests.get_nowait()
                 result["error"] = "Vorschau geschlossen."
                 event.set()
+            # Do not let the metadata/server object retain a bound Tk callback
+            # after its owner closes. A later worker-side GC must never become
+            # responsible for finalizing this window's Tcl interpreter.
+            self.session.on_native = None
             process = getattr(self, "_process", None)
             if process is not None and process.poll() is None:
                 process.terminate()

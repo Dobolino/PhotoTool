@@ -53,7 +53,7 @@ function applySnapshot(next, initial=false){
   if(!next || !Array.isArray(next.photos)) return;
   state=next; photoMap=new Map(state.photos.map(p=>[p.id,p]));
   if(initial || !view){
-    view={layout:'A',filter:'all',chapter:'all',focus:state.photos[0]?.id??null,anchor:state.kept[0]??null,theme:'dark',export_layout:'chapters',alternative_ids:[],...(state.view||{})};
+    view={layout:'A',filter:'all',chapter:'all',focus:state.photos[0]?.id??null,anchor:state.kept[0]??null,theme:'dark',export_layout:'flat',alternative_ids:[],...(state.view||{})};
     if(!Array.isArray(view.alternative_ids)) view.alternative_ids=state.photos.filter(p=>!p.selected).map(p=>p.id);
   } else if(next.view?.chapter===view.chapter && Array.isArray(next.view.alternative_ids)) {
     view.alternative_ids=next.view.alternative_ids;
