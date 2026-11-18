@@ -1,0 +1,4 @@
+# Build-Abhängigkeiten für das Standalone-Bundle.
+# Enthält die Laufzeit-Deps plus PyInstaller.
+-r ../requirements.txt
+pyinstaller>=6.3.0

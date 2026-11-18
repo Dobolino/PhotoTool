@@ -1,0 +1,55 @@
+name: Windows-EXE bauen (Assistent)
+
+# Baut die geführte Oberfläche (Fotobuch-Assistent) als Windows-Standalone.
+# - Manuell startbar über den Reiter "Actions" (Run workflow)
+# - Automatisch bei Push auf main
+# - Bei einem Versions-Tag (z. B. v0.5.1) wird zusätzlich ein Release mit
+#   der ZIP angehängt (bequemer Download-Link ohne GitHub-Login).
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build-Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r packaging/requirements-build.txt
+
+      - name: Assistent-Bundle bauen
+        run: pyinstaller packaging/photobook_wizard.spec --noconfirm --clean
+
+      - name: Als ZIP verpacken
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/Fotobuch Assistent/*" -DestinationPath "Fotobuch-Assistent-windows.zip" -Force
+
+      - name: ZIP als Download bereitstellen (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fotobuch-Assistent-windows
+          path: Fotobuch-Assistent-windows.zip
+          retention-days: 30
+
+      - name: Release anhängen (nur bei Versions-Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Fotobuch-Assistent-windows.zip
