@@ -4,6 +4,35 @@ Lokales Python-CLI-Tool zur Kuratierung eines Urlaubs-Fotobuchs aus einer große
 
 **Einstieg:** siehe [ANLEITUNG.md](ANLEITUNG.md). Unter Windows am einfachsten: `Fotobuch starten.bat` doppelklicken (Fenster-Oberfläche).
 
+## Windows-Programm und Updates
+
+GitHub Actions baut einen Installer `PhotoTool-Setup-<Version>.exe` und ein
+portables ZIP. Veröffentlichte Versionen stehen unter
+[Releases](https://github.com/Dobolino/PhotoTool/releases). Der Installer richtet
+PhotoTool ohne Python-Installation im Benutzerprofil ein (Startmenü und Deinstallation).
+Im Hauptfenster prüft **Updates** auf neue stabile Releases. Download und Installation
+starten nach Bestätigung; der Download wird gegen den SHA256-Wert von GitHub geprüft.
+Während einer Analyse wird keine Installation gestartet. Beim Update werden offene
+Review-Entwürfe gesichert und PhotoTool anschliessend neu gestartet.
+In Python-Entwicklungsstarts öffnet die Schaltfläche die Release-Seite.
+
+## Nachkontrolle
+
+- **Favoriten schützen:** Rechtsklick auf ein Bild → ★ Favorit schützen; in der
+  Diashow über die Schaltfläche. Geschützte Bilder können erst nach Aufheben des
+  Schutzes entfernt oder ersetzt werden. Sie bleiben beim Neuerstellen der Auswahl
+  und bei erneuter Analyse derselben Dateipfade im selben Ausgabeordner erhalten.
+  Übersteigt die Anzahl geschützter Bilder das Kontingent, hat der Schutz Vorrang.
+- **Rückgängig / Wiederholen:** Schaltflächen oder Strg+Z / Strg+Y. Bis zu 100
+  Änderungen dieser Sitzung, inklusive Kapitelwechsel, Ersatzbilder und Favoriten.
+  Entwürfe speichern den aktuellen Zustand; die Undo-Historie gilt für die Sitzung.
+- **Druckqualität:** gewünschte Bildgrösse in cm und Ziel-DPI eingeben (Standard
+  15 × 10 cm / 300 DPI). Die Prüfung berücksichtigt Beschnitt und Drehung; unbekannte
+  Bildmasse werden separat angezeigt. Ein CSV-Bericht kann gespeichert werden.
+- **Auswahlgründe:** Rechtsklick oder Diashow-Schaltfläche. Zeigt vorhandene Scores,
+  manuelle Entscheidungen, Schutz und Qualitäts-/Duplikathinweise. Der genaue
+  automatische Rankingentscheid wird bisher nicht protokolliert.
+
 Das Tool scannt Fotos, bewertet sie technisch, clustert GPS-Orte zu Regionen (Kapiteln), erkennt Transit-Abschnitte zwischen Städten, trennt Essens-Fotos ans Kapitelende und wählt eine diverse, chronologische Bildauswahl.
 
 ## Anforderungen
@@ -84,3 +113,12 @@ python -m photobook_curator -i sample_photos -o output_sample -n 20 \
 3. Transit zwischen Regionen
 4. Optional: Gemini 1.5 Flash, Anthropic Vision oder lokale Ollama
 5. Kontingente, Essens-Trennung, Vielfalt, Buchreihenfolge, Export
+
+
+### Auswahl prüfen: Vorschau und Wiederaufnehmen (0.3.0)
+
+- **Ausgabeordner öffnen…** öffnet einen vorhandenen Ordner mit `photos_analysis.csv` direkt. Die gespeicherte Analyse wird geladen; es startet keine neue Bild- oder KI-Analyse.
+- Im Raster sind **Album-Auswahl**, **Hinzugefügt**, **Entfernt** und aufklappbare **Varianten** getrennt. Hinzugefügte Bilder bleiben ihrem Kapitel zugeordnet und behalten diese Kennzeichnung auch nach einem Neustart oder Export.
+- Ein Klick auf ein Bild öffnet die grosse Vorschau. Die separate Schaltfläche **Hinzufügen/Entfernen** ändert die Auswahl. Varianten lassen sich mit den Pfeiltasten oder dem Filmstreifen durchsehen und einzeln ins Album übernehmen. **Zurück zur Album-Diashow** führt zum zuvor betrachteten Album-Bild zurück (auch nach Pause und Wiederaufnahme).
+- **Pause & speichern** sichert den Zwischenstand und schliesst die Prüfung. Beim erneuten Öffnen werden Auswahl, Kapitelzuordnung, Favoriten, Variantenherkunft und zuletzt geöffnete Vorschau wiederhergestellt. Änderungen werden zusätzlich automatisch und atomar in `selection_draft.json` gesichert. Bei einem Speicherfehler bleibt das Fenster geöffnet.
+- **Album exportieren** schreibt die fertige Auswahl neu. Vorschau und Zwischenstand benötigen weiterhin die Originalbilder an ihren gespeicherten Pfaden. Rückgängig/Wiederholen gilt innerhalb der aktuellen Sitzung.

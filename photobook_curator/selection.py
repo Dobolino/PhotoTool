@@ -436,6 +436,15 @@ def _select_diverse(
     return selected[:quota]
 
 
+def _include_favorites(photos: list[Photo], selected: list[int], indices: list[int],
+                       quota: int) -> list[int]:
+    """Manual favorites override automatic filters; excess favorites exceed the quota."""
+    favorites = [i for i in indices if photos[i].is_favorite]
+    result = list(dict.fromkeys(favorites))
+    result.extend(i for i in selected if i not in result)
+    return result[:max(quota, len(favorites))]
+
+
 def select_for_region(
     photos: list[Photo],
     indices: list[int],
@@ -492,6 +501,12 @@ def select_for_region(
         person_counts=person_counts,
     )
 
+    favorite_food = [i for i in indices if photos[i].is_favorite and photos[i].scene_type == "essen"]
+    favorite_main = [i for i in indices if photos[i].is_favorite and photos[i].scene_type != "essen"]
+    food_quota = max(food_quota, len(favorite_food))
+    main_quota = max(len(favorite_main), quota - food_quota)
+    selected_main = _include_favorites(photos, selected_main, favorite_main, main_quota)
+    selected_food = _include_favorites(photos, selected_food, favorite_food, food_quota)
     selected_main.sort(key=lambda i: photos[i].datetime_taken or datetime.min)
     selected_food.sort(key=lambda i: photos[i].datetime_taken or datetime.min)
     return selected_main, selected_food
@@ -523,6 +538,7 @@ def select_for_transit(
         prefer_landmarks=False,
         people_balance_intensity=people_balance_intensity,
     )
+    selected = _include_favorites(photos, selected, indices, quota)
     selected.sort(key=lambda i: photos[i].datetime_taken or datetime.min)
     return selected
 
@@ -594,6 +610,17 @@ def build_book_order(
                 photos[i].chapter_type = ChapterType.TRANSIT.value
                 photos[i].chapter_folder = t_folder
                 order.append((i, t_folder, ChapterType.TRANSIT.value))
+
+    # Favorites outside regular chapters (e.g. tickets) are explicitly retained too.
+    included = {idx for idx, _folder, _ctype in order}
+    for idx, photo in enumerate(photos):
+        if photo.is_favorite and idx not in included:
+            folder = photo.chapter_folder or (
+                "99_Optional_Dokumente" if photo.is_aside else "Unbestimmt/hauptteil"
+            )
+            ctype = photo.chapter_type or ("Optional" if photo.is_aside else "Hauptteil")
+            photo.is_selected = True
+            order.append((idx, folder, ctype))
 
     for pos, (idx, folder, ctype) in enumerate(order, start=1):
         photos[idx].book_position = pos

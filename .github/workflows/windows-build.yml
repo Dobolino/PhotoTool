@@ -1,0 +1,82 @@
+name: Windows build
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-build.txt
+            packaging/constraints-windows.txt
+      - name: Install dependencies
+        run: python -m pip install -r packaging/requirements-build.txt -c packaging/constraints-windows.txt pytest
+      - name: Tests
+        run: python -m pytest -q
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          $version = python -c "from photobook_curator import __version__; print(__version__)"
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid version' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and app version differ' }
+          "APP_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Build executable
+        run: python packaging/build.py
+      - name: Install Inno Setup
+        # Run the packaged app before publishing, including bundled location data.
+        shell: pwsh
+        run: |
+          if (!(Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) {
+            choco install innosetup --version=6.7.3 --no-progress -y
+          }
+      - name: Smoke test executable
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath dist/Fotobuch/Fotobuch.exe -ArgumentList '--smoke-test' -WindowStyle Hidden -PassThru
+          if (!$process.WaitForExit(60000)) { $process.Kill(); throw 'Executable smoke test timed out' }
+          if ($process.ExitCode -ne 0) { throw 'Executable smoke test failed' }
+      - name: Build installer and portable ZIP
+        shell: pwsh
+        run: |
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DAppVersion=$env:APP_VERSION" packaging/installer.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+          Compress-Archive -Path dist/Fotobuch -DestinationPath "dist/PhotoTool-$env:APP_VERSION-windows-x64.zip"
+          Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Out-File -Append -Encoding ascii dist/SHA256SUMS.txt
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhotoTool-windows-x64
+          path: |
+            dist/PhotoTool-Setup-*.exe
+            dist/PhotoTool-*-windows-x64.zip
+            dist/SHA256SUMS.txt
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: PhotoTool-windows-x64
+          path: release
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes

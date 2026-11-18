@@ -11,12 +11,12 @@ oder komfortabel über packaging/build_windows.bat / packaging/build.py.
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_data_files
 
 # Projektwurzel (eine Ebene über packaging/)
 ROOT = Path(SPECPATH).resolve().parent
 
-datas = []
+datas = collect_data_files("photobook_curator", includes=["data/*.json"])
 binaries = []
 hiddenimports = []
 

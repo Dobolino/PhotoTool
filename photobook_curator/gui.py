@@ -703,6 +703,11 @@ class PhotobookApp(tk.Tk):
             header, t("help"), c, command=self._show_help, padx=14, pady=9
         )
         self._help_btn.pack(side=tk.RIGHT, padx=(0, 10))
+        from .update_dialog import open_update_dialog
+        self._update_btn = PaddedButton(
+            header, t("update_title"), c, command=lambda: open_update_dialog(self), padx=14, pady=9
+        )
+        self._update_btn.pack(side=tk.RIGHT, padx=(0, 10))
 
         # Scrollbarer Inhalt (Mausrad → _install_body_wheel)
         body_host = ttk.Frame(root, style="App.TFrame")
@@ -1088,6 +1093,8 @@ class PhotobookApp(tk.Tk):
             command=self._open_review,
         )
         self.review_btn.pack(side=tk.RIGHT, padx=(0, 10))
+        ttk.Button(actions, text="Ausgabeordner öffnen…", style="Browse.TButton",
+                   command=self._open_existing_review).pack(side=tk.RIGHT, padx=(0, 10))
         self.map_btn = ttk.Button(
             actions, text=t("map"), style="Browse.TButton", command=self._open_map_preview
         )
@@ -2132,6 +2139,18 @@ class PhotobookApp(tk.Tk):
             await_export=False,
         )
 
+    def _open_existing_review(self) -> None:
+        folder = filedialog.askdirectory(title="Vorhandenen Ausgabeordner öffnen", parent=self)
+        if not folder:
+            return
+        if not (Path(folder) / "photos_analysis.csv").is_file():
+            messagebox.showinfo("Kein Ausgabeordner",
+                "Bitte den Ordner mit photos_analysis.csv auswählen. Eine neue Analyse ist nicht nötig.",
+                parent=self)
+            return
+        self.output_var.set(folder)
+        self._open_review()
+
     def _open_review(self) -> None:
         from .review_export import (
             analysis_has_ai_scores,
@@ -2173,7 +2192,8 @@ class PhotobookApp(tk.Tk):
             except Exception as exc:
                 messagebox.showerror("Laden fehlgeschlagen", str(exc))
                 return
-        elif photos is None or plan is None or output_dir is None:
+        elif (photos is None or plan is None or output_dir is None
+              or out.resolve() != Path(output_dir).resolve()):
             messagebox.showinfo(
                 "Keine Analyse",
                 "Kein Ausgabeordner mit photos_analysis.csv.\n\n"
